@@ -9,6 +9,7 @@ import {
   DEFAULT_BREAK_MINUTES,
   MAX_BREAK_MINUTES,
   MAX_BREAK_MINUTES_PER_DAY,
+  isShiftCancelWindowOpen,
   normalizeDutyStatus,
   type AttendanceDay,
   type AttendanceLog,
@@ -336,13 +337,16 @@ function mapShift(raw: unknown): PartnerShiftSlot | null {
   const spotsLeft =
     pickNumber(record, ['spotsLeft', 'availableSpots']) ??
     Math.max(0, capacity - bookedCount);
+  const startAt = pickString(record, ['startAt', 'start', 'startsAt']);
+  const bookedByMe = pickBool(record, ['bookedByMe', 'isBooked']) ?? false;
+  const explicitCancel = pickBool(record, ['canCancel']);
 
   return {
     id,
     zoneId: pickString(record, ['zoneId', 'hubId']),
     date: pickString(record, ['date']) ?? '',
     label: pickString(record, ['label', 'name', 'slot']) ?? 'shift',
-    startAt: pickString(record, ['startAt', 'start', 'startsAt']),
+    startAt,
     endAt: pickString(record, ['endAt', 'end', 'endsAt']),
     capacity,
     bookedCount,
@@ -350,36 +354,55 @@ function mapShift(raw: unknown): PartnerShiftSlot | null {
     guaranteedHours: pickNumber(record, ['guaranteedHours']),
     incentiveAmount: pickNumber(record, ['incentiveAmount', 'incentive']),
     status: (pickString(record, ['status']) ?? 'open').toLowerCase(),
-    bookedByMe: pickBool(record, ['bookedByMe', 'isBooked']) ?? false,
+    bookedByMe,
     canBook: pickBool(record, ['canBook']) ?? false,
-    canCancel: pickBool(record, ['canCancel']) ?? false,
+    canCancel:
+      explicitCancel ??
+      (bookedByMe && isShiftCancelWindowOpen(startAt)),
   };
+}
+
+function extractAttendanceDays(record: Record<string, unknown>): unknown[] {
+  if (Array.isArray(record.days)) return record.days;
+  if (Array.isArray(record.log)) return record.log;
+  if (Array.isArray(record.attendance)) return record.attendance;
+  const daysObj = record.days;
+  if (daysObj && typeof daysObj === 'object' && !Array.isArray(daysObj)) {
+    return Object.entries(asRecord(daysObj)).map(([date, value]) => ({
+      date,
+      ...asRecord(value),
+    }));
+  }
+  return extractList(record);
 }
 
 function mapAttendanceDay(raw: unknown): AttendanceDay | null {
   const record = asRecord(raw);
-  const date = pickString(record, ['date']);
+  const date = pickString(record, ['date', 'day', 'workDate']);
   if (!date) return null;
   return {
     date,
-    loginAt: pickString(record, ['loginAt', 'onlineAt']) ?? null,
-    logoutAt: pickString(record, ['logoutAt', 'offlineAt']) ?? null,
+    loginAt: pickString(record, ['loginAt', 'onlineAt', 'firstOnlineAt']) ?? null,
+    logoutAt: pickString(record, ['logoutAt', 'offlineAt', 'lastOfflineAt']) ?? null,
     onlineMinutes: pickNumber(record, ['onlineMinutes', 'dutyMinutes']) ?? 0,
     breakMinutes: pickNumber(record, ['breakMinutes']) ?? 0,
     stillOnDuty: pickBool(record, ['stillOnDuty', 'onDuty']) ?? false,
   };
 }
 
-function mapAttendance(raw: unknown): AttendanceLog {
+function mapAttendance(
+  raw: unknown,
+  fallbackRange?: { from?: string; to?: string }
+): AttendanceLog {
   const record = asRecord(unwrap(raw));
-  const daysRaw = Array.isArray(record.days) ? record.days : extractList(record);
-  const days = daysRaw
+  const days = extractAttendanceDays(record)
     .map(mapAttendanceDay)
-    .filter((d): d is AttendanceDay => Boolean(d));
-  const totalsRecord = asRecord(record.totals);
+    .filter((d): d is AttendanceDay => Boolean(d))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const totalsRecord = asRecord(record.totals ?? record.summary);
   return {
-    from: pickString(record, ['from']) ?? '',
-    to: pickString(record, ['to']) ?? '',
+    from: pickString(record, ['from', 'startDate']) ?? fallbackRange?.from ?? '',
+    to: pickString(record, ['to', 'endDate']) ?? fallbackRange?.to ?? '',
     days,
     totals: {
       onlineMinutes:
@@ -398,9 +421,10 @@ function mapAttendance(raw: unknown): AttendanceLog {
 function mapStreak(raw: unknown): AttendanceStreak {
   const record = asRecord(unwrap(raw));
   return {
-    currentStreak: pickNumber(record, ['currentStreak', 'streak']) ?? 0,
-    todayCounted: pickBool(record, ['todayCounted']) ?? false,
-    lastWorkedDate: pickString(record, ['lastWorkedDate']) ?? null,
+    currentStreak: pickNumber(record, ['currentStreak', 'streak', 'days']) ?? 0,
+    todayCounted: pickBool(record, ['todayCounted', 'today', 'countedToday']) ?? false,
+    lastWorkedDate:
+      pickString(record, ['lastWorkedDate', 'lastDate', 'lastLoginDate']) ?? null,
   };
 }
 
@@ -710,10 +734,13 @@ export const partnerAvailabilityApi = {
   bookShift: async (shiftId: string): Promise<ShiftBookingResult> => {
     const id = shiftId.trim();
     if (!id) throw new PartnerApiError('Shift id is required.');
-    const res = await request<unknown>(`${ME_BASE}/shifts/${id}/book`, {
-      method: 'POST',
-      body: {},
-    });
+    const res = await request<unknown>(
+      `${ME_BASE}/shifts/${encodeURIComponent(id)}/book`,
+      {
+        method: 'POST',
+        body: {},
+      }
+    );
     const record = asRecord(unwrap(res.data ?? res));
     const shiftRecord = asRecord(record.shift ?? record);
     const mapped = mapShift(shiftRecord);
@@ -732,9 +759,12 @@ export const partnerAvailabilityApi = {
   cancelShift: async (shiftId: string): Promise<ShiftCancelResult> => {
     const id = shiftId.trim();
     if (!id) throw new PartnerApiError('Shift id is required.');
-    const res = await request<unknown>(`${ME_BASE}/shifts/${id}`, {
-      method: 'DELETE',
-    });
+    const res = await request<unknown>(
+      `${ME_BASE}/shifts/${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+      }
+    );
     const record = asRecord(unwrap(res.data ?? res));
     return {
       id: pickString(record, ['_id', 'id', 'bookingId']),
@@ -757,7 +787,7 @@ export const partnerAvailabilityApi = {
         to: range?.to,
       },
     });
-    return mapAttendance(res.data ?? res);
+    return mapAttendance(res.data ?? res, range);
   },
 
   /** GET /partners/me/attendance/streak */

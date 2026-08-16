@@ -4,6 +4,7 @@ import {
   Clock,
   Flame,
   MapPin,
+  RotateCcw,
   Timer,
   XCircle,
 } from 'lucide-react-native';
@@ -31,19 +32,24 @@ import {
   usePartnerShifts,
 } from '@/lib/delivery-partner/availability-hooks';
 import {
+  SHIFT_CANCEL_LEAD_HOURS,
   addIstDays,
+  canCancelShiftBooking,
   capitalizeShiftLabel,
   formatIstDayLabel,
   formatIstTime,
   formatMinutes,
+  formatShiftCancelUntil,
   istDateString,
   type PartnerShiftSlot,
 } from '@/lib/delivery-partner/availability-types';
+import { pushLiveToast } from '@/lib/delivery-partner/live-toast-store';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/errors';
 import { useRouter } from 'expo-router';
 
 type TabKey = 'shifts' | 'attendance';
+type AttendanceWindow = 7 | 14 | 30;
 
 function shiftStatusMeta(slot: PartnerShiftSlot) {
   if (slot.bookedByMe) {
@@ -81,6 +87,10 @@ function ShiftCard({
       ? `${formatCurrency(slot.incentiveAmount, 'INR')} incentive`
       : null,
   ].filter(Boolean);
+  const cancelOpen = canCancelShiftBooking(slot);
+  const cancelUntil = formatShiftCancelUntil(slot.startAt);
+  const windowClosed =
+    slot.bookedByMe && !cancelOpen && Boolean(slot.startAt);
 
   return (
     <View style={styles.shiftCard}>
@@ -113,6 +123,18 @@ function ShiftCard({
         <Text style={styles.shiftExtras}>{extras.join(' · ')}</Text>
       ) : null}
 
+      {slot.bookedByMe && cancelUntil && cancelOpen ? (
+        <Text style={styles.cancelHint}>
+          Cancel until {cancelUntil} ({SHIFT_CANCEL_LEAD_HOURS}h before start)
+        </Text>
+      ) : null}
+
+      {windowClosed ? (
+        <Text style={styles.cancelClosed}>
+          Cancel closed — less than {SHIFT_CANCEL_LEAD_HOURS} hours to start
+        </Text>
+      ) : null}
+
       {slot.canBook ? (
         <Pressable
           onPress={onBook}
@@ -130,7 +152,7 @@ function ShiftCard({
         </Pressable>
       ) : null}
 
-      {slot.canCancel ? (
+      {slot.bookedByMe && cancelOpen ? (
         <Pressable
           onPress={onCancel}
           disabled={busy}
@@ -154,6 +176,7 @@ export function PartnerAvailabilityManager() {
   const router = useRouter();
   const headerScroll = useDeliveryHeaderScrollProps();
   const [tab, setTab] = useState<TabKey>('shifts');
+  const [daysBack, setDaysBack] = useState<AttendanceWindow>(7);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [busyShiftId, setBusyShiftId] = useState<string | null>(null);
 
@@ -163,8 +186,8 @@ export function PartnerAvailabilityManager() {
     [today]
   );
   const attendanceRange = useMemo(
-    () => ({ from: addIstDays(today, -6), to: today }),
-    [today]
+    () => ({ from: addIstDays(today, -(daysBack - 1)), to: today }),
+    [today, daysBack]
   );
 
   const shifts = usePartnerShifts(shiftRange);
@@ -183,11 +206,26 @@ export function PartnerAvailabilityManager() {
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [shifts.data]);
 
+  const myBookings = useMemo(
+    () => (shifts.data ?? []).filter((slot) => slot.bookedByMe),
+    [shifts.data]
+  );
+
   const shiftErrorCode = getApiErrorCode(shifts.error);
   const shiftError =
     shifts.isError && !shifts.data
       ? formatDutyError(shifts.error, getApiErrorMessage(shifts.error, 'Could not load shifts.'))
       : null;
+  const attendanceError =
+    attendance.isError && !attendance.data
+      ? formatDutyError(
+          attendance.error,
+          getApiErrorMessage(attendance.error, 'Could not load attendance.')
+        )
+      : null;
+  const streakError = streak.isError && !streak.data
+    ? formatDutyError(streak.error, 'Could not load your login streak.')
+    : null;
 
   const onRefresh = async () => {
     setPullRefreshing(true);
@@ -234,9 +272,12 @@ export function PartnerAvailabilityManager() {
   };
 
   const onCancel = (slot: PartnerShiftSlot) => {
+    const until = formatShiftCancelUntil(slot.startAt);
     Alert.alert(
-      'Cancel booking?',
-      'You can cancel until 2 hours before the shift starts.',
+      'Cancel this booking?',
+      until
+        ? `You can cancel until ${until} (${SHIFT_CANCEL_LEAD_HOURS} hours before start). This slot will open for other riders.`
+        : `You can cancel until ${SHIFT_CANCEL_LEAD_HOURS} hours before the shift starts.`,
       [
         { text: 'Keep', style: 'cancel' },
         {
@@ -245,6 +286,12 @@ export function PartnerAvailabilityManager() {
           onPress: () => {
             setBusyShiftId(slot.id);
             cancelShift.mutate(slot.id, {
+              onSuccess: () =>
+                pushLiveToast({
+                  title: 'Booking cancelled',
+                  body: `${capitalizeShiftLabel(slot.label)} · ${formatIstDayLabel(slot.date)} was released.`,
+                  tone: 'info',
+                }),
               onError: (err) => {
                 Alert.alert(
                   'Could not cancel',
@@ -291,16 +338,31 @@ export function PartnerAvailabilityManager() {
             <Flame color="#EA4B14" size={22} />
           </View>
           <View style={styles.streakCopy}>
-            <Text style={styles.streakValue}>
-              {streak.data?.currentStreak ?? 0}-day streak
-            </Text>
-            <Text style={styles.streakHint}>
-              {streak.data?.todayCounted
-                ? 'Today already counts toward your streak.'
-                : streak.data?.lastWorkedDate
-                  ? `Last login ${formatIstDayLabel(streak.data.lastWorkedDate)}`
-                  : 'Go online today to start your streak.'}
-            </Text>
+            {streak.isLoading && !streak.data ? (
+              <ActivityIndicator color={authTheme.brand} />
+            ) : streakError ? (
+              <>
+                <Text style={styles.streakValue}>Streak unavailable</Text>
+                <Text style={styles.streakHint}>{streakError}</Text>
+                <Pressable onPress={() => void streak.refetch()} style={styles.inlineRetry}>
+                  <RotateCcw color={authTheme.brand} size={12} />
+                  <Text style={styles.inlineRetryText}>Retry</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={styles.streakValue}>
+                  {streak.data?.currentStreak ?? 0}-day login streak
+                </Text>
+                <Text style={styles.streakHint}>
+                  {streak.data?.todayCounted
+                    ? 'Today already counts toward your streak.'
+                    : streak.data?.lastWorkedDate
+                      ? `Last login ${formatIstDayLabel(streak.data.lastWorkedDate)}. Go online today to keep it.`
+                      : 'Go online today to start your streak.'}
+                </Text>
+              </>
+            )}
           </View>
         </View>
 
@@ -381,7 +443,13 @@ export function PartnerAvailabilityManager() {
               </Text>
             </View>
           ) : (
-            groupedShifts.map(([date, slots]) => (
+            <>
+              {myBookings.length ? (
+                <Text style={styles.dayTitle}>
+                  Your bookings · {myBookings.length}
+                </Text>
+              ) : null}
+              {groupedShifts.map(([date, slots]) => (
               <View key={date} style={styles.dayBlock}>
                 <Text style={styles.dayTitle}>{formatIstDayLabel(date)}</Text>
                 {slots.map((slot) => (
@@ -394,14 +462,13 @@ export function PartnerAvailabilityManager() {
                   />
                 ))}
               </View>
-            ))
+            ))}
+            </>
           )
-        ) : attendance.isError && !attendance.data ? (
+        ) : attendanceError ? (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Couldn’t load attendance</Text>
-            <Text style={styles.muted}>
-              {getApiErrorMessage(attendance.error, 'Please try again.')}
-            </Text>
+            <Text style={styles.muted}>{attendanceError}</Text>
             <Pressable
               onPress={() => void attendance.refetch()}
               style={styles.primaryBtn}
@@ -411,6 +478,32 @@ export function PartnerAvailabilityManager() {
           </View>
         ) : (
           <>
+            <View style={styles.rangeRow}>
+              {([7, 14, 30] as AttendanceWindow[]).map((days) => (
+                <Pressable
+                  key={days}
+                  onPress={() => setDaysBack(days)}
+                  style={[
+                    styles.rangeChip,
+                    daysBack === days && styles.rangeChipOn,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.rangeChipText,
+                      daysBack === days && styles.rangeChipTextOn,
+                    ]}
+                  >
+                    {days}d
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.rangeLabel}>
+              IST {formatIstDayLabel(attendanceRange.from)} –{' '}
+              {formatIstDayLabel(attendanceRange.to)}
+            </Text>
+
             <View style={styles.totalsRow}>
               <View style={styles.totalCard}>
                 <Text style={styles.totalLabel}>Online</Text>
@@ -436,7 +529,7 @@ export function PartnerAvailabilityManager() {
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>No login hours yet</Text>
                 <Text style={styles.muted}>
-                  Your last 7 days will show here after you go online.
+                  Days you go online in this IST window will show here.
                 </Text>
               </View>
             ) : (
@@ -455,7 +548,9 @@ export function PartnerAvailabilityManager() {
                     ) : null}
                   </View>
                   <Text style={styles.dayLogMeta}>
-                    In {formatIstTime(day.loginAt)}
+                    {day.loginAt
+                      ? `In ${formatIstTime(day.loginAt)}`
+                      : 'No login recorded'}
                     {day.logoutAt ? ` · Out ${formatIstTime(day.logoutAt)}` : ''}
                   </Text>
                   <Text style={styles.dayLogHours}>
@@ -511,6 +606,59 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: authTheme.textMuted,
     lineHeight: 17,
+  },
+  inlineRetry: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  inlineRetryText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: authTheme.brand,
+  },
+  cancelHint: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: '#0F766E',
+    lineHeight: 16,
+  },
+  cancelClosed: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: '#B45309',
+    lineHeight: 16,
+  },
+  rangeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  rangeChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  rangeChipOn: {
+    backgroundColor: '#111827',
+    borderColor: '#111827',
+  },
+  rangeChipText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: '#4B5563',
+  },
+  rangeChipTextOn: {
+    color: '#FFFFFF',
+  },
+  rangeLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: authTheme.textMuted,
+    marginTop: -4,
   },
   segment: {
     flexDirection: 'row',

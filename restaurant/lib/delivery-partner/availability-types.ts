@@ -347,6 +347,21 @@ export function formatIstTime(iso?: string | null): string {
   }).format(date);
 }
 
+export function formatIstDateTime(iso?: string | null): string {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+}
+
 export function formatIstDayLabel(ymd: string): string {
   const date = new Date(`${ymd}T12:00:00+05:30`);
   if (Number.isNaN(date.getTime())) return ymd;
@@ -391,4 +406,40 @@ export function capitalizeShiftLabel(label?: string): string {
   const raw = (label ?? '').trim();
   if (!raw) return 'Shift';
   return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+/** Rider can cancel a booked shift until this many hours before start. */
+export const SHIFT_CANCEL_LEAD_HOURS = 2;
+
+export function shiftCancelDeadlineMs(startAt?: string | null): number | null {
+  if (!startAt) return null;
+  const start = Date.parse(startAt);
+  if (!Number.isFinite(start)) return null;
+  return start - SHIFT_CANCEL_LEAD_HOURS * 3_600_000;
+}
+
+export function isShiftCancelWindowOpen(startAt?: string | null): boolean {
+  const deadline = shiftCancelDeadlineMs(startAt);
+  if (deadline == null) return false;
+  return Date.now() < deadline;
+}
+
+/** Prefer the API `canCancel` flag; fall back to the 2h IST-absolute window. */
+export function canCancelShiftBooking(slot: {
+  bookedByMe?: boolean;
+  canCancel?: boolean;
+  startAt?: string | null;
+}): boolean {
+  if (!slot.bookedByMe) return false;
+  if (slot.canCancel === true) return true;
+  if (slot.canCancel === false && slot.startAt) {
+    return isShiftCancelWindowOpen(slot.startAt);
+  }
+  return isShiftCancelWindowOpen(slot.startAt);
+}
+
+export function formatShiftCancelUntil(startAt?: string | null): string | null {
+  const deadline = shiftCancelDeadlineMs(startAt);
+  if (deadline == null) return null;
+  return formatIstDateTime(new Date(deadline).toISOString());
 }
