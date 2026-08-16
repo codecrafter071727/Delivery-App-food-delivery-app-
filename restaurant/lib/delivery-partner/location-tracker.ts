@@ -1,10 +1,6 @@
 import * as Location from 'expo-location';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import {
-  emitRiderHeartbeat,
-  emitRiderLocation,
-} from '@/lib/delivery-partner/rider-gateway';
 import { partnerTrackingApi } from '@/lib/delivery-partner/tracking-api';
 import {
   IDLE_HEARTBEAT_MS,
@@ -391,7 +387,6 @@ class PartnerLocationTracker {
     }
 
     this.pingInFlight = true;
-    emitRiderLocation(coords);
     try {
       const result = await partnerTrackingApi.pushLocation(coords);
       this.applyPing(result);
@@ -415,7 +410,6 @@ class PartnerLocationTracker {
     this.heartbeatInFlight = true;
     const heartbeatCoords =
       this.latest && isValidCoords(this.latest) ? this.latest : null;
-    emitRiderHeartbeat(heartbeatCoords);
     try {
       const result = await partnerTrackingApi.heartbeat(heartbeatCoords);
       this.applyHeartbeat(result);

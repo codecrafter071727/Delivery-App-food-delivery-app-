@@ -61,6 +61,7 @@ export { partnerTrackingApi } from '@/lib/delivery-partner/tracking-api';
 export * from '@/lib/delivery-partner/tracking-types';
 export * from '@/lib/delivery-partner/tracking-hooks';
 export {
+  emitRiderEvent,
   emitRiderHeartbeat,
   emitRiderLocation,
   getRiderGatewayStatus,
@@ -68,11 +69,16 @@ export {
   startRiderGateway,
 } from '@/lib/delivery-partner/rider-gateway';
 export {
+  REJECT_REASON_CODES,
+  toRejectReasonCode,
+} from '@/lib/delivery-partner/rider-gateway-types';
+export type {
+  RiderGatewayEvent,
+  RiderGatewayStatus,
+  RejectReasonCode,
+} from '@/lib/delivery-partner/rider-gateway-types';
+export {
   useRiderGatewaySocket,
   useRiderGatewayStatus,
   useRiderOrderRoom,
 } from '@/lib/delivery-partner/use-rider-gateway';
-export type {
-  RiderGatewayEvent,
-  RiderGatewayStatus,
-} from '@/lib/delivery-partner/rider-gateway-types';

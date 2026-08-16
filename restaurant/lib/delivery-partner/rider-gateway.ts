@@ -5,10 +5,16 @@ import {
   connectGatewaySocket,
   waitForSocketConnect,
 } from '@/lib/gateway/connect';
+import { PartnerApiError } from '@/lib/errors';
+import {
+  ackToError,
+  type RiderSocketAck,
+} from '@/lib/delivery-partner/rider-ack';
 import type {
   RiderGatewayEvent,
   RiderGatewayStatus,
   RiderLocationEmit,
+  RiderOutboundEvent,
 } from '@/lib/delivery-partner/rider-gateway-types';
 
 const INBOUND: RiderGatewayEvent[] = [
@@ -240,35 +246,81 @@ export function untrackRiderOrder(orderId: string | undefined) {
 
 function toLocationPayload(coords: RiderLocationEmit) {
   return {
-    lat: coords.latitude,
-    lng: coords.longitude,
     latitude: coords.latitude,
     longitude: coords.longitude,
+    lat: coords.latitude,
+    lng: coords.longitude,
     heading: coords.heading ?? undefined,
     speed: coords.speed ?? undefined,
     accuracy: coords.accuracy ?? undefined,
+    isMock: coords.isMock ?? false,
+    timestamp: coords.timestamp,
   };
 }
 
-/** Same job as POST /partners/me/location — live GPS stream. */
+/**
+ * Emit a rider inbound event and wait for the gateway ack.
+ * Same services as REST — do not also POST the REST twin unless this fails
+ * with a transport error (`canFallbackToRest`).
+ */
+export function emitRiderEvent(
+  event: RiderOutboundEvent,
+  payload: Record<string, unknown> = {},
+  timeoutMs = 12_000
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    if (!socket?.connected) {
+      reject(
+        new PartnerApiError(
+          'Live connection is down. Trying the backup request…',
+          'SOCKET_OFFLINE'
+        )
+      );
+      return;
+    }
+
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(
+        new PartnerApiError(
+          'Live action timed out. Trying the backup request…',
+          'SOCKET_TIMEOUT'
+        )
+      );
+    }, timeoutMs);
+
+    socket.emit(event, payload, (ack?: RiderSocketAck) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (ack && (ack.ok === false || ack.success === false)) {
+        reject(ackToError(ack));
+        return;
+      }
+      resolve(ack?.data ?? ack ?? {});
+    });
+  });
+}
+
+/** Same job as POST /partners/me/location — live GPS stream with ack. */
 export function emitRiderLocation(coords: RiderLocationEmit | null | undefined) {
-  if (!socket?.connected || !coords) return;
+  if (!coords) return Promise.resolve(undefined);
   if (!Number.isFinite(coords.latitude) || !Number.isFinite(coords.longitude)) {
-    return;
+    return Promise.resolve(undefined);
   }
-  socket.emit('partner:location', toLocationPayload(coords));
+  return emitRiderEvent('partner:location', toLocationPayload(coords), 8000);
 }
 
 /** Keep GPS/duty alive while online. REST heartbeat remains the fallback. */
 export function emitRiderHeartbeat(coords?: RiderLocationEmit | null) {
-  if (!socket?.connected) return;
   if (
     coords &&
     Number.isFinite(coords.latitude) &&
     Number.isFinite(coords.longitude)
   ) {
-    socket.emit('partner:heartbeat', toLocationPayload(coords));
-    return;
+    return emitRiderEvent('partner:heartbeat', toLocationPayload(coords), 8000);
   }
-  socket.emit('partner:heartbeat', {});
+  return emitRiderEvent('partner:heartbeat', {}, 8000);
 }
