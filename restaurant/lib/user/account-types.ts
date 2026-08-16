@@ -36,6 +36,45 @@ export type UpdateNamePayload = {
   lastName?: string;
 };
 
+export type UserSession = {
+  id: string;
+  current: boolean;
+  deviceId?: string;
+  deviceName: string;
+  platform?: string;
+  ip?: string;
+  location?: string;
+  lastSeenAt?: string;
+  createdAt?: string;
+  userAgent?: string;
+};
+
+export type UserDevice = {
+  deviceId: string;
+  platform: 'ios' | 'android' | 'web';
+  app?: string;
+  tokenMasked: string;
+  clientDeviceId?: string;
+  appVersion?: string | null;
+  lastSeenAt?: string;
+  registeredAt?: string;
+};
+
+export type RegisterDevicePayload = {
+  token: string;
+  platform: 'ios' | 'android' | 'web';
+  deviceId: string;
+  appVersion?: string;
+  app?: 'rider' | 'kitchen' | 'customer';
+};
+
+export type StoredPushDevice = {
+  deviceId: string;
+  clientDeviceId: string;
+  platform: 'ios' | 'android' | 'web';
+  tokenMasked: string;
+};
+
 export const DEFAULT_LANGUAGES = ['en', 'hi'] as const;
 
 export function languageLabel(code: string): string {

@@ -10,7 +10,6 @@ import {
   LogOut,
   Mail,
   MailCheck,
-  MonitorSmartphone,
   Pencil,
   Phone,
   ShieldAlert,
@@ -70,6 +69,7 @@ import {
   ContactChangeModal,
   PlatformAccountSection,
 } from '@/components/delivery/profile/PlatformAccountSection';
+import { AccountSessionsDevices } from '@/components/delivery/profile/AccountSessionsDevices';
 import { useAuthStore } from '@/store/auth-store';
 
 type EditSection = 'personal' | 'vehicle' | 'payout' | 'password' | null;
@@ -208,7 +208,6 @@ export function PartnerProfileManager() {
   const updateProfile = useUpdatePartnerProfile();
   const { updateName, uploadPhoto, deletePhoto } = usePlatformAccountMutations();
   const logout = useAuthStore((s) => s.logout);
-  const logoutAll = useAuthStore((s) => s.logoutAll);
   const changePassword = useAuthStore((s) => s.changePassword);
   const resendEmailVerification = useAuthStore((s) => s.resendEmailVerification);
   const authUser = useAuthStore((s) => s.user);
@@ -302,6 +301,12 @@ export function PartnerProfileManager() {
         queryClient.invalidateQueries({
           queryKey: platformAccountKeys.preferences(),
         }),
+        queryClient.invalidateQueries({
+          queryKey: platformAccountKeys.sessions(),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: platformAccountKeys.devices(),
+        }),
       ]);
     } finally {
       setPullRefreshing(false);
@@ -327,31 +332,6 @@ export function PartnerProfileManager() {
         },
       },
     ]);
-  };
-
-  const onLogoutAll = () => {
-    Alert.alert(
-      'Log out everywhere?',
-      'This will end your session on all devices.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log out all',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setLoggingOut(true);
-              try {
-                await logoutAll();
-              } finally {
-                setLoggingOut(false);
-                router.replace('/login');
-              }
-            })();
-          },
-        },
-      ]
-    );
   };
 
   const photoUrl = platform?.photoUrl || profile?.photoUrl;
@@ -1033,29 +1013,9 @@ export function PartnerProfileManager() {
                 </View>
                 <Pencil color={'#9CA3AF'} size={14} />
               </Pressable>
-
-              <View style={styles.accountDivider} />
-
-              <Pressable
-                onPress={onLogoutAll}
-                disabled={loggingOut}
-                style={styles.accountRow}
-                accessibilityRole="button"
-                accessibilityLabel="Log out all devices"
-              >
-                <View
-                  style={[styles.accountIcon, { backgroundColor: '#F1F5F9' }]}
-                >
-                  <MonitorSmartphone color="#64748B" size={16} />
-                </View>
-                <View style={styles.accountBody}>
-                  <Text style={styles.accountLabel}>Log out all devices</Text>
-                  <Text style={styles.accountHint}>
-                    End every active session
-                  </Text>
-                </View>
-              </Pressable>
             </View>
+
+            <AccountSessionsDevices />
 
             <PlatformAccountSection />
 

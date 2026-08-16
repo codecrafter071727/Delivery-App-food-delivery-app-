@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { AuthUser } from '@/lib/auth/types';
+import { getAuthDeviceId } from '@/lib/auth/device';
 import { deliveryPartnerKeys } from '@/lib/delivery-partner/hooks';
 import {
   LIVE_INTERVALS,
@@ -11,7 +12,13 @@ import { formatAccountError, userAccountApi } from '@/lib/user/account-api';
 import type {
   NotificationPrefs,
   PlatformUser,
+  RegisterDevicePayload,
 } from '@/lib/user/account-types';
+import {
+  clearStoredPushDevice,
+  loadStoredPushDevice,
+  saveStoredPushDevice,
+} from '@/lib/user/push-token';
 import { useAuthStore } from '@/store/auth-store';
 
 export const platformAccountKeys = {
@@ -19,6 +26,8 @@ export const platformAccountKeys = {
   profile: () => [...platformAccountKeys.all, 'profile'] as const,
   preferences: () => [...platformAccountKeys.all, 'preferences'] as const,
   deletePreview: () => [...platformAccountKeys.all, 'delete-preview'] as const,
+  sessions: () => [...platformAccountKeys.all, 'sessions'] as const,
+  devices: () => [...platformAccountKeys.all, 'devices'] as const,
 };
 
 const keepRetrying = (failureCount: number, error: unknown) => {
@@ -68,6 +77,40 @@ export function usePlatformPreferences(enabled = true) {
     queryFn: () => userAccountApi.getPreferences(),
     enabled,
     staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function usePlatformSessions(enabled = true) {
+  const isActive = useAppIsActive();
+  return useQuery({
+    queryKey: platformAccountKeys.sessions(),
+    queryFn: async () => {
+      const deviceId = await getAuthDeviceId();
+      return userAccountApi.listSessions(deviceId);
+    },
+    enabled,
+    staleTime: 15_000,
+    gcTime: 5 * 60_000,
+    refetchInterval: liveRefetchInterval(LIVE_INTERVALS.deliveryMe, isActive),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function usePlatformDevices(enabled = true) {
+  return useQuery({
+    queryKey: platformAccountKeys.devices(),
+    queryFn: () => userAccountApi.listDevices(),
+    enabled,
+    staleTime: 30_000,
     gcTime: 10 * 60_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
@@ -137,6 +180,46 @@ export function usePlatformAccountMutations() {
     mutationFn: userAccountApi.deleteAccount,
   });
 
+  const revokeSession = useMutation({
+    mutationFn: (sessionId: string) => userAccountApi.revokeSession(sessionId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: platformAccountKeys.sessions(),
+      });
+    },
+  });
+
+  const registerDevice = useMutation({
+    mutationFn: (payload: RegisterDevicePayload) =>
+      userAccountApi.registerDevice(payload),
+    onSuccess: async (device) => {
+      await saveStoredPushDevice(device);
+      queryClient.setQueryData(platformAccountKeys.devices(), (current: unknown) => {
+        const list = Array.isArray(current) ? current : [];
+        const rest = list.filter(
+          (row: { deviceId?: string }) => row.deviceId !== device.deviceId
+        );
+        return [device, ...rest];
+      });
+      await queryClient.invalidateQueries({
+        queryKey: platformAccountKeys.devices(),
+      });
+    },
+  });
+
+  const unregisterDevice = useMutation({
+    mutationFn: async (deviceId: string) => {
+      await userAccountApi.unregisterDevice(deviceId);
+      const stored = await loadStoredPushDevice();
+      if (stored?.deviceId === deviceId) await clearStoredPushDevice();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: platformAccountKeys.devices(),
+      });
+    },
+  });
+
   return {
     updateName,
     uploadPhoto,
@@ -146,6 +229,9 @@ export function usePlatformAccountMutations() {
     updateNotifications,
     updateLanguage,
     deleteAccount,
+    revokeSession,
+    registerDevice,
+    unregisterDevice,
     invalidatePrefs,
     formatError: formatAccountError,
   };

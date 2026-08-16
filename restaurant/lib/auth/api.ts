@@ -250,6 +250,8 @@ export const authApi = {
         password: payload.password,
         confirmPassword: payload.confirmPassword,
         role: toApiRole(payload.role),
+        source: authClientSource(),
+        deviceId: await getAuthDeviceId(),
       },
     });
     return normalizeAuthResponse(data, payload.role);
@@ -261,6 +263,8 @@ export const authApi = {
       body: {
         email: payload.email,
         password: payload.password,
+        source: authClientSource(),
+        deviceId: await getAuthDeviceId(),
       },
     });
     return normalizeAuthResponse(data, payload.role);
@@ -295,6 +299,8 @@ export const authApi = {
         identifier: payload.emailOrPhone,
         otp: payload.otp,
         purpose: payload.purpose ?? 'login',
+        source: authClientSource(),
+        deviceId: await getAuthDeviceId(),
       },
     });
     return normalizeAuthResponse(data, payload.role);

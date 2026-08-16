@@ -14,8 +14,11 @@ import {
   type DeletePreview,
   type NotificationPrefs,
   type PlatformUser,
+  type RegisterDevicePayload,
   type UpdateNamePayload,
+  type UserDevice,
   type UserPreferences,
+  type UserSession,
 } from '@/lib/user/account-types';
 
 const USERS_ME = '/api/v1/user-service/users/me';
@@ -31,6 +34,9 @@ export const ACCOUNT_ERROR_COPY: Record<string, string> = {
   INVALID_OTP: 'That code is wrong or expired. Request a new one.',
   OTP_COOLDOWN: 'Wait a few seconds before requesting another code.',
   ACTIVE_DELIVERY: 'Complete your active delivery before deleting your account.',
+  SESSION_NOT_FOUND: 'That session is already signed out.',
+  DEVICE_NOT_FOUND: 'This device is not registered for alerts.',
+  PUSH_UNAVAILABLE: 'Push alerts are unavailable on this install. Use the Android or iOS app.',
 };
 
 export function formatAccountError(error: unknown, fallback: string): string {
@@ -130,6 +136,95 @@ async function request<T>(
     }
     throw error;
   }
+}
+
+function asList(raw: unknown, keys: string[]): unknown[] {
+  const unwrapped = unwrap(raw);
+  if (Array.isArray(unwrapped)) return unwrapped;
+  if (Array.isArray(raw)) return raw;
+  const record = asRecord(unwrapped);
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+}
+
+function platformFrom(value?: string): 'ios' | 'android' | 'web' {
+  const key = (value ?? '').toLowerCase();
+  if (key === 'ios' || key === 'iphone' || key === 'ipad') return 'ios';
+  if (key === 'android') return 'android';
+  if (key === 'web' || key === 'browser') return 'web';
+  return 'web';
+}
+
+function sessionDeviceName(record: Record<string, unknown>, platform?: string) {
+  const named = pickString(record, [
+    'deviceName',
+    'name',
+    'device',
+    'label',
+    'clientName',
+  ]);
+  if (named) return named;
+  if (platform === 'ios') return 'iPhone';
+  if (platform === 'android') return 'Android phone';
+  if (platform === 'web') return 'Web browser';
+  return 'Unknown device';
+}
+
+export function mapUserSession(
+  raw: unknown,
+  authDeviceId?: string
+): UserSession | null {
+  const record = asRecord(raw);
+  const nested = asRecord(record.device);
+  const source = Object.keys(nested).length ? { ...record, ...nested } : record;
+  const id =
+    pickString(source, ['sessionId', '_id', 'id', 'sid']) ?? '';
+  if (!id) return null;
+  const deviceId = pickString(source, ['deviceId', 'clientDeviceId', 'clientId']);
+  const platform = pickString(source, ['platform', 'os', 'source', 'client']);
+  const current =
+    pickBool(source, ['current', 'isCurrent', 'thisDevice', 'isThisDevice']) ??
+    Boolean(authDeviceId && deviceId && deviceId === authDeviceId);
+  return {
+    id,
+    current,
+    deviceId,
+    deviceName: sessionDeviceName(source, platformFrom(platform)),
+    platform: platform || undefined,
+    ip: pickString(source, ['ip', 'ipAddress', 'remoteAddress']),
+    location: pickString(source, ['location', 'city', 'place']),
+    lastSeenAt: pickString(source, [
+      'lastSeenAt',
+      'lastActiveAt',
+      'updatedAt',
+      'seenAt',
+    ]),
+    createdAt: pickString(source, ['createdAt', 'loggedInAt', 'issuedAt']),
+    userAgent: pickString(source, ['userAgent', 'ua']),
+  };
+}
+
+export function mapUserDevice(raw: unknown): UserDevice | null {
+  const record = asRecord(raw);
+  const deviceId =
+    pickString(record, ['deviceId', '_id', 'id']) ?? '';
+  if (!deviceId) return null;
+  return {
+    deviceId,
+    platform: platformFrom(
+      pickString(record, ['platform', 'os', 'source'])
+    ),
+    app: pickString(record, ['app', 'appName']),
+    tokenMasked:
+      pickString(record, ['tokenMasked', 'maskedToken', 'token']) ?? '••••',
+    clientDeviceId: pickString(record, ['clientDeviceId', 'clientId']),
+    appVersion: pickString(record, ['appVersion', 'version']) ?? null,
+    lastSeenAt: pickString(record, ['lastSeenAt', 'updatedAt']),
+    registeredAt: pickString(record, ['registeredAt', 'createdAt']),
+  };
 }
 
 export function mapPlatformUser(raw: unknown): PlatformUser {
@@ -364,5 +459,83 @@ export const userAccountApi = {
       body,
     });
     return mapPlatformUser(data);
+  },
+
+  /** GET /users/me/sessions */
+  listSessions: async (authDeviceId?: string): Promise<UserSession[]> => {
+    const data = await request<unknown>(`${USERS_ME}/sessions`);
+    const rows = asList(data, ['sessions', 'items', 'devices']);
+    const mapped = rows
+      .map((row) => mapUserSession(row, authDeviceId))
+      .filter((row): row is UserSession => Boolean(row));
+    if (authDeviceId && !mapped.some((row) => row.current)) {
+      return mapped.map((row) =>
+        row.deviceId === authDeviceId ? { ...row, current: true } : row
+      );
+    }
+    return mapped;
+  },
+
+  /** DELETE /users/me/sessions/:sessionId */
+  revokeSession: async (sessionId: string): Promise<void> => {
+    const id = sessionId.trim();
+    if (!id) throw new PartnerApiError('Missing session.', 'VALIDATION_ERROR');
+    await request<unknown>(`${USERS_ME}/sessions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      body: {},
+    });
+  },
+
+  /** GET /users/me/devices */
+  listDevices: async (): Promise<UserDevice[]> => {
+    const data = await request<unknown>(`${USERS_ME}/devices`);
+    return asList(data, ['devices', 'items', 'tokens'])
+      .map((row) => mapUserDevice(row))
+      .filter((row): row is UserDevice => Boolean(row));
+  },
+
+  /** POST /users/me/devices */
+  registerDevice: async (
+    payload: RegisterDevicePayload
+  ): Promise<UserDevice> => {
+    const token = payload.token.trim();
+    if (token.length < 10) {
+      throw new PartnerApiError(
+        'Could not read a push token on this phone.',
+        'PUSH_UNAVAILABLE'
+      );
+    }
+    const body: Record<string, unknown> = {
+      token,
+      platform: payload.platform,
+      deviceId: payload.deviceId,
+    };
+    if (payload.appVersion?.trim()) body.appVersion = payload.appVersion.trim();
+    if (payload.app) body.app = payload.app;
+    const data = await request<unknown>(`${USERS_ME}/devices`, {
+      method: 'POST',
+      body,
+    });
+    const mapped =
+      mapUserDevice(unwrap(data)) ??
+      mapUserDevice(data) ??
+      mapUserDevice(asRecord(unwrap(data)).device);
+    if (mapped) return mapped;
+    const listed = await userAccountApi.listDevices();
+    const match =
+      listed.find((row) => row.clientDeviceId === payload.deviceId) ??
+      listed.find((row) => row.deviceId === payload.deviceId);
+    if (match) return match;
+    throw new PartnerApiError('Device registered but could not be loaded.', 'DEVICE_NOT_FOUND');
+  },
+
+  /** DELETE /users/me/devices/:deviceId */
+  unregisterDevice: async (deviceId: string): Promise<void> => {
+    const id = deviceId.trim();
+    if (!id) throw new PartnerApiError('Missing device.', 'VALIDATION_ERROR');
+    await request<unknown>(`${USERS_ME}/devices/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      body: {},
+    });
   },
 };
