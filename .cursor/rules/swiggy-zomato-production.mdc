@@ -1,0 +1,31 @@
+---
+description: Every integrated API and shipped screen must be production-ready at Swiggy/Zomato partner-app quality.
+alwaysApply: true
+---
+
+# Production-ready APIs (Swiggy / Zomato parity)
+
+This repo is the **TOKAJO FOODS** dual-portal partner app (restaurant kitchen + delivery rider), not a customer ordering app. Treat **Swiggy Partner / Zomato restaurant** and **Swiggy Delivery / Zomato rider** as the quality bar.
+
+## Non-negotiable
+
+- **No mocks, stubs, fake delays, or `USE_MOCK_* = true` on any screen that users can open.** Wire the live gateway at `EXPO_PUBLIC_API_URL` (`http://10.12.14.3:4000`).
+- **Do not ship "coming soon", placeholder screens, or half-wired endpoints** for a flow that already exists in the UI.
+- If an API is listed in `DELIVERY_APP_ALL_APIS.md` / `API_REQUEST_RESPONSE.md` and the matching screen exists, **integrate it fully** — request, response mapping, loading, empty, error, retry, success.
+- New APIs go through `lib/api.ts` (Axios + CSRF + session). Domain files: `lib/{domain}/*-api.ts`, `*-hooks.ts`, `*-types.ts`. Screens stay thin.
+
+## When integrating or touching an API
+
+1. Use the real path under `/api/v1/{service}/...`. Map both `{ success, data }` and flat envelopes.
+2. Cover **loading / empty / error / retry / offline-ish failure** — never a blank screen or uncaught throw.
+3. Mutating actions (accept order, go online, deliver, upload KYC) need **in-progress state, success feedback, and a clear failure message**.
+4. Restaurant kitchen and rider trips must feel **live**: TanStack Query + Socket.IO where the product already uses them. No silent stale lists.
+5. Auth, role gates, and KYC/duty blockers must match real partner apps (cannot go online until approved; cannot accept if offline).
+
+## Feature bar (match Swiggy / Zomato)
+
+**Restaurant:** live KDS (accept / reject / prep / ready / handover), menu CRUD, duty toggle, onboarding/KYC, hours, payouts, reviews, offers, staff, support — complete, not demo.
+
+**Delivery:** duty, trip lifecycle (accept → arrive → pickup → deliver), GPS, earnings, documents, shifts, support, payouts — same completeness as a production rider app.
+
+**Do not** add customer-app cart/checkout here. **Do** make every partner flow that is present as reliable and complete as Swiggy/Zomato.

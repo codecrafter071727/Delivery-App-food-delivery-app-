@@ -1,0 +1,35 @@
+/** Shared with customer app — Swiggy/Zomato-inspired light theme */
+export const authTheme = {
+  bg: '#FFFFFF',
+  surface: '#F6F6F7',
+  bgSoft: '#FAFAFA',
+  card: '#FFFFFF',
+  cardBorder: '#EBEBEB',
+  input: '#FFFFFF',
+  inputBorder: '#E2E4E9',
+  inputBorderFocus: '#EA4B14',
+  text: '#0F172A',
+  textMuted: '#64748B',
+  textDim: '#94A3B8',
+  brand: '#EA4B14',
+  brandDark: '#C23D0F',
+  brandLight: '#F97316',
+  brandSoft: 'rgba(234, 75, 20, 0.07)',
+  brandMuted: 'rgba(234, 75, 20, 0.12)',
+  foodAccent: '#FF6B35',
+  foodAccentSoft: 'rgba(255, 107, 53, 0.12)',
+  accent: '#EA4B14',
+  accentDark: '#C23D0F',
+  accentWarm: '#C4786A',
+  error: '#EF4444',
+  success: '#22C55E',
+  tabBg: '#F1F3F5',
+  tabActive: '#FFFFFF',
+  shadow: '#000000',
+  heroStart: '#FFF5F3',
+  heroMid: '#FFEDE8',
+  heroEnd: '#F6F6F7',
+} as const;
+
+/** Space reserved at scroll bottom for floating bottom tab bar + safe area. */
+export const PARTNER_BOTTOM_NAV_INSET = 96;

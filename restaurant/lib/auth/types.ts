@@ -54,6 +54,7 @@ export type AuthUser = {
   phone?: string;
   role: PartnerRole;
   emailVerified?: boolean;
+  photoUrl?: string;
 };
 
 export type AuthResponse = {
@@ -84,6 +85,7 @@ export type OtpPurpose =
   | 'forgot_password'
   | 'verification'
   | 'update_phone'
+  | 'update_email'
   | 'delete_account';
 
 export type OtpSendPayload = {

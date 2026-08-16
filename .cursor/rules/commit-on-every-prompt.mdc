@@ -1,0 +1,35 @@
+---
+description: After every prompt that changes files, create a git commit. Do not wait to be asked.
+alwaysApply: true
+---
+
+# Commit after every prompt
+
+This project **requires a git commit at the end of every user prompt** that produces file changes. Do not ask first. This overrides the default "only commit when asked" behavior **for this repo**.
+
+## When to commit
+
+- **Do** commit after finishing the work for the current prompt if `git status` shows staged/unstaged/untracked changes you made.
+- **Skip** if there are no changes, the prompt was question-only, or the user said not to commit this time.
+- **Never push** unless the user explicitly asks.
+
+## How
+
+Follow the git safety protocol:
+
+1. Parallel: `git status`, `git diff`, `git log -5 --oneline`
+2. Stage only relevant files (the work from this prompt). Never stage secrets (`.env`, credentials, keys).
+3. Commit with a concise 1–2 sentence message focused on **why**.
+4. `git status` after commit to confirm success.
+5. Never `--amend` unless this conversation created HEAD and it is unpushed. Never `--no-verify`. Never force push.
+
+On Windows PowerShell pass the message as a here-string:
+
+```powershell
+git commit -m @"
+Short why-focused message.
+
+"@
+```
+
+If the commit fails because of a hook, fix the issue and create a **new** commit. Do not amend a failed commit.

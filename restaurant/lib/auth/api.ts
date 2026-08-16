@@ -43,6 +43,11 @@ function mapApiUser(
     phone: (data.phone as string) || undefined,
     role: fromApiRole(data.role ?? data.userType ?? data.type, fallbackRole),
     emailVerified: Boolean(data.isEmailVerified ?? data.emailVerified ?? false),
+    photoUrl:
+      (data.photoUrl as string) ||
+      (data.avatarUrl as string) ||
+      (data.picture as string) ||
+      undefined,
   };
 }
 

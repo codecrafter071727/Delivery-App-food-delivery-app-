@@ -60,6 +60,7 @@ type AuthState = {
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
   clearSession: () => Promise<void>;
+  patchUser: (partial: Partial<AuthUser>) => Promise<void>;
 };
 
 async function persistSession(token: string, user: AuthUser) {
@@ -327,5 +328,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await clearRestaurantSetupFlag();
     await clearDeliveryPartnerSetupFlag();
     set({ user: null, token: null });
+  },
+
+  patchUser: async (partial) => {
+    const current = get().user;
+    if (!current) return;
+    const next: AuthUser = { ...current, ...partial };
+    if (partial.id === '') next.id = current.id;
+    await setStoredUser(next);
+    set({ user: next, role: next.role });
   },
 }));
