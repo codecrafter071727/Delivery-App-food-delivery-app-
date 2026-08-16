@@ -64,6 +64,39 @@ export type StartBreakPayload = {
   durationMinutes?: number;
 };
 
+export type ExtendBreakPayload = {
+  additionalMinutes?: number;
+};
+
+export type PartnerBreakPolicy = {
+  maxMinutesPerDay: number;
+  maxSingleMinutes: number;
+  defaultMinutes: number;
+  extendDefaultMinutes: number;
+  minOnlineMinutesBefore: number;
+  timezone: string;
+};
+
+export type NearbyHubKind = 'hub' | 'dark_store' | 'cash_drop' | string;
+
+export type NearbyHub = {
+  hubId: string;
+  name: string;
+  city?: string;
+  kind: NearbyHubKind;
+  address?: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  distanceMeters: number;
+  isActive: boolean;
+};
+
+export type HubCheckinResult = {
+  hub?: NearbyHub | null;
+  status: PartnerDutyStatusSnapshot;
+};
+
 export type SetDutyStatusPayload = {
   dutyStatus: Exclude<PartnerDutyStatus, 'on_delivery'>;
   latitude?: number;
@@ -230,18 +263,46 @@ export function canAcceptOffers(status?: PartnerDutyStatus | null) {
 }
 
 export function breakDurationOptions(
-  info?: PartnerBreakInfo | null
+  info?: PartnerBreakInfo | null,
+  policy?: PartnerBreakPolicy | null
 ): number[] {
-  const remaining = Math.max(0, Math.floor(info?.minutesRemainingToday ?? 60));
+  const remaining = Math.max(
+    0,
+    Math.floor(
+      info?.minutesRemainingToday ?? policy?.maxMinutesPerDay ?? 60
+    )
+  );
   const maxSingle = Math.min(
-    info?.maxSingleMinutes ?? MAX_BREAK_MINUTES,
+    policy?.maxSingleMinutes ?? info?.maxSingleMinutes ?? MAX_BREAK_MINUTES,
     remaining
   );
-  const def = Math.min(info?.defaultMinutes ?? DEFAULT_BREAK_MINUTES, maxSingle);
+  const def = Math.min(
+    policy?.defaultMinutes ?? info?.defaultMinutes ?? DEFAULT_BREAK_MINUTES,
+    maxSingle
+  );
   const opts = new Set<number>();
   if (def > 0) opts.add(def);
   if (maxSingle > 0) opts.add(maxSingle);
   return [...opts].filter((n) => n > 0).sort((a, b) => a - b);
+}
+
+/** Minutes the rider can still add to the current break. */
+export function breakExtendMinutes(
+  info?: PartnerBreakInfo | null,
+  policy?: PartnerBreakPolicy | null
+): number {
+  if (!info?.active) return 0;
+  const remainingDay = Math.max(0, Math.floor(info.minutesRemainingToday ?? 0));
+  const maxSingle =
+    policy?.maxSingleMinutes ?? info.maxSingleMinutes ?? MAX_BREAK_MINUTES;
+  const remainingSingle = Math.max(
+    0,
+    Math.floor(maxSingle - (info.elapsedMinutes ?? 0))
+  );
+  const cap = Math.min(remainingDay, remainingSingle);
+  if (cap < 1) return 0;
+  const def = policy?.extendDefaultMinutes ?? 10;
+  return Math.min(def, cap);
 }
 
 export function breakSecondsLeft(info?: PartnerBreakInfo | null): number | null {
@@ -310,6 +371,20 @@ export function formatDutyKm(km?: number | null): string {
   const value = Number(km);
   if (!Number.isFinite(value) || value <= 0) return '0 km';
   return `${value.toFixed(value >= 10 ? 0 : 1)} km`;
+}
+
+export function formatMeters(meters?: number | null): string {
+  const value = Number(meters);
+  if (!Number.isFinite(value) || value < 0) return '—';
+  if (value < 1000) return `${Math.round(value)} m`;
+  return `${(value / 1000).toFixed(1)} km`;
+}
+
+export function hubKindLabel(kind?: string | null): string {
+  const key = (kind ?? 'hub').trim().toLowerCase();
+  if (key === 'dark_store' || key === 'darkstore') return 'Dark store';
+  if (key === 'cash_drop' || key === 'cashdrop') return 'Cash drop';
+  return 'Hub';
 }
 
 export function capitalizeShiftLabel(label?: string): string {

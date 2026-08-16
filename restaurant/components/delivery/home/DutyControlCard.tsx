@@ -1,4 +1,4 @@
-import { Coffee, RotateCcw } from 'lucide-react-native';
+import { Coffee, Plus, RotateCcw } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -12,12 +12,14 @@ import {
 import { fonts } from '@/constants/typography';
 import {
   breakDurationOptions,
+  breakExtendMinutes,
   breakSecondsLeft,
   canAcceptOffers,
   dutyStatusHint,
   dutyStatusLabel,
   formatDutyKm,
   formatMinutes,
+  type PartnerBreakPolicy,
   type PartnerDutyStatus,
   type PartnerDutyStatusSnapshot,
   type PartnerDutySummary,
@@ -28,6 +30,7 @@ type Props = {
   fallbackStatus?: PartnerDutyStatus;
   isOnDuty: boolean;
   summary?: PartnerDutySummary | null;
+  policy?: PartnerBreakPolicy | null;
   statusLoading?: boolean;
   statusError?: string | null;
   onRetryStatus?: () => void;
@@ -37,7 +40,9 @@ type Props = {
   onToggle: () => void;
   onStartBreak: (durationMinutes: number) => void;
   onEndBreak: () => void;
-  onResumeFromHub: () => void;
+  onExtendBreak: (additionalMinutes: number) => void;
+  onLeaveHub: () => void;
+  onOpenHubs: () => void;
   gpsBanner?: string | null;
   actionError?: string | null;
 };
@@ -57,6 +62,7 @@ export function DutyControlCard({
   fallbackStatus,
   isOnDuty,
   summary,
+  policy,
   statusLoading,
   statusError,
   onRetryStatus,
@@ -66,7 +72,9 @@ export function DutyControlCard({
   onToggle,
   onStartBreak,
   onEndBreak,
-  onResumeFromHub,
+  onExtendBreak,
+  onLeaveHub,
+  onOpenHubs,
   gpsBanner,
   actionError,
 }: Props) {
@@ -76,8 +84,12 @@ export function DutyControlCard({
     dutyStatus === 'on_break' || Boolean(snapshot?.break?.active);
   const onWayToHub = dutyStatus === 'on_way_to_hub';
   const accepting = canAcceptOffers(dutyStatus);
-  const durations = breakDurationOptions(snapshot?.break);
-  const remainingToday = snapshot?.break?.minutesRemainingToday ?? 0;
+  const durations = breakDurationOptions(snapshot?.break, policy);
+  const extendBy = breakExtendMinutes(snapshot?.break, policy);
+  const remainingToday =
+    snapshot?.break?.minutesRemainingToday ?? policy?.maxMinutesPerDay ?? 0;
+  const maxPerDay =
+    policy?.maxMinutesPerDay ?? snapshot?.break?.maxMinutesPerDay ?? 60;
 
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -133,24 +145,36 @@ export function DutyControlCard({
       </View>
 
       {onBreak ? (
-        <Pressable
-          onPress={onEndBreak}
-          disabled={breakBusy}
-          style={styles.breakBtn}
-        >
-          {breakBusy ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
-          ) : (
-            <>
-              <Coffee color="#FFFFFF" size={15} />
-              <Text style={styles.breakBtnText}>
-                {secondsLeft != null
-                  ? `End break · ${formatCountdown(secondsLeft)} left`
-                  : 'End break'}
-              </Text>
-            </>
-          )}
-        </Pressable>
+        <View style={styles.breakRow}>
+          <Pressable
+            onPress={onEndBreak}
+            disabled={breakBusy}
+            style={[styles.breakChoice, { flex: 1.2 }]}
+          >
+            {breakBusy ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Coffee color="#FFFFFF" size={15} />
+                <Text style={styles.breakBtnText}>
+                  {secondsLeft != null
+                    ? `End · ${formatCountdown(secondsLeft)}`
+                    : 'End break'}
+                </Text>
+              </>
+            )}
+          </Pressable>
+          {extendBy > 0 ? (
+            <Pressable
+              onPress={() => onExtendBreak(extendBy)}
+              disabled={breakBusy}
+              style={styles.extendBtn}
+            >
+              <Plus color="#111827" size={15} />
+              <Text style={styles.extendBtnText}>+{extendBy} min</Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
 
       {accepting && !onDelivery ? (
@@ -177,28 +201,40 @@ export function DutyControlCard({
         ) : (
           <Text style={styles.quotaNote}>
             Daily break limit reached ({snapshot?.break?.minutesUsedToday ?? 0}/
-            {snapshot?.break?.maxMinutesPerDay ?? 60} min).
+            {maxPerDay} min).
           </Text>
         )
       ) : null}
 
-      {accepting && remainingToday > 0 && remainingToday < 60 ? (
+      {accepting && remainingToday > 0 && remainingToday < maxPerDay ? (
         <Text style={styles.quotaNote}>
           {remainingToday}m break left today
+          {policy?.minOnlineMinutesBefore
+            ? ` · wait ${policy.minOnlineMinutesBefore}m online first`
+            : ''}
         </Text>
       ) : null}
 
       {onWayToHub ? (
-        <Pressable
-          onPress={onResumeFromHub}
-          disabled={resumeBusy}
-          style={styles.resumeBtn}
-        >
-          {resumeBusy ? (
-            <ActivityIndicator color="#111827" size="small" />
-          ) : (
-            <Text style={styles.resumeBtnText}>Resume online</Text>
-          )}
+        <View style={styles.hubActions}>
+          <Pressable
+            onPress={onLeaveHub}
+            disabled={resumeBusy}
+            style={styles.resumeBtn}
+          >
+            {resumeBusy ? (
+              <ActivityIndicator color="#111827" size="small" />
+            ) : (
+              <Text style={styles.resumeBtnText}>Check out → online</Text>
+            )}
+          </Pressable>
+          <Pressable onPress={onOpenHubs} style={styles.hubLink}>
+            <Text style={styles.hubLinkText}>View hubs</Text>
+          </Pressable>
+        </View>
+      ) : accepting && !onDelivery ? (
+        <Pressable onPress={onOpenHubs} style={styles.hubLink}>
+          <Text style={styles.hubLinkText}>Nearby hubs & cash drop</Text>
         </Pressable>
       ) : null}
 
@@ -303,7 +339,22 @@ const styles = StyleSheet.create({
   breakBtnText: {
     color: '#FFFFFF',
     fontFamily: fonts.semiBold,
-    fontSize: 14,
+    fontSize: 13,
+  },
+  extendBtn: {
+    flex: 0.9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: '#FDBA74',
+    borderRadius: 16,
+    paddingVertical: 12,
+  },
+  extendBtnText: {
+    color: '#111827',
+    fontFamily: fonts.bold,
+    fontSize: 13,
   },
   quotaNote: {
     color: '#A1A1AA',
@@ -312,17 +363,33 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   resumeBtn: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FDBA74',
     borderRadius: 16,
     paddingVertical: 12,
-    marginBottom: 10,
   },
   resumeBtnText: {
     color: '#111827',
     fontFamily: fonts.bold,
     fontSize: 14,
+  },
+  hubActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  hubLink: {
+    paddingVertical: 8,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  hubLinkText: {
+    color: '#FDBA74',
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
   },
   gpsBanner: {
     marginTop: 4,

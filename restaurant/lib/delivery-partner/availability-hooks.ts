@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   formatDutyError,
   partnerAvailabilityApi,
+  readDutyGps,
 } from '@/lib/delivery-partner/availability-api';
 import type {
   PartnerDutyStatusSnapshot,
@@ -20,6 +21,9 @@ export const partnerAvailabilityKeys = {
   all: [...deliveryPartnerKeys.all, 'availability'] as const,
   status: () => [...partnerAvailabilityKeys.all, 'status'] as const,
   dutySummary: () => [...partnerAvailabilityKeys.all, 'duty-summary'] as const,
+  breakPolicy: () => [...partnerAvailabilityKeys.all, 'break-policy'] as const,
+  hubs: (lat?: string, lng?: string) =>
+    [...partnerAvailabilityKeys.all, 'hubs', lat ?? '', lng ?? ''] as const,
   shifts: (from?: string, to?: string) =>
     [...partnerAvailabilityKeys.all, 'shifts', from ?? '', to ?? ''] as const,
   attendance: (from?: string, to?: string) =>
@@ -74,6 +78,59 @@ export function usePartnerDutySummary(enabled = true) {
       LIVE_INTERVALS.deliveryStatus,
       isActive
     ),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function usePartnerBreakPolicy(enabled = true) {
+  const isActive = useAppIsActive();
+
+  return useQuery({
+    queryKey: partnerAvailabilityKeys.breakPolicy(),
+    queryFn: () => partnerAvailabilityApi.getBreakPolicy(),
+    enabled,
+    staleTime: 5 * 60_000,
+    gcTime: 15 * 60_000,
+    refetchInterval: liveRefetchInterval(5 * 60_000, isActive),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+function roundCoord(value?: number | null) {
+  if (value == null || !Number.isFinite(value)) return '';
+  return value.toFixed(3);
+}
+
+export function useNearbyHubs(
+  coords?: { latitude?: number; longitude?: number } | null,
+  enabled = true
+) {
+  const isActive = useAppIsActive();
+  const lat = roundCoord(coords?.latitude);
+  const lng = roundCoord(coords?.longitude);
+
+  return useQuery({
+    queryKey: partnerAvailabilityKeys.hubs(lat, lng),
+    queryFn: () =>
+      partnerAvailabilityApi.getNearbyHubs(
+        coords?.latitude != null && coords?.longitude != null
+          ? { latitude: coords.latitude, longitude: coords.longitude }
+          : undefined
+      ),
+    enabled,
+    staleTime: LIVE_INTERVALS.deliveryHubs / 2,
+    gcTime: 5 * 60_000,
+    refetchInterval: liveRefetchInterval(LIVE_INTERVALS.deliveryHubs, isActive),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
@@ -180,6 +237,9 @@ export function usePartnerDutyMutations() {
       queryClient.invalidateQueries({
         queryKey: partnerAvailabilityKeys.streak(),
       }),
+      queryClient.invalidateQueries({
+        queryKey: [...partnerAvailabilityKeys.all, 'hubs'],
+      }),
     ]);
   };
 
@@ -200,6 +260,17 @@ export function usePartnerDutyMutations() {
     },
   });
 
+  const extendBreak = useMutation({
+    mutationFn: (additionalMinutes?: number) =>
+      partnerAvailabilityApi.extendBreak(
+        additionalMinutes != null ? { additionalMinutes } : {}
+      ),
+    onSuccess: async (status) => {
+      patchStatus(status);
+      await invalidateDuty();
+    },
+  });
+
   const setDutyStatus = useMutation({
     mutationFn: (payload: SetDutyStatusPayload) =>
       partnerAvailabilityApi.setStatus(payload),
@@ -209,7 +280,35 @@ export function usePartnerDutyMutations() {
     },
   });
 
-  return { startBreak, endBreak, setDutyStatus, invalidateDuty };
+  const checkInHub = useMutation({
+    mutationFn: (payload: {
+      hubId: string;
+      latitude?: number;
+      longitude?: number;
+    }) => partnerAvailabilityApi.checkInHub(payload),
+    onSuccess: async (result) => {
+      patchStatus(result.status);
+      await invalidateDuty();
+    },
+  });
+
+  const checkOutHub = useMutation({
+    mutationFn: () => partnerAvailabilityApi.checkOutHub(),
+    onSuccess: async (status) => {
+      patchStatus(status);
+      await invalidateDuty();
+    },
+  });
+
+  return {
+    startBreak,
+    endBreak,
+    extendBreak,
+    setDutyStatus,
+    checkInHub,
+    checkOutHub,
+    invalidateDuty,
+  };
 }
 
 export function usePartnerShiftMutations() {
@@ -238,4 +337,4 @@ export function usePartnerShiftMutations() {
   return { bookShift, cancelShift, invalidateShifts };
 }
 
-export { formatDutyError };
+export { formatDutyError, readDutyGps };

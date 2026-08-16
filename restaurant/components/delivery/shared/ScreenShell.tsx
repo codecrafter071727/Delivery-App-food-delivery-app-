@@ -50,6 +50,7 @@ const PAGE_COPY: Record<string, string> = {
   Notifications: 'Alerts & updates',
   Support: 'Help & tickets',
   Shifts: 'Book slots & attendance',
+  Hubs: 'Nearby hubs & cash drop',
   Demand: 'Nearby order heatmap',
 };
 

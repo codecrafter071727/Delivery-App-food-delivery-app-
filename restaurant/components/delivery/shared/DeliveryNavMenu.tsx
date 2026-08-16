@@ -2,9 +2,10 @@ import { Image } from 'expo-image';
 import { usePathname, useRouter } from 'expo-router';
 import {
   Bell,
+  Building2,
   CalendarClock,
-  Flame,
   FileText,
+  Flame,
   HelpCircle,
   Home,
   LogOut,
@@ -71,6 +72,7 @@ const ICONS: Record<DeliveryTabKey, typeof Home> = {
   notifications: Bell,
   support: HelpCircle,
   shifts: CalendarClock,
+  hubs: Building2,
   heatmap: Flame,
 };
 

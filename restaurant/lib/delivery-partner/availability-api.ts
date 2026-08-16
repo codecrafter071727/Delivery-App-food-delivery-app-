@@ -14,9 +14,13 @@ import {
   type AttendanceLog,
   type AttendanceStreak,
   type DutyPartnerSnapshot,
+  type ExtendBreakPayload,
   type GoOnlinePayload,
   type GoOnlineResult,
+  type HubCheckinResult,
+  type NearbyHub,
   type PartnerBreakInfo,
+  type PartnerBreakPolicy,
   type PartnerDutyStatusSnapshot,
   type PartnerDutySummary,
   type PartnerHubCheckin,
@@ -84,6 +88,7 @@ function extractList(data: unknown): unknown[] {
   const nested =
     record.shifts ??
     record.slots ??
+    record.hubs ??
     record.items ??
     record.results ??
     record.docs ??
@@ -257,6 +262,48 @@ async function readGpsForDuty(): Promise<{ latitude: number; longitude: number }
   return { latitude, longitude };
 }
 
+export async function readDutyGps() {
+  return readGpsForDuty();
+}
+
+function mapBreakPolicy(raw: unknown): PartnerBreakPolicy {
+  const record = asRecord(unwrap(raw));
+  return {
+    maxMinutesPerDay:
+      pickNumber(record, ['maxMinutesPerDay']) ?? MAX_BREAK_MINUTES_PER_DAY,
+    maxSingleMinutes:
+      pickNumber(record, ['maxSingleMinutes']) ?? MAX_BREAK_MINUTES,
+    defaultMinutes:
+      pickNumber(record, ['defaultMinutes']) ?? DEFAULT_BREAK_MINUTES,
+    extendDefaultMinutes: pickNumber(record, ['extendDefaultMinutes']) ?? 10,
+    minOnlineMinutesBefore:
+      pickNumber(record, ['minOnlineMinutesBefore']) ?? 10,
+    timezone: pickString(record, ['timezone']) ?? 'Asia/Kolkata',
+  };
+}
+
+function mapNearbyHub(raw: unknown): NearbyHub | null {
+  const record = asRecord(raw);
+  const hubId = pickString(record, ['hubId', '_id', 'id']);
+  const latitude = pickNumber(record, ['latitude', 'lat']);
+  const longitude = pickNumber(record, ['longitude', 'lng', 'lon']);
+  if (!hubId || latitude == null || longitude == null) return null;
+  const kind =
+    pickString(record, ['kind', 'type', 'hubKind'])?.toLowerCase() ?? 'hub';
+  return {
+    hubId,
+    name: pickString(record, ['name', 'title', 'label']) ?? 'Hub',
+    city: pickString(record, ['city']),
+    kind,
+    address: pickString(record, ['address', 'formattedAddress']),
+    latitude,
+    longitude,
+    radiusMeters: pickNumber(record, ['radiusMeters', 'radius']) ?? 150,
+    distanceMeters: pickNumber(record, ['distanceMeters', 'distance']) ?? 0,
+    isActive: pickBool(record, ['isActive', 'active']) ?? true,
+  };
+}
+
 function mapDutyPartner(raw: unknown): DutyPartnerSnapshot {
   const record = asRecord(unwrap(raw));
   const source = asRecord(record.partner ?? record);
@@ -403,11 +450,15 @@ export const DUTY_ERROR_COPY: Record<string, string> = {
   NOT_ON_BREAK: 'You are not on a break.',
   LOCATION_REQUIRED: 'GPS is required. Allow location and try again.',
   GEOFENCE_MISS: 'Move closer to the pin, then try again.',
+  HUB_NOT_FOUND: 'This hub is closed or no longer available.',
+  HUB_GEOFENCE: 'Move closer to the hub pin, then check in.',
+  NOT_AT_HUB: 'You are not checked in at a hub.',
   COD_LIMIT_EXCEEDED: 'COD limit reached. Remit cash before going online again.',
   ILLEGAL_TRANSITION: 'This duty change is not allowed right now.',
   ZONE_REQUIRED: 'Go online once so your hub/zone is set, then book shifts.',
   SHIFT_NOT_FOUND: 'This shift is no longer available.',
   SHIFT_FULL: 'This shift is full.',
+  SHIFT_ALREADY_BOOKED: 'You already booked this shift.',
   SHIFT_OVERLAP: 'This shift overlaps another shift you already booked.',
   SHIFT_ALREADY_STARTED: 'This shift has already started.',
   SHIFT_CLOSED: 'This shift is closed.',
@@ -546,6 +597,94 @@ export const partnerAvailabilityApi = {
   endBreak: async (): Promise<PartnerDutyStatusSnapshot> => {
     const res = await request<unknown>(`${ME_BASE}/break/end`, {
       method: 'PUT',
+      body: {},
+    });
+    return mapDutyStatus(res.data ?? res);
+  },
+
+  /** POST /partners/me/break/extend */
+  extendBreak: async (
+    payload: ExtendBreakPayload = {}
+  ): Promise<PartnerDutyStatusSnapshot> => {
+    const additionalMinutes = Math.max(
+      1,
+      Math.round(payload.additionalMinutes ?? 10)
+    );
+    const res = await request<unknown>(`${ME_BASE}/break/extend`, {
+      method: 'POST',
+      body: { additionalMinutes },
+    });
+    return mapDutyStatus(res.data ?? res);
+  },
+
+  /** GET /partners/me/break/policy */
+  getBreakPolicy: async (): Promise<PartnerBreakPolicy> => {
+    const res = await request<unknown>(`${ME_BASE}/break/policy`);
+    return mapBreakPolicy(res.data ?? res);
+  },
+
+  /** GET /partners/me/hub/nearby */
+  getNearbyHubs: async (coords?: {
+    latitude?: number;
+    longitude?: number;
+  }): Promise<NearbyHub[]> => {
+    const res = await request<unknown>(`${ME_BASE}/hub/nearby`, {
+      params: {
+        lat: coords?.latitude,
+        lng: coords?.longitude,
+      },
+    });
+    return extractList(res.data ?? res)
+      .map(mapNearbyHub)
+      .filter((row): row is NearbyHub => Boolean(row));
+  },
+
+  /** POST /partners/me/hub/check-in */
+  checkInHub: async (payload: {
+    hubId: string;
+    latitude?: number;
+    longitude?: number;
+  }): Promise<HubCheckinResult> => {
+    const hubId = payload.hubId.trim();
+    if (!hubId) throw new PartnerApiError('Choose a hub to check in.');
+    const gps =
+      Number.isFinite(payload.latitude) && Number.isFinite(payload.longitude)
+        ? {
+            latitude: payload.latitude as number,
+            longitude: payload.longitude as number,
+          }
+        : await readGpsForDuty();
+    const res = await request<unknown>(`${ME_BASE}/hub/check-in`, {
+      method: 'POST',
+      body: {
+        hubId,
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+        lat: gps.latitude,
+        lng: gps.longitude,
+      },
+    });
+    const record = asRecord(unwrap(res.data ?? res));
+    const status = mapDutyStatus(record.status ?? record);
+    return {
+      hub: mapNearbyHub(record.hub ?? record) ?? {
+        hubId,
+        name: 'Hub',
+        kind: 'hub',
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+        radiusMeters: 150,
+        distanceMeters: 0,
+        isActive: true,
+      },
+      status,
+    };
+  },
+
+  /** POST /partners/me/hub/check-out — leave hub → online */
+  checkOutHub: async (): Promise<PartnerDutyStatusSnapshot> => {
+    const res = await request<unknown>(`${ME_BASE}/hub/check-out`, {
+      method: 'POST',
       body: {},
     });
     return mapDutyStatus(res.data ?? res);

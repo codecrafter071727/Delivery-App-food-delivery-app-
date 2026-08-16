@@ -9,6 +9,7 @@ import {
   Package,
   Star,
   UtensilsCrossed,
+  Building2,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import {
@@ -48,6 +49,7 @@ import {
 } from '@/lib/delivery-partner/api';
 import {
   formatDutyError,
+  usePartnerBreakPolicy,
   usePartnerDutyMutations,
   usePartnerDutyStatus,
   usePartnerDutySummary,
@@ -72,7 +74,7 @@ import {
   useDeliveryPartnerMe,
 } from '@/lib/delivery-partner/hooks';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
-import { getApiErrorMessage } from '@/lib/errors';
+import { getApiErrorCode, getApiErrorMessage } from '@/lib/errors';
 
 const LIVE_LOCATION_STORAGE_KEY = '@tokajo/partner-live-location';
 const LIVE_LOCATION_FALLBACK = 'Tap to set your live location';
@@ -112,6 +114,15 @@ const MORE_FEATURES = [
     soft: '#ECFDF5',
   },
   {
+    key: 'hubs',
+    label: 'Hubs',
+    description: 'Check-in & cash drop',
+    href: DELIVERY_ROUTES.hubs,
+    icon: Building2,
+    accent: '#0369A1',
+    soft: '#E0F2FE',
+  },
+  {
     key: 'heatmap',
     label: 'Demand',
     description: 'Nearby order heatmap',
@@ -145,7 +156,9 @@ export function DeliveryHomeScreen() {
   const me = useDeliveryPartnerMe();
   const duty = usePartnerDutyStatus();
   const dutySummary = usePartnerDutySummary();
-  const { startBreak, endBreak, setDutyStatus } = usePartnerDutyMutations();
+  const breakPolicy = usePartnerBreakPolicy();
+  const { startBreak, endBreak, extendBreak, setDutyStatus, checkOutHub } =
+    usePartnerDutyMutations();
   const gpsSnap = useLocationSyncSnapshot();
   const saveHome = useSaveHomeLocation();
   const authUser = useAuthStore((s) => s.user);
@@ -168,7 +181,8 @@ export function DeliveryHomeScreen() {
   );
   const onDelivery = dutyStatus === 'on_delivery';
   const acceptingOrders = canAcceptOffers(dutyStatus);
-  const breakBusy = startBreak.isPending || endBreak.isPending;
+  const breakBusy =
+    startBreak.isPending || endBreak.isPending || extendBreak.isPending;
   const delivery = active.data ?? null;
   const goOnlineBlocker = getGoOnlineBlocker(me.data);
 
@@ -216,6 +230,7 @@ export function DeliveryHomeScreen() {
         me.refetch(),
         duty.refetch(),
         dutySummary.refetch(),
+        breakPolicy.refetch(),
         active.refetch(),
         history.refetch(),
         performance.refetch(),
@@ -309,23 +324,56 @@ export function DeliveryHomeScreen() {
     });
   };
 
-  const onResumeFromHub = () => {
-    setDutyStatus.mutate(
-      { dutyStatus: 'online' },
-      {
-        onSuccess: () =>
-          pushLiveToast({
-            title: 'Back online',
-            body: 'You’ll receive nearby orders again.',
-            tone: 'success',
-          }),
-        onError: (err) =>
-          Alert.alert(
-            'Could not go online',
-            formatDutyError(err, 'Please try again.')
-          ),
-      }
-    );
+  const onExtendBreak = (additionalMinutes: number) => {
+    extendBreak.mutate(additionalMinutes, {
+      onSuccess: () =>
+        pushLiveToast({
+          title: 'Break extended',
+          body: `Added ${additionalMinutes} min within today’s cap.`,
+          tone: 'info',
+        }),
+      onError: (err) =>
+        Alert.alert(
+          'Could not extend break',
+          formatDutyError(err, 'Daily or single-break limit reached.')
+        ),
+    });
+  };
+
+  const onLeaveHub = () => {
+    checkOutHub.mutate(undefined, {
+      onSuccess: () =>
+        pushLiveToast({
+          title: 'Left hub',
+          body: 'You’re back online for new orders.',
+          tone: 'success',
+        }),
+      onError: (err) => {
+        if (getApiErrorCode(err) === 'NOT_AT_HUB') {
+          setDutyStatus.mutate(
+            { dutyStatus: 'online' },
+            {
+              onSuccess: () =>
+                pushLiveToast({
+                  title: 'Back online',
+                  body: 'You’ll receive nearby orders again.',
+                  tone: 'success',
+                }),
+              onError: (onlineErr) =>
+                Alert.alert(
+                  'Could not go online',
+                  formatDutyError(onlineErr, 'Please try again.')
+                ),
+            }
+          );
+          return;
+        }
+        Alert.alert(
+          'Could not check out',
+          formatDutyError(err, 'Please try again.')
+        );
+      },
+    });
   };
 
   const onConfirmLiveLocation = async (result: MapPickResult) => {
@@ -466,6 +514,7 @@ export function DeliveryHomeScreen() {
             fallbackStatus={dutyStatus}
             isOnDuty={isOnline}
             summary={dutySummary.data}
+            policy={breakPolicy.data}
             statusLoading={duty.isLoading}
             statusError={
               duty.isError
@@ -475,11 +524,13 @@ export function DeliveryHomeScreen() {
             onRetryStatus={() => void duty.refetch()}
             togglePending={setOnline.isPending}
             breakBusy={breakBusy}
-            resumeBusy={setDutyStatus.isPending}
+            resumeBusy={checkOutHub.isPending || setDutyStatus.isPending}
             onToggle={onToggleOnline}
             onStartBreak={onStartBreak}
             onEndBreak={onEndBreak}
-            onResumeFromHub={onResumeFromHub}
+            onExtendBreak={onExtendBreak}
+            onLeaveHub={onLeaveHub}
+            onOpenHubs={() => router.push(DELIVERY_ROUTES.hubs as never)}
             gpsBanner={gpsBanner}
             actionError={
               setOnline.isError
