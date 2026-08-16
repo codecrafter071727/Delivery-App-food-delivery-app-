@@ -20,6 +20,7 @@ import {
   X,
   Zap,
 } from 'lucide-react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -49,7 +50,6 @@ import {
 import {
   useDeliveryPartnerMe,
   useUpdatePartnerProfile,
-  useUploadPartnerDocument,
 } from '@/lib/delivery-partner/hooks';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import {
@@ -59,6 +59,17 @@ import {
   type VehicleType,
 } from '@/lib/delivery-partner/types';
 import { getApiErrorMessage } from '@/lib/errors';
+import {
+  formatAccountError,
+  platformAccountKeys,
+  usePlatformAccountMutations,
+  usePlatformMe,
+} from '@/lib/user/account-hooks';
+import { displayPlatformName } from '@/lib/user/account-types';
+import {
+  ContactChangeModal,
+  PlatformAccountSection,
+} from '@/components/delivery/profile/PlatformAccountSection';
 import { useAuthStore } from '@/store/auth-store';
 
 type EditSection = 'personal' | 'vehicle' | 'payout' | 'password' | null;
@@ -108,15 +119,26 @@ function FieldBox({
   value,
   muted,
   icon: Icon,
+  actionLabel,
+  onAction,
 }: {
   label: string;
   value: string;
   muted?: boolean;
   icon?: typeof Phone;
+  actionLabel?: string;
+  onAction?: () => void;
 }) {
   return (
     <View style={styles.fieldBox}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={styles.fieldLabelRow}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        {onAction ? (
+          <Pressable onPress={onAction} hitSlop={8}>
+            <Text style={styles.fieldAction}>{actionLabel ?? 'Change'}</Text>
+          </Pressable>
+        ) : null}
+      </View>
       <View style={styles.fieldValueRow}>
         {Icon ? <Icon color={'#EA4B14'} size={14} /> : null}
         <Text
@@ -180,9 +202,11 @@ function FormField({
 export function PartnerProfileManager() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
   const me = useDeliveryPartnerMe();
+  const platformMe = usePlatformMe();
   const updateProfile = useUpdatePartnerProfile();
-  const uploadDoc = useUploadPartnerDocument();
+  const { updateName, uploadPhoto, deletePhoto } = usePlatformAccountMutations();
   const logout = useAuthStore((s) => s.logout);
   const logoutAll = useAuthStore((s) => s.logoutAll);
   const changePassword = useAuthStore((s) => s.changePassword);
@@ -200,8 +224,6 @@ export function PartnerProfileManager() {
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
 
   const [vehicleType, setVehicleType] = useState<VehicleType | ''>('');
@@ -217,6 +239,9 @@ export function PartnerProfileManager() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [contactKind, setContactKind] = useState<'phone' | 'email' | null>(
+    null
+  );
 
   const profile = me.data;
   const loading = me.isLoading && !profile;
@@ -225,16 +250,29 @@ export function PartnerProfileManager() {
       ? getApiErrorMessage(me.error, 'Could not load profile.')
       : null;
 
+  const platform = platformMe.data;
   const displayName = useMemo(() => {
+    const fromPlatform = displayPlatformName(platform);
+    if (fromPlatform) return fromPlatform;
     if (!profile) return '—';
     return (
       profile.name?.trim() ||
       [profile.firstName, profile.lastName].filter(Boolean).join(' ') ||
       '—'
     );
-  }, [profile]);
+  }, [platform, profile]);
 
-  const initials = useMemo(() => initialsFrom(profile), [profile]);
+  const initials = useMemo(() => {
+    const fromPlatform = displayPlatformName(platform);
+    if (fromPlatform) {
+      const parts = fromPlatform.split(/\s+/).filter(Boolean);
+      if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+      }
+      if (parts[0]?.[0]) return parts[0][0].toUpperCase();
+    }
+    return initialsFrom(profile);
+  }, [platform, profile]);
   const online = Boolean(profile?.isOnline ?? profile?.isAvailable);
   const verification = useMemo(
     () => getPartnerVerificationBadge(profile),
@@ -258,7 +296,13 @@ export function PartnerProfileManager() {
   const onRefresh = async () => {
     setPullRefreshing(true);
     try {
-      await me.refetch();
+      await Promise.all([
+        me.refetch(),
+        platformMe.refetch(),
+        queryClient.invalidateQueries({
+          queryKey: platformAccountKeys.preferences(),
+        }),
+      ]);
     } finally {
       setPullRefreshing(false);
     }
@@ -310,9 +354,16 @@ export function PartnerProfileManager() {
     );
   };
 
-  const emailVerified = Boolean(authUser?.emailVerified);
+  const photoUrl = platform?.photoUrl || profile?.photoUrl;
+  const accountPhone = platform?.phone || profile?.phone;
   const accountEmail =
-    authUser?.email?.trim() || profile?.email?.trim() || '';
+    authUser?.email?.trim() ||
+    platform?.email?.trim() ||
+    profile?.email?.trim() ||
+    '';
+  const emailVerified = Boolean(
+    platform?.emailVerified ?? authUser?.emailVerified
+  );
 
   const onResendVerification = async () => {
     if (emailVerified) {
@@ -385,10 +436,8 @@ export function PartnerProfileManager() {
   const openEdit = (section: EditSection) => {
     if (!profile || !section) return;
     if (section === 'personal') {
-      setFirstName(profile.firstName ?? '');
-      setLastName(profile.lastName ?? '');
-      setPhone(profile.phone ?? '');
-      setEmail(profile.email ?? '');
+      setFirstName(platform?.firstName ?? profile.firstName ?? '');
+      setLastName(platform?.lastName ?? profile.lastName ?? '');
       setDateOfBirth(profile.dateOfBirth ?? '');
     }
     if (section === 'vehicle') {
@@ -422,15 +471,27 @@ export function PartnerProfileManager() {
     const payload: UpdatePartnerProfilePayload = {};
 
     if (editSection === 'personal') {
-      if (!firstName.trim()) {
-        Alert.alert('First name required', 'Please enter your first name.');
+      if (firstName.trim().length < 2) {
+        Alert.alert('First name required', 'Enter at least 2 characters.');
         return;
       }
-      payload.firstName = firstName.trim();
-      payload.lastName = lastName.trim();
-      payload.phone = phone.trim();
-      payload.email = email.trim();
-      // DOB is display-only — PUT /partners/me rejects dateOfBirth
+      setSaving(true);
+      try {
+        await updateName.mutateAsync({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+        });
+        setEditSection(null);
+        Alert.alert('Saved', 'Your name was updated.');
+      } catch (err) {
+        Alert.alert(
+          'Update failed',
+          formatAccountError(err, 'Could not update your name.')
+        );
+      } finally {
+        setSaving(false);
+      }
+      return;
     }
 
     if (editSection === 'vehicle') {
@@ -487,29 +548,56 @@ export function PartnerProfileManager() {
     const asset = result.assets[0];
     setUploadingPhoto(true);
     try {
-      await uploadDoc.mutateAsync({
-        docType: 'profilePhoto',
+      await uploadPhoto.mutateAsync({
         uri: asset.uri,
-        fileName: `profile-${Date.now()}.jpg`,
-        mimeType: 'image/jpeg',
+        name: `profile-${Date.now()}.jpg`,
+        type: 'image/jpeg',
       });
       Alert.alert('Uploaded', 'Profile photo updated.');
     } catch (err) {
-      const message = getApiErrorMessage(err, 'Could not upload profile photo.');
       Alert.alert(
         'Upload failed',
-        /internal server error/i.test(message)
-          ? 'Server could not process this photo. Try a different JPG/PNG from your gallery (avoid screenshots if possible).'
-          : message
+        formatAccountError(err, 'Could not upload profile photo.')
       );
     } finally {
       setUploadingPhoto(false);
     }
   };
 
+  const removePhoto = async () => {
+    setUploadingPhoto(true);
+    try {
+      await deletePhoto.mutateAsync();
+      Alert.alert('Removed', 'Profile photo removed.');
+    } catch (err) {
+      Alert.alert(
+        'Could not remove photo',
+        formatAccountError(err, 'Please try again.')
+      );
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const onPhotoPress = () => {
+    if (!photoUrl) {
+      void pickAndUploadPhoto();
+      return;
+    }
+    Alert.alert('Profile photo', 'Update the photo on your account.', [
+      { text: 'Change photo', onPress: () => void pickAndUploadPhoto() },
+      {
+        text: 'Remove photo',
+        style: 'destructive',
+        onPress: () => void removePhoto(),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
   const modalTitle =
     editSection === 'personal'
-      ? 'Edit Personal Information'
+      ? 'Edit name'
       : editSection === 'vehicle'
         ? 'Edit Vehicle Details'
         : editSection === 'payout'
@@ -563,9 +651,9 @@ export function PartnerProfileManager() {
           <>
             <View style={styles.heroCard}>
               <View style={styles.avatarWrap}>
-                {profile.photoUrl ? (
+                {photoUrl ? (
                   <Image
-                    source={{ uri: profile.photoUrl }}
+                    source={{ uri: photoUrl }}
                     style={styles.avatar}
                     contentFit="cover"
                   />
@@ -575,7 +663,7 @@ export function PartnerProfileManager() {
                   </View>
                 )}
                 <Pressable
-                  onPress={() => void pickAndUploadPhoto()}
+                  onPress={onPhotoPress}
                   disabled={uploadingPhoto}
                   style={styles.cameraBtn}
                 >
@@ -701,6 +789,24 @@ export function PartnerProfileManager() {
               </View>
             </View>
 
+            {platformMe.isError && !platform ? (
+              <View style={styles.banner}>
+                <Text style={styles.bannerTitle}>Couldn’t load account</Text>
+                <Text style={styles.muted}>
+                  {formatAccountError(
+                    platformMe.error,
+                    'Name, photo, and login details could not be loaded.'
+                  )}
+                </Text>
+                <Pressable
+                  onPress={() => void platformMe.refetch()}
+                  style={styles.retryBtn}
+                >
+                  <Text style={styles.retryText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <View style={styles.sectionTitleRow}>
@@ -718,20 +824,30 @@ export function PartnerProfileManager() {
               <View style={styles.fieldsCol}>
                 <FieldBox
                   label="Phone"
-                  value={dash(profile.phone)}
+                  value={dash(accountPhone)}
                   icon={Phone}
+                  actionLabel="Change"
+                  onAction={() => setContactKind('phone')}
                 />
                 <FieldBox
                   label="Email"
-                  value={dash(profile.email)}
+                  value={dash(accountEmail || profile.email)}
                   icon={Mail}
+                  actionLabel="Change"
+                  onAction={() => setContactKind('email')}
                 />
                 <View style={styles.fieldsRow}>
                   <View style={{ flex: 1 }}>
-                    <FieldBox label="First Name" value={dash(profile.firstName)} />
+                    <FieldBox
+                      label="First Name"
+                      value={dash(platform?.firstName || profile.firstName)}
+                    />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <FieldBox label="Last Name" value={dash(profile.lastName)} />
+                    <FieldBox
+                      label="Last Name"
+                      value={dash(platform?.lastName || profile.lastName)}
+                    />
                   </View>
                 </View>
                 <FieldBox
@@ -941,6 +1057,8 @@ export function PartnerProfileManager() {
               </Pressable>
             </View>
 
+            <PlatformAccountSection />
+
             <Pressable
               onPress={onLogout}
               disabled={loggingOut}
@@ -958,6 +1076,16 @@ export function PartnerProfileManager() {
           </>
         )}
       </ScrollView>
+
+      <ContactChangeModal
+        kind={contactKind}
+        current={
+          contactKind === 'email'
+            ? accountEmail
+            : accountPhone
+        }
+        onClose={() => setContactKind(null)}
+      />
 
       <Modal
         visible={editSection != null}
@@ -1001,21 +1129,9 @@ export function PartnerProfileManager() {
                     placeholder="Last name"
                     autoCapitalize="words"
                   />
-                  <FormField
-                    label="Phone"
-                    value={phone}
-                    onChangeText={setPhone}
-                    placeholder="+91…"
-                    keyboardType="phone-pad"
-                  />
-                  <FormField
-                    label="Email"
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="you@example.com"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
+                  <Text style={styles.formHint}>
+                    Phone and email are changed from the profile card with an OTP.
+                  </Text>
                   <View style={styles.formField}>
                     <Text style={styles.formLabel}>Date of Birth</Text>
                     <View style={styles.readOnlyBox}>
@@ -1547,11 +1663,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 4,
+  },
   fieldLabel: {
     fontFamily: fonts.medium,
     fontSize: 11,
     color: '#6B7280',
-    marginBottom: 4,
+    flex: 1,
+  },
+  fieldAction: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: '#EA4B14',
   },
   fieldValueRow: {
     flexDirection: 'row',

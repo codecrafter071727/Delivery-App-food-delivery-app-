@@ -28,15 +28,15 @@ const keepRetrying = (failureCount: number, error: unknown) => {
 };
 
 function toAuthPatch(user: PlatformUser): Partial<AuthUser> {
-  return {
-    id: user.id || undefined,
-    email: user.email || undefined,
-    firstName: user.firstName,
-    lastName: user.lastName,
-    phone: user.phone,
-    emailVerified: user.emailVerified,
-    photoUrl: user.photoUrl,
-  };
+  const patch: Partial<AuthUser> = {};
+  if (user.id) patch.id = user.id;
+  if (user.email) patch.email = user.email;
+  if (user.firstName !== undefined) patch.firstName = user.firstName;
+  if (user.lastName !== undefined) patch.lastName = user.lastName;
+  if (user.phone !== undefined) patch.phone = user.phone;
+  if (user.emailVerified !== undefined) patch.emailVerified = user.emailVerified;
+  if (user.photoUrl !== undefined) patch.photoUrl = user.photoUrl;
+  return patch;
 }
 
 export function usePlatformMe(enabled = true) {
@@ -104,7 +104,7 @@ export function usePlatformAccountMutations() {
   const deletePhoto = useMutation({
     mutationFn: userAccountApi.deletePhoto,
     onSuccess: async (user) => {
-      await syncUser({ ...user, photoUrl: user.photoUrl ?? '' });
+      await syncUser({ ...user, photoUrl: user.photoUrl || '' });
     },
   });
 

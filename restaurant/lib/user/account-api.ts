@@ -82,7 +82,13 @@ function pickNumber(record: Record<string, unknown>, keys: string[]) {
 function extractErrorCode(data: unknown): string | undefined {
   const payload = asRecord(data);
   const nested = asRecord(payload.data);
-  const code = pickString(nested, ['code']) ?? pickString(payload, ['code']);
+  const errorObj = asRecord(
+    typeof payload.error === 'object' ? payload.error : undefined
+  );
+  const code =
+    pickString(nested, ['code']) ??
+    pickString(payload, ['code']) ??
+    pickString(errorObj, ['code']);
   return code ? code.toUpperCase().replace(/[\s-]+/g, '_') : undefined;
 }
 
@@ -99,7 +105,11 @@ async function request<T>(
     const response = await api.request<T>({
       url: path,
       method,
-      data: method === 'GET' || method === 'DELETE' ? body : (body ?? {}),
+      data: method === 'GET' ? undefined : body,
+      headers:
+        method === 'DELETE' && body
+          ? { 'Content-Type': 'application/json' }
+          : undefined,
     });
     return response.data;
   } catch (error) {
@@ -139,6 +149,7 @@ export function mapPlatformUser(raw: unknown): PlatformUser {
       'profilePhoto',
       'picture',
       'avatar',
+      'url',
     ]),
     emailVerified: pickBool(source, [
       'emailVerified',
@@ -162,21 +173,25 @@ function mapNotifications(raw: unknown): NotificationPrefs {
 
 function mapPreferences(raw: unknown): UserPreferences {
   const record = asRecord(unwrap(raw));
+  const nestedPrefs = asRecord(record.preferences);
   const language =
     pickString(record, ['language', 'locale'])?.toLowerCase() ??
-    pickString(asRecord(record.preferences), ['language'])?.toLowerCase() ??
+    pickString(nestedPrefs, ['language', 'locale'])?.toLowerCase() ??
     'en';
   const listRaw =
     record.languages ??
     record.allowedLanguages ??
-    asRecord(record.preferences).languages;
+    nestedPrefs.languages ??
+    nestedPrefs.allowedLanguages;
   const languages = Array.isArray(listRaw)
     ? listRaw
         .map((row) => String(row).trim().toLowerCase())
         .filter(Boolean)
     : [...DEFAULT_LANGUAGES];
   return {
-    notifications: mapNotifications(record.notifications ?? record),
+    notifications: mapNotifications(
+      record.notifications ?? nestedPrefs.notifications ?? record
+    ),
     language: language || 'en',
     languages: languages.length ? languages : [...DEFAULT_LANGUAGES],
   };
@@ -184,11 +199,14 @@ function mapPreferences(raw: unknown): UserPreferences {
 
 function mapDeletePreview(raw: unknown): DeletePreview {
   const record = asRecord(unwrap(raw));
+  const openOrders = pickNumber(record, ['openOrders', 'activeOrders']) ?? 0;
+  const canDelete =
+    pickBool(record, ['canDelete', 'allowed']) ?? openOrders === 0;
   return {
-    openOrders: pickNumber(record, ['openOrders', 'activeOrders']) ?? 0,
+    openOrders,
     walletBalance: pickNumber(record, ['walletBalance', 'wallet']) ?? 0,
     activeSubscription: pickBool(record, ['activeSubscription']) ?? false,
-    canDelete: pickBool(record, ['canDelete', 'allowed']) ?? true,
+    canDelete,
     warn: pickString(record, ['warn', 'message', 'reason']) ?? null,
   };
 }
@@ -293,7 +311,10 @@ export const userAccountApi = {
         },
       }
     );
-    return mapPreferences(data);
+    return {
+      ...mapPreferences(data),
+      notifications: payload,
+    };
   },
 
   /** PUT /users/me/preferences/language */
@@ -306,7 +327,11 @@ export const userAccountApi = {
       method: 'PUT',
       body: { language: code },
     });
-    return mapPreferences(data);
+    const mapped = mapPreferences(data);
+    return {
+      ...mapped,
+      language: code,
+    };
   },
 
   /** PUT /users/me/phone — OTP required */
