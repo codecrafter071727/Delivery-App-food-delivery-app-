@@ -13,7 +13,7 @@ import {
 /** Cookie session marker stored when API uses Set-Cookie instead of JWT. */
 export const SESSION_AUTH_TOKEN = 'session';
 
-const DEFAULT_API_BASE_URL = 'http://api.viharfood.in';
+const DEFAULT_API_BASE_URL = 'http://10.12.14.3:4000';
 
 function pickHttpUrl(...candidates: Array<string | null | undefined>): string | null {
   for (const raw of candidates) {
@@ -38,7 +38,7 @@ export const API_BASE_URL = resolveApiBaseUrl();
 export function assertApiBaseUrl(): void {
   if (!/^https?:\/\//i.test(API_BASE_URL)) {
     throw new Error(
-      'API URL is not configured. Add EXPO_PUBLIC_API_URL=http://10.12.130.50:4000 to .env and restart Expo with npx expo start -c.'
+      'API URL is not configured. Add EXPO_PUBLIC_API_URL=http://10.12.14.3:4000 to .env and restart Expo with npx expo start -c.'
     );
   }
 }
