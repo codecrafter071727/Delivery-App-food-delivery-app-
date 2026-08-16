@@ -164,10 +164,13 @@ export function useDeliveryOrderMutations() {
   const setOnline = useMutation({
     mutationFn: (isOnline: boolean) => deliveryPartnerApi.setOnline(isOnline),
     onMutate: async (isOnline) => {
+      const statusKey = [...deliveryPartnerKeys.all, 'availability', 'status'] as const;
       await queryClient.cancelQueries({ queryKey: deliveryPartnerKeys.me() });
+      await queryClient.cancelQueries({ queryKey: statusKey });
       const previous = queryClient.getQueryData<DeliveryPartnerProfile | null>(
         deliveryPartnerKeys.me()
       );
+      const previousStatus = queryClient.getQueryData(statusKey);
       if (previous) {
         queryClient.setQueryData<DeliveryPartnerProfile>(
           deliveryPartnerKeys.me(),
@@ -179,9 +182,7 @@ export function useDeliveryOrderMutations() {
           }
         );
       }
-      queryClient.setQueryData(
-        [...deliveryPartnerKeys.all, 'availability', 'status'],
-        (prev) => {
+      queryClient.setQueryData(statusKey, (prev) => {
         if (!prev || typeof prev !== 'object') return prev;
         const current = prev as {
           dutyStatus?: string;
@@ -199,11 +200,17 @@ export function useDeliveryOrderMutations() {
             : current.break,
         };
       });
-      return { previous };
+      return { previous, previousStatus };
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.previous !== undefined) {
         queryClient.setQueryData(deliveryPartnerKeys.me(), ctx.previous);
+      }
+      if (ctx?.previousStatus !== undefined) {
+        queryClient.setQueryData(
+          [...deliveryPartnerKeys.all, 'availability', 'status'],
+          ctx.previousStatus
+        );
       }
     },
     onSuccess: async (profile) => {

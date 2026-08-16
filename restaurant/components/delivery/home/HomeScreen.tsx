@@ -341,6 +341,27 @@ export function DeliveryHomeScreen() {
   };
 
   const onLeaveHub = () => {
+    const heading =
+      dutyStatus === 'on_way_to_hub' && !duty.data?.hub?.checkedInAt;
+    if (heading) {
+      setDutyStatus.mutate(
+        { dutyStatus: 'online' },
+        {
+          onSuccess: () =>
+            pushLiveToast({
+              title: 'Back online',
+              body: 'You’ll receive nearby orders again.',
+              tone: 'success',
+            }),
+          onError: (err) =>
+            Alert.alert(
+              'Could not go online',
+              formatDutyError(err, 'Please try again.')
+            ),
+        }
+      );
+      return;
+    }
     checkOutHub.mutate(undefined, {
       onSuccess: () =>
         pushLiveToast({

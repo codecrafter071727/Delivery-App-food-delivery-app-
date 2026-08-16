@@ -2,7 +2,7 @@ import axios from 'axios';
 
 import { API_BASE_URL, api, assertApiBaseUrl, refreshCsrfToken } from '@/lib/api';
 import { getToken } from '@/lib/auth/storage';
-import { getApiErrorMessage } from '@/lib/errors';
+import { getApiErrorMessage, PartnerApiError } from '@/lib/errors';
 import {
   postMultipartWithFields,
   type UploadFilePart,
@@ -869,14 +869,18 @@ async function getCurrentPartnerCoords(): Promise<PartnerGpsCoords> {
   const Location = await import('expo-location');
   const { status } = await Location.requestForegroundPermissionsAsync();
   if (status !== 'granted') {
-    throw new Error(
-      'Location permission is required to go online. Enable it in Settings.'
+    throw new PartnerApiError(
+      'Location permission is required to go online. Enable it in Settings.',
+      'LOCATION_REQUIRED'
     );
   }
 
   const enabled = await Location.hasServicesEnabledAsync();
   if (!enabled) {
-    throw new Error('Turn on GPS / location services to go online.');
+    throw new PartnerApiError(
+      'Turn on GPS / location services to go online.',
+      'LOCATION_REQUIRED'
+    );
   }
 
   const pos = await Location.getCurrentPositionAsync({
@@ -890,7 +894,10 @@ async function getCurrentPartnerCoords(): Promise<PartnerGpsCoords> {
     !Number.isFinite(longitude) ||
     (latitude === 0 && longitude === 0)
   ) {
-    throw new Error('Could not read your GPS location. Try again outdoors.');
+    throw new PartnerApiError(
+      'Could not read your GPS location. Try again outdoors.',
+      'LOCATION_REQUIRED'
+    );
   }
 
   return {
