@@ -300,7 +300,8 @@ export function PartnerDocumentsManager() {
                   Upload clear photos of all required documents. KYC stays
                   “Under review” until ops approve — we never fake verified.
                   All {totalDocs} documents must be verified before you can go
-                  online.
+                  online. PAN number and tax PDFs are below, separate from the
+                  PAN card photo.
                 </Text>
               </View>
               <View style={styles.countBox}>

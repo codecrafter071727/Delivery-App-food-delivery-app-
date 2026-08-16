@@ -45,7 +45,7 @@ import type {
   PartnerIncentive,
 } from '@/lib/delivery-partner/analytics-types';
 import { usePartnerBank } from '@/lib/delivery-partner/bank-hooks';
-import { bankStatusLabel } from '@/lib/delivery-partner/bank-types';
+import { bankStatusLabel, isBankVerified } from '@/lib/delivery-partner/bank-types';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import { getApiErrorMessage } from '@/lib/errors';
 
@@ -383,10 +383,43 @@ export function PartnerEarningsManager() {
             >
               <View style={styles.txHeader}>
                 <Text style={styles.txTitle}>Payout Account</Text>
-                <Text style={styles.payoutMeta}>Manage</Text>
+                <Text style={styles.payoutCta}>
+                  {bank?.hasAccount ? 'Manage' : 'Add bank'}
+                </Text>
               </View>
-              {hasPayout ? (
+              {bankQuery.isError && !bank ? (
+                <Text style={styles.payoutMeta}>Could not load bank. Pull to retry.</Text>
+              ) : hasPayout ? (
                 <View style={styles.payoutRows}>
+                  <View
+                    style={[
+                      styles.payoutBadge,
+                      {
+                        backgroundColor: isBankVerified(bank)
+                          ? '#DCFCE7'
+                          : '#FEF3C7',
+                      },
+                    ]}
+                  >
+                    <Zap
+                      color={isBankVerified(bank) ? '#15803D' : '#B45309'}
+                      size={12}
+                    />
+                    <Text
+                      style={[
+                        styles.payoutBadgeText,
+                        {
+                          color: isBankVerified(bank) ? '#15803D' : '#B45309',
+                        },
+                      ]}
+                    >
+                      {bank?.payoutsEnabled
+                        ? 'Instant payouts on'
+                        : bank?.hasAccount
+                          ? `${bankStatusLabel(bank.verificationStatus)} · verify in Profile`
+                          : 'Add bank in Profile'}
+                    </Text>
+                  </View>
                   {bank?.holderName || payout?.accountHolderName ? (
                     <Text style={styles.payoutName}>
                       {bank?.holderName || payout?.accountHolderName}
@@ -407,12 +440,6 @@ export function PartnerEarningsManager() {
                       IFSC {bank?.ifsc || payout?.ifscCode}
                     </Text>
                   ) : null}
-                  {bank?.hasAccount ? (
-                    <Text style={styles.payoutMeta}>
-                      {bankStatusLabel(bank.verificationStatus)}
-                      {bank.payoutsEnabled ? ' · Instant payouts on' : ' · Verify in Profile'}
-                    </Text>
-                  ) : null}
                 </View>
               ) : (
                 <View style={[styles.warningBanner, { marginTop: 0 }]}>
@@ -420,7 +447,8 @@ export function PartnerEarningsManager() {
                     <AlertTriangle color="#F59E0B" size={20} />
                   </View>
                   <Text style={styles.warningText}>
-                    No payout account linked. Add bank + IFSC in Profile (OTP if changing).
+                    No payout account. Add IFSC + account in Profile. Instant
+                    payouts need penny-drop Verified — we never fake paid.
                   </Text>
                 </View>
               )}
@@ -879,6 +907,25 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 13,
     color: '#6B7280',
+  },
+  payoutCta: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: '#EA4B14',
+  },
+  payoutBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  payoutBadgeText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
   },
   payoutLine: {
     fontFamily: fonts.semiBold,

@@ -49,7 +49,7 @@ export {
   partnerSupportApi,
   USE_MOCK_PARTNER_SUPPORT,
 } from '@/lib/delivery-partner/support-api';
-export { partnerBankApi, formatBankError } from '@/lib/delivery-partner/bank-api';
+export { partnerBankApi, formatBankError, shareTaxPdf } from '@/lib/delivery-partner/bank-api';
 export * from '@/lib/delivery-partner/hooks';
 export * from '@/lib/delivery-partner/bank-hooks';
 export * from '@/lib/delivery-partner/analytics-hooks';

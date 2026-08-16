@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Platform } from 'react-native';
+import { Platform, Share } from 'react-native';
 
 import { API_BASE_URL, api, assertApiBaseUrl } from '@/lib/api';
 import {
@@ -357,16 +357,25 @@ export const partnerBankApi = {
 
   /** GET /partners/me/tax-documents */
   listTaxDocuments: async (): Promise<PartnerTaxDocument[]> => {
-    const data = await request<unknown>(`${ME_BASE}/tax-documents`);
-    const record = asRecord(unwrap(data));
-    const rows = Array.isArray(record.documents)
-      ? record.documents
-      : Array.isArray(unwrap(data))
-        ? (unwrap(data) as unknown[])
-        : [];
-    return rows
-      .map((row) => mapTaxDocument(row))
-      .filter((row): row is PartnerTaxDocument => Boolean(row));
+    try {
+      const data = await request<unknown>(`${ME_BASE}/tax-documents`);
+      const record = asRecord(unwrap(data));
+      const nested = asRecord(record.data);
+      const rows = Array.isArray(record.documents)
+        ? record.documents
+        : Array.isArray(nested.documents)
+          ? nested.documents
+          : Array.isArray(unwrap(data))
+            ? (unwrap(data) as unknown[])
+            : [];
+      return rows
+        .map((row) => mapTaxDocument(row))
+        .filter((row): row is PartnerTaxDocument => Boolean(row));
+    } catch (error) {
+      const code = getApiErrorCode(error);
+      if (code === 'NOT_FOUND' || code === 'TAX_DOCUMENT_NOT_FOUND') return [];
+      throw error;
+    }
   },
 
   /** GET /partners/me/tax-documents/:documentId/download */
@@ -377,12 +386,45 @@ export const partnerBankApi = {
     if (!id) {
       throw new PartnerApiError('Missing tax document.', 'TAX_DOCUMENT_NOT_FOUND');
     }
+    assertApiBaseUrl();
     const path = `${ME_BASE}/tax-documents/${encodeURIComponent(id)}/download`;
-    const bytes = await request<ArrayBuffer>(path, {
-      method: 'GET',
-      responseType: 'arraybuffer',
-    });
-    return { filename: `${id}.pdf`, bytes };
+    try {
+      const response = await api.request<ArrayBuffer>({
+        url: path,
+        method: 'GET',
+        responseType: 'arraybuffer',
+        headers: { Accept: 'application/pdf' },
+      });
+      const bytes = toArrayBuffer(response.data);
+      throwIfPdfLooksLikeJson(bytes);
+      const filename =
+        filenameFromDisposition(
+          String(
+            response.headers?.['content-disposition'] ??
+              response.headers?.['Content-Disposition'] ??
+              ''
+          )
+        ) ?? `${id}.pdf`;
+      return { filename, bytes };
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const fromBuffer = decodeJsonBuffer(error.response?.data);
+      const payload = asRecord(fromBuffer);
+      const nested = asRecord(payload.data);
+      const code =
+        extractErrorCode(fromBuffer) ??
+        getApiErrorCode(error) ??
+        (error.response?.status === 404 ? 'TAX_DOCUMENT_NOT_FOUND' : undefined);
+      const message =
+        pickString(nested, ['message']) ??
+        pickString(payload, ['message', 'error']);
+      throw new PartnerApiError(
+        message || formatBankError(error, 'Could not download tax PDF.'),
+        code
+      );
+      }
+      throw error;
+    }
   },
 };
 
@@ -390,12 +432,13 @@ export async function saveTaxPdfOnDevice(
   filename: string,
   bytes: ArrayBuffer
 ): Promise<string | null> {
+  const safeName = filename.replace(/[^\w.\-]+/g, '_');
   if (Platform.OS === 'web' && typeof document !== 'undefined') {
     const blob = new Blob([bytes], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = filename;
+    link.download = safeName;
     link.click();
     URL.revokeObjectURL(url);
     return url;
@@ -404,7 +447,7 @@ export async function saveTaxPdfOnDevice(
   try {
     const FileSystem = await import('expo-file-system/legacy');
     const binary = arrayBufferToBase64(bytes);
-    const uri = `${FileSystem.cacheDirectory ?? FileSystem.documentDirectory}${filename}`;
+    const uri = `${FileSystem.cacheDirectory ?? FileSystem.documentDirectory}${safeName}`;
     await FileSystem.writeAsStringAsync(uri, binary, {
       encoding: FileSystem.EncodingType.Base64,
     });
@@ -412,6 +455,101 @@ export async function saveTaxPdfOnDevice(
   } catch {
     return null;
   }
+}
+
+export async function shareTaxPdf(
+  filename: string,
+  bytes: ArrayBuffer
+): Promise<void> {
+  const uri = await saveTaxPdfOnDevice(filename, bytes);
+  if (!uri) {
+    throw new PartnerApiError(
+      'Could not save this PDF on the device.',
+      'TAX_DOCUMENT_NOT_FOUND'
+    );
+  }
+  if (uri.startsWith('blob:')) return;
+  try {
+    await Share.share({
+      url: uri,
+      title: filename,
+      message: filename,
+    });
+  } catch {
+    // User cancelled share — file is still in cache.
+  }
+}
+
+function toArrayBuffer(data: unknown): ArrayBuffer {
+  if (data instanceof ArrayBuffer) return data;
+  if (ArrayBuffer.isView(data)) {
+    const view = data as ArrayBufferView;
+    return view.buffer.slice(
+      view.byteOffset,
+      view.byteOffset + view.byteLength
+    );
+  }
+  throw new PartnerApiError('Could not read tax PDF.', 'TAX_DOCUMENT_NOT_FOUND');
+}
+
+function decodeJsonBuffer(data: unknown): unknown {
+  if (!data) return undefined;
+  if (typeof data === 'object' && !ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer)) {
+    return data;
+  }
+  try {
+    const bytes = toArrayBuffer(data);
+    const text = arrayBufferToUtf8(bytes).trim();
+    if (text.startsWith('{') || text.startsWith('[')) return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function throwIfPdfLooksLikeJson(bytes: ArrayBuffer) {
+  const head = arrayBufferToUtf8(bytes.slice(0, 200)).trim();
+  if (head.startsWith('{') || head.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(arrayBufferToUtf8(bytes));
+      const code = extractErrorCode(parsed);
+      throw new PartnerApiError(
+        formatBankError(
+          new PartnerApiError('Could not download tax PDF.', code),
+          'Could not download tax PDF.'
+        ),
+        code ?? 'TAX_DOCUMENT_NOT_FOUND'
+      );
+    } catch (error) {
+      if (error instanceof PartnerApiError) throw error;
+    }
+  }
+}
+
+function filenameFromDisposition(header: string) {
+  if (!header) return undefined;
+  const starred = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (starred?.[1]) {
+    try {
+      return decodeURIComponent(starred[1].replace(/["']/g, '').trim());
+    } catch {
+      return starred[1];
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim();
+}
+
+function arrayBufferToUtf8(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  if (typeof TextDecoder === 'function') {
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+  let text = '';
+  for (let i = 0; i < bytes.byteLength; i += 1) {
+    text += String.fromCharCode(bytes[i]);
+  }
+  return text;
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer) {
