@@ -45,6 +45,8 @@ type Props = {
   onOpenHubs: () => void;
   gpsBanner?: string | null;
   actionError?: string | null;
+  summaryError?: string | null;
+  onRetrySummary?: () => void;
 };
 
 function formatCountdown(totalSeconds: number) {
@@ -77,6 +79,8 @@ export function DutyControlCard({
   onOpenHubs,
   gpsBanner,
   actionError,
+  summaryError,
+  onRetrySummary,
 }: Props) {
   const dutyStatus = snapshot?.dutyStatus ?? fallbackStatus;
   const onDelivery = dutyStatus === 'on_delivery';
@@ -225,7 +229,11 @@ export function DutyControlCard({
             {resumeBusy ? (
               <ActivityIndicator color="#111827" size="small" />
             ) : (
-              <Text style={styles.resumeBtnText}>Check out → online</Text>
+              <Text style={styles.resumeBtnText}>
+                {snapshot?.hub?.checkedInAt
+                  ? 'Check out → online'
+                  : 'Cancel heading → online'}
+              </Text>
             )}
           </Pressable>
           <Pressable onPress={onOpenHubs} style={styles.hubLink}>
@@ -242,20 +250,29 @@ export function DutyControlCard({
       {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}
 
       <View style={styles.summaryRow}>
-        <View style={styles.summaryCell}>
-          <Text style={styles.summaryValue}>
-            {formatMinutes(summary?.onlineMinutes)}
-          </Text>
-          <Text style={styles.summaryLabel}>Online today</Text>
-        </View>
-        <View style={styles.summaryCell}>
-          <Text style={styles.summaryValue}>{summary?.deliveries ?? 0}</Text>
-          <Text style={styles.summaryLabel}>Trips</Text>
-        </View>
-        <View style={styles.summaryCell}>
-          <Text style={styles.summaryValue}>{formatDutyKm(summary?.km)}</Text>
-          <Text style={styles.summaryLabel}>Distance</Text>
-        </View>
+        {summaryError ? (
+          <Pressable onPress={onRetrySummary} style={styles.summaryError}>
+            <Text style={styles.summaryErrorText}>{summaryError}</Text>
+            <Text style={styles.summaryRetry}>Retry</Text>
+          </Pressable>
+        ) : (
+          <>
+            <View style={styles.summaryCell}>
+              <Text style={styles.summaryValue}>
+                {formatMinutes(summary?.onlineMinutes)}
+              </Text>
+              <Text style={styles.summaryLabel}>Online today</Text>
+            </View>
+            <View style={styles.summaryCell}>
+              <Text style={styles.summaryValue}>{summary?.deliveries ?? 0}</Text>
+              <Text style={styles.summaryLabel}>Trips</Text>
+            </View>
+            <View style={styles.summaryCell}>
+              <Text style={styles.summaryValue}>{formatDutyKm(summary?.km)}</Text>
+              <Text style={styles.summaryLabel}>Distance</Text>
+            </View>
+          </>
+        )}
       </View>
     </View>
   );
@@ -428,5 +445,24 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontFamily: fonts.medium,
     fontSize: 11,
+  },
+  summaryError: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  summaryErrorText: {
+    flex: 1,
+    color: '#FCA5A5',
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+  summaryRetry: {
+    color: '#FDBA74',
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
   },
 });

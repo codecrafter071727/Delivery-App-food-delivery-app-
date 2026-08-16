@@ -537,6 +537,15 @@ export function DeliveryHomeScreen() {
                 ? formatGoOnlineError(setOnline.error, 'Could not update status')
                 : null
             }
+            summaryError={
+              dutySummary.isError && !dutySummary.data
+                ? formatDutyError(
+                    dutySummary.error,
+                    'Could not load today’s duty summary.'
+                  )
+                : null
+            }
+            onRetrySummary={() => void dutySummary.refetch()}
           />
 
           {/* Earning & Profile Bottom */}

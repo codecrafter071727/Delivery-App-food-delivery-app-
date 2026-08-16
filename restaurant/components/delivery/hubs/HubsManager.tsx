@@ -32,6 +32,7 @@ import {
   usePartnerDutyStatus,
 } from '@/lib/delivery-partner/availability-hooks';
 import {
+  canAcceptOffers,
   formatMeters,
   hubKindLabel,
   type NearbyHub,
@@ -63,7 +64,7 @@ export function HubsManager() {
   const router = useRouter();
   const headerScroll = useDeliveryHeaderScrollProps();
   const duty = usePartnerDutyStatus();
-  const { checkInHub, checkOutHub } = usePartnerDutyMutations();
+  const { checkInHub, checkOutHub, setDutyStatus } = usePartnerDutyMutations();
   const gpsSnap = useLocationSyncSnapshot();
   const [gps, setGps] = useState<{ latitude: number; longitude: number } | null>(
     null
@@ -78,8 +79,11 @@ export function HubsManager() {
 
   const hubs = useNearbyHubs(liveGps, true);
   const checkedInId = duty.data?.hub?.hubId ?? null;
-  const onWayToHub = duty.data?.dutyStatus === 'on_way_to_hub';
+  const atHub = Boolean(duty.data?.hub?.checkedInAt);
+  const onWayToHub = duty.data?.dutyStatus === 'on_way_to_hub' && !atHub;
   const onDelivery = duty.data?.dutyStatus === 'on_delivery';
+  const onBreak = duty.data?.dutyStatus === 'on_break';
+  const accepting = canAcceptOffers(duty.data?.dutyStatus);
 
   useEffect(() => {
     if (liveGps) return;
@@ -167,7 +171,34 @@ export function HubsManager() {
     );
   };
 
+  const resumeOnline = (title: string, body: string) => {
+    setDutyStatus.mutate(
+      {
+        dutyStatus: 'online',
+        latitude: liveGps?.latitude,
+        longitude: liveGps?.longitude,
+      },
+      {
+        onSuccess: () =>
+          pushLiveToast({
+            title,
+            body,
+            tone: 'success',
+          }),
+        onError: (err) =>
+          Alert.alert(
+            'Could not go online',
+            formatDutyError(err, 'Please try again.')
+          ),
+      }
+    );
+  };
+
   const onCheckOut = () => {
+    if (onWayToHub && !atHub) {
+      resumeOnline('Back online', 'You’ll receive nearby orders again.');
+      return;
+    }
     checkOutHub.mutate(undefined, {
       onSuccess: () =>
         pushLiveToast({
@@ -175,12 +206,82 @@ export function HubsManager() {
           body: 'You’re back online for new orders.',
           tone: 'success',
         }),
-      onError: (err) =>
+      onError: (err) => {
+        if (getApiErrorCode(err) === 'NOT_AT_HUB') {
+          resumeOnline('Back online', 'You’ll receive nearby orders again.');
+          return;
+        }
         Alert.alert(
           'Could not check out',
           formatDutyError(err, 'Please try again.')
-        ),
+        );
+      },
     });
+  };
+
+  const onHeadToHub = (hub: NearbyHub) => {
+    if (onDelivery) {
+      Alert.alert(
+        'Active delivery',
+        'Finish the current trip before heading to a hub.'
+      );
+      return;
+    }
+    if (onBreak) {
+      Alert.alert(
+        'On break',
+        'End your break before heading to a hub.'
+      );
+      return;
+    }
+    if (!accepting) {
+      Alert.alert(
+        'Go online first',
+        'You must be online (and not on a trip) before marking on the way to a hub.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Open home',
+            onPress: () => router.push(DELIVERY_ROUTES.home as never),
+          },
+        ]
+      );
+      return;
+    }
+    Alert.alert(
+      `Head to ${hub.name}?`,
+      'New orders pause until you check in at the hub or cancel heading.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'On my way',
+          onPress: () => {
+            setBusyHubId(hub.hubId);
+            setDutyStatus.mutate(
+              {
+                dutyStatus: 'on_way_to_hub',
+                latitude: liveGps?.latitude,
+                longitude: liveGps?.longitude,
+              },
+              {
+                onSuccess: () =>
+                  pushLiveToast({
+                    title: 'Heading to hub',
+                    body: `Navigate to ${hub.name}, then check in when you’re in range.`,
+                    tone: 'info',
+                  }),
+                onError: (err) =>
+                  Alert.alert(
+                    'Could not update status',
+                    formatDutyError(err, 'Stay online and try again.')
+                  ),
+                onSettled: () => setBusyHubId(null),
+              }
+            );
+          },
+        },
+      ]
+    );
   };
 
   const listError =
@@ -215,21 +316,27 @@ export function HubsManager() {
         }
         showsVerticalScrollIndicator={false}
       >
-        {onWayToHub || checkedInId ? (
+        {atHub || onWayToHub ? (
           <View style={styles.checkedBanner}>
-            <Text style={styles.checkedTitle}>Checked in at hub</Text>
+            <Text style={styles.checkedTitle}>
+              {atHub ? 'Checked in at hub' : 'Heading to hub'}
+            </Text>
             <Text style={styles.checkedHint}>
-              Leave the hub to start receiving orders again.
+              {atHub
+                ? 'Leave the hub to start receiving orders again.'
+                : 'Check in when you arrive, or cancel heading to take orders again.'}
             </Text>
             <Pressable
               onPress={onCheckOut}
-              disabled={checkOutHub.isPending}
+              disabled={checkOutHub.isPending || setDutyStatus.isPending}
               style={styles.checkoutBtn}
             >
-              {checkOutHub.isPending ? (
+              {checkOutHub.isPending || setDutyStatus.isPending ? (
                 <ActivityIndicator color="#111827" size="small" />
               ) : (
-                <Text style={styles.checkoutText}>Check out → online</Text>
+                <Text style={styles.checkoutText}>
+                  {atHub ? 'Check out → online' : 'Cancel heading → online'}
+                </Text>
               )}
             </Pressable>
           </View>
@@ -271,8 +378,12 @@ export function HubsManager() {
         ) : (
           sorted.map((hub) => {
             const inFence = hub.distanceMeters <= hub.radiusMeters;
-            const isHere = checkedInId === hub.hubId;
-            const busy = busyHubId === hub.hubId || checkInHub.isPending;
+            const isHere =
+              atHub && (!checkedInId || checkedInId === hub.hubId);
+            const busy =
+              busyHubId === hub.hubId ||
+              checkInHub.isPending ||
+              setDutyStatus.isPending;
             return (
               <View key={hub.hubId} style={styles.hubCard}>
                 <View style={styles.hubTop}>
@@ -313,7 +424,9 @@ export function HubsManager() {
 
                 <Text style={styles.fenceHint}>
                   Check-in radius {formatMeters(hub.radiusMeters)}
-                  {inFence ? ' · You’re in range' : ' · Move closer to check in'}
+                  {inFence
+                    ? ' · You’re in range'
+                    : ' · On my way, then check in when you arrive'}
                 </Text>
 
                 <View style={styles.hubActions}>
@@ -329,7 +442,7 @@ export function HubsManager() {
                       <CheckCircle2 color="#15803D" size={15} />
                       <Text style={styles.hereText}>You’re here</Text>
                     </View>
-                  ) : (
+                  ) : inFence ? (
                     <Pressable
                       onPress={() => onCheckIn(hub)}
                       disabled={busy || !hub.isActive || onDelivery}
@@ -345,6 +458,26 @@ export function HubsManager() {
                           <MapPin color="#FFFFFF" size={15} />
                           <Text style={styles.checkInText}>Check in</Text>
                         </>
+                      )}
+                    </Pressable>
+                  ) : onWayToHub ? (
+                    <View style={styles.headingChip}>
+                      <Navigation color="#C2410C" size={15} />
+                      <Text style={styles.headingText}>Heading</Text>
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() => onHeadToHub(hub)}
+                      disabled={busy || !hub.isActive || onDelivery}
+                      style={[
+                        styles.wayBtn,
+                        (!hub.isActive || onDelivery) && styles.checkInDisabled,
+                      ]}
+                    >
+                      {busy ? (
+                        <ActivityIndicator color="#111827" size="small" />
+                      ) : (
+                        <Text style={styles.wayBtnText}>On my way</Text>
                       )}
                     </Pressable>
                   )}
@@ -542,5 +675,33 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 13,
     color: '#15803D',
+  },
+  headingChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 14,
+    paddingVertical: 12,
+    backgroundColor: '#FFEDD5',
+  },
+  headingText: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: '#C2410C',
+  },
+  wayBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    paddingVertical: 12,
+    backgroundColor: '#FDBA74',
+  },
+  wayBtnText: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: '#111827',
   },
 });

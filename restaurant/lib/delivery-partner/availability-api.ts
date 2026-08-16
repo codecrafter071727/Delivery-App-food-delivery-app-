@@ -690,6 +690,12 @@ export const partnerAvailabilityApi = {
     });
     const record = asRecord(unwrap(res.data ?? res));
     const status = mapDutyStatus(record.status ?? record);
+    if (!status.hub.checkedInAt) {
+      status.hub = {
+        hubId: status.hub.hubId ?? hubId,
+        checkedInAt: new Date().toISOString(),
+      };
+    }
     return {
       hub: mapNearbyHub(record.hub ?? record) ?? {
         hubId,
