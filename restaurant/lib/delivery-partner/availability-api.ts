@@ -8,24 +8,26 @@ import { emitRiderEvent, isRiderSocketConnected } from '@/lib/delivery-partner/r
 import {
   DEFAULT_BREAK_MINUTES,
   MAX_BREAK_MINUTES,
+  MAX_BREAK_MINUTES_PER_DAY,
   normalizeDutyStatus,
   type AttendanceDay,
   type AttendanceLog,
   type AttendanceStreak,
-  type CreateAdminShiftPayload,
   type DutyPartnerSnapshot,
   type GoOnlinePayload,
   type GoOnlineResult,
   type PartnerBreakInfo,
   type PartnerDutyStatusSnapshot,
+  type PartnerDutySummary,
+  type PartnerHubCheckin,
   type PartnerShiftSlot,
+  type SetDutyStatusPayload,
   type ShiftBookingResult,
   type ShiftCancelResult,
   type StartBreakPayload,
 } from '@/lib/delivery-partner/availability-types';
 
 const ME_BASE = '/api/v1/delivery-service/partners/me';
-const ADMIN_SHIFTS = '/api/v1/delivery-service/admin/shifts';
 
 type Envelope<T> = {
   success?: boolean;
@@ -136,19 +138,29 @@ function mapBreak(raw: unknown): PartnerBreakInfo {
   return {
     active: pickBool(record, ['active', 'isActive', 'onBreak']) ?? false,
     startedAt: pickString(record, ['startedAt', 'startAt']) ?? null,
+    expiresAt: pickString(record, ['expiresAt', 'endsAt']) ?? null,
     elapsedMinutes: pickNumber(record, ['elapsedMinutes', 'elapsed']) ?? 0,
     minutesUsedToday: pickNumber(record, ['minutesUsedToday', 'usedToday']) ?? 0,
     minutesRemainingToday:
       pickNumber(record, ['minutesRemainingToday', 'remainingToday']) ?? 0,
-    maxMinutesPerDay: pickNumber(record, ['maxMinutesPerDay']) ?? 60,
+    maxMinutesPerDay: pickNumber(record, ['maxMinutesPerDay']) ?? MAX_BREAK_MINUTES_PER_DAY,
     maxSingleMinutes: pickNumber(record, ['maxSingleMinutes']) ?? MAX_BREAK_MINUTES,
     defaultMinutes: pickNumber(record, ['defaultMinutes']) ?? DEFAULT_BREAK_MINUTES,
   };
 }
 
+function mapHub(raw: unknown): PartnerHubCheckin {
+  const record = asRecord(raw);
+  return {
+    hubId: pickString(record, ['hubId', 'id']) ?? null,
+    checkedInAt: pickString(record, ['checkedInAt']) ?? null,
+  };
+}
+
 function inferDutyStatus(
   record: Record<string, unknown>,
-  brk: PartnerBreakInfo
+  brk: PartnerBreakInfo,
+  hub: PartnerHubCheckin
 ): PartnerDutyStatusSnapshot['dutyStatus'] {
   const explicit = normalizeDutyStatus(
     pickString(record, ['dutyStatus', 'status', 'duty', 'availabilityStatus'])
@@ -158,6 +170,7 @@ function inferDutyStatus(
   if (pickString(record, ['activeDeliveryId', 'activeDelivery'])) {
     return 'on_delivery';
   }
+  if (hub.checkedInAt || hub.hubId) return 'on_way_to_hub';
   const online = pickBool(record, ['isOnline', 'online']);
   if (online === false) return 'offline';
   if (online === true) return 'online';
@@ -169,13 +182,12 @@ export function mapDutyStatus(raw: unknown): PartnerDutyStatusSnapshot {
   const nested = asRecord(record.status ?? record);
   const source = Object.keys(nested).length ? nested : record;
   const brk = mapBreak(source.break ?? source.breakInfo ?? record.break);
-  const dutyStatus = inferDutyStatus(source, brk);
+  const hub = mapHub(source.hub ?? record.hub);
+  const dutyStatus = inferDutyStatus(source, brk, hub);
   const isOnline =
-    pickBool(source, ['isOnline', 'online']) ??
-    (dutyStatus !== 'offline');
+    pickBool(source, ['isOnline', 'online']) ?? dutyStatus !== 'offline';
   const isAvailable =
-    pickBool(source, ['isAvailable', 'available']) ??
-    (dutyStatus === 'online');
+    pickBool(source, ['isAvailable', 'available']) ?? dutyStatus === 'online';
 
   return {
     dutyStatus,
@@ -189,7 +201,60 @@ export function mapDutyStatus(raw: unknown): PartnerDutyStatusSnapshot {
       pickString(source, ['activeDeliveryId', 'activeDelivery', 'deliveryId']) ??
       null,
     break: brk,
+    hub,
   };
+}
+
+function mapDutySummary(raw: unknown): PartnerDutySummary {
+  const record = asRecord(unwrap(raw));
+  const onlineMinutes = pickNumber(record, ['onlineMinutes', 'dutyMinutes']) ?? 0;
+  const onlineHours =
+    pickNumber(record, ['onlineHours']) ??
+    Math.round((onlineMinutes / 60) * 100) / 100;
+  return {
+    date: pickString(record, ['date']) ?? '',
+    dutyStatus: normalizeDutyStatus(pickString(record, ['dutyStatus'])),
+    onlineMinutes,
+    onlineHours,
+    deliveries: pickNumber(record, ['deliveries', 'totalDeliveries']) ?? 0,
+    km: pickNumber(record, ['km', 'distanceKm', 'actualDistance']) ?? 0,
+    breakMinutes: pickNumber(record, ['breakMinutes']) ?? 0,
+    stillOnDuty: pickBool(record, ['stillOnDuty', 'onDuty']) ?? false,
+  };
+}
+
+async function readGpsForDuty(): Promise<{ latitude: number; longitude: number }> {
+  const Location = await import('expo-location');
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  if (status !== 'granted') {
+    throw new PartnerApiError(
+      'Location permission is required. Enable it in Settings.',
+      'LOCATION_REQUIRED'
+    );
+  }
+  const enabled = await Location.hasServicesEnabledAsync();
+  if (!enabled) {
+    throw new PartnerApiError(
+      'Turn on GPS / location services to continue.',
+      'LOCATION_REQUIRED'
+    );
+  }
+  const pos = await Location.getCurrentPositionAsync({
+    accuracy: Location.Accuracy.Balanced,
+  });
+  const latitude = pos.coords.latitude;
+  const longitude = pos.coords.longitude;
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    (latitude === 0 && longitude === 0)
+  ) {
+    throw new PartnerApiError(
+      'Could not read your GPS location. Try again outdoors.',
+      'LOCATION_REQUIRED'
+    );
+  }
+  return { latitude, longitude };
 }
 
 function mapDutyPartner(raw: unknown): DutyPartnerSnapshot {
@@ -326,12 +391,20 @@ export function applyDutyStatusToProfile(
 export const DUTY_ERROR_COPY: Record<string, string> = {
   PARTNER_NOT_ACTIVE:
     'Only active partners can go online. Finish KYC and wait for account activation.',
+  PARTNER_NOT_FOUND: 'No delivery partner profile found. Complete registration first.',
+  PARTNER_SUSPENDED: 'Your account is suspended. Contact support.',
+  PARTNER_BLOCKED: 'Your account is blocked. Contact support.',
   ACTIVE_DELIVERY: 'Complete your active delivery before changing duty status.',
   PARTNER_OFFLINE: 'Go online before starting a break.',
   ALREADY_ON_BREAK: 'You are already on a break.',
-  BREAK_TOO_EARLY: 'Wait a little longer before starting another break.',
+  BREAK_TOO_EARLY: 'Stay online a bit longer before starting a break.',
   BREAK_LIMIT_EXCEEDED: 'You have used today’s break allowance.',
+  BREAK_MAX_REACHED: 'This break cannot be extended further.',
   NOT_ON_BREAK: 'You are not on a break.',
+  LOCATION_REQUIRED: 'GPS is required. Allow location and try again.',
+  GEOFENCE_MISS: 'Move closer to the pin, then try again.',
+  COD_LIMIT_EXCEEDED: 'COD limit reached. Remit cash before going online again.',
+  ILLEGAL_TRANSITION: 'This duty change is not allowed right now.',
   ZONE_REQUIRED: 'Go online once so your hub/zone is set, then book shifts.',
   SHIFT_NOT_FOUND: 'This shift is no longer available.',
   SHIFT_FULL: 'This shift is full.',
@@ -407,6 +480,51 @@ export const partnerAvailabilityApi = {
   getStatus: async (): Promise<PartnerDutyStatusSnapshot> => {
     const res = await request<unknown>(`${ME_BASE}/status`);
     return mapDutyStatus(res.data ?? res);
+  },
+
+  /**
+   * PUT /partners/me/status
+   * Explicit `offline` / `online` / `on_break` / `on_way_to_hub`. Cannot set `on_delivery`.
+   */
+  setStatus: async (
+    payload: SetDutyStatusPayload
+  ): Promise<PartnerDutyStatusSnapshot> => {
+    const dutyStatus = payload.dutyStatus;
+    const body: Record<string, unknown> = { dutyStatus };
+
+    if (dutyStatus === 'online' || dutyStatus === 'on_way_to_hub') {
+      const gps =
+        Number.isFinite(payload.latitude) && Number.isFinite(payload.longitude)
+          ? { latitude: payload.latitude as number, longitude: payload.longitude as number }
+          : await readGpsForDuty();
+      body.latitude = gps.latitude;
+      body.longitude = gps.longitude;
+      body.lat = gps.latitude;
+      body.lng = gps.longitude;
+    }
+
+    if (dutyStatus === 'on_break') {
+      const duration = Math.min(
+        MAX_BREAK_MINUTES,
+        Math.max(
+          1,
+          Math.round(payload.durationMinutes ?? DEFAULT_BREAK_MINUTES)
+        )
+      );
+      body.durationMinutes = duration;
+    }
+
+    const res = await request<unknown>(`${ME_BASE}/status`, {
+      method: 'PUT',
+      body,
+    });
+    return mapDutyStatus(res.data ?? res);
+  },
+
+  /** GET /partners/me/duty-summary — IST-today minutes, km, deliveries. */
+  getDutySummary: async (): Promise<PartnerDutySummary> => {
+    const res = await request<unknown>(`${ME_BASE}/duty-summary`);
+    return mapDutySummary(res.data ?? res);
   },
 
   /** PUT /partners/me/break/start */
@@ -507,20 +625,5 @@ export const partnerAvailabilityApi = {
   getAttendanceStreak: async (): Promise<AttendanceStreak> => {
     const res = await request<unknown>(`${ME_BASE}/attendance/streak`);
     return mapStreak(res.data ?? res);
-  },
-
-  /** POST /admin/shifts (admin role) */
-  createAdminShift: async (
-    payload: CreateAdminShiftPayload
-  ): Promise<PartnerShiftSlot> => {
-    const res = await request<unknown>(ADMIN_SHIFTS, {
-      method: 'POST',
-      body: payload,
-    });
-    const mapped = mapShift(unwrap(res.data ?? res));
-    if (!mapped) {
-      throw new PartnerApiError('Shift was created but could not be read back.');
-    }
-    return mapped;
   },
 };

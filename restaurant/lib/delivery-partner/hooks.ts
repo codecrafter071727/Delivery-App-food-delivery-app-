@@ -219,7 +219,7 @@ export function useDeliveryOrderMutations() {
           queryKey: deliveryPartnerKeys.me(),
         }),
         queryClient.invalidateQueries({
-          queryKey: [...deliveryPartnerKeys.all, 'availability', 'status'],
+          queryKey: [...deliveryPartnerKeys.all, 'availability'],
         }),
       ]);
     },

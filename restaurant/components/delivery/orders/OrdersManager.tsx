@@ -31,6 +31,8 @@ import { TripChatSheet } from '@/components/delivery/orders/TripChatSheet';
 import { DeliveryTripMap } from '@/components/delivery/orders/DeliveryTripMap';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
+import { usePartnerDutyStatus } from '@/lib/delivery-partner/availability-hooks';
+import { isDutySwitchOn } from '@/lib/delivery-partner/availability-types';
 import {
   formatGoOnlineError,
   getDocumentProgress,
@@ -162,7 +164,13 @@ export function PartnerOrdersManager() {
   const [pullRefreshing, setPullRefreshing] = useState(false);
 
   const me = useDeliveryPartnerMe();
-  const isOnline = Boolean(me.data?.isOnline ?? me.data?.isAvailable);
+  const duty = usePartnerDutyStatus();
+  const dutyStatus = duty.data?.dutyStatus ?? me.data?.dutyStatus;
+  const isOnline = isDutySwitchOn(
+    dutyStatus,
+    Boolean(me.data?.isOnline ?? me.data?.isAvailable ?? duty.data?.isOnline)
+  );
+  const onDelivery = dutyStatus === 'on_delivery';
   const goOnlineBlocker = getGoOnlineBlocker(me.data);
   const docProgress = getDocumentProgress(me.data);
   const active = useActiveDelivery(true, { fast: isOnline });
@@ -213,7 +221,7 @@ export function PartnerOrdersManager() {
   const onRefresh = async () => {
     setPullRefreshing(true);
     try {
-      await Promise.all([active.refetch(), me.refetch(), history.refetch()]);
+      await Promise.all([active.refetch(), me.refetch(), history.refetch(), duty.refetch()]);
     } finally {
       setPullRefreshing(false);
     }
@@ -225,6 +233,13 @@ export function PartnerOrdersManager() {
 
   const handleGoOnline = async () => {
     const next = !isOnline;
+    if (onDelivery && isOnline) {
+      Alert.alert(
+        'Active delivery',
+        'Complete your active delivery before going offline.'
+      );
+      return;
+    }
     if (next && goOnlineBlocker) {
       Alert.alert(goOnlineBlocker.title, goOnlineBlocker.message, [
         { text: 'Cancel', style: 'cancel' },
@@ -239,7 +254,7 @@ export function PartnerOrdersManager() {
     setBusyLabel(next ? 'Going online…' : 'Going offline…');
     try {
       await mutations.setOnline.mutateAsync(next);
-      await Promise.all([active.refetch(), history.refetch()]);
+      await Promise.all([active.refetch(), history.refetch(), duty.refetch()]);
     } catch (error) {
       Alert.alert(
         'Could not go online',
