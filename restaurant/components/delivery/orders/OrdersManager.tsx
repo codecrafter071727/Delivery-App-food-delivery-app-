@@ -153,6 +153,8 @@ export function PartnerOrdersManager() {
   const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [deliverTargetId, setDeliverTargetId] = useState<string | null>(null);
+  const [pickupTargetId, setPickupTargetId] = useState<string | null>(null);
+  const [pickupOtp, setPickupOtp] = useState('');
   const [chatDelivery, setChatDelivery] = useState<PartnerDelivery | null>(null);
   const [otp, setOtp] = useState('');
   const [proofUri, setProofUri] = useState<string | null>(null);
@@ -295,12 +297,18 @@ export function PartnerOrdersManager() {
     }
   };
 
-  const handlePickup = async (deliveryId: string) => {
+  const handlePickup = async () => {
+    if (!pickupTargetId) return;
     setBusyLabel('Confirming pickup…');
     try {
-      await mutations.pickup.mutateAsync(deliveryId);
+      await mutations.pickup.mutateAsync({
+        deliveryId: pickupTargetId,
+        otp: pickupOtp.trim() || undefined,
+      });
+      setPickupTargetId(null);
+      setPickupOtp('');
     } catch (error) {
-      showError(error, 'Could not mark pickup.');
+      showError(error, 'Could not mark pickup. Enter the kitchen OTP if asked.');
     } finally {
       setBusyLabel(null);
     }
@@ -344,7 +352,10 @@ export function PartnerOrdersManager() {
   const runPrimaryAction = (delivery: PartnerDelivery) => {
     const action = nextDeliveryAction(delivery.status);
     if (action === 'arrived') void handleArrived(delivery.id);
-    else if (action === 'pickup') void handlePickup(delivery.id);
+    else if (action === 'pickup') {
+      setPickupOtp('');
+      setPickupTargetId(delivery.id);
+    }
     else if (action === 'reached_customer') void handleReachedCustomer(delivery.id);
     else if (action === 'deliver') setDeliverTargetId(delivery.id);
   };
@@ -668,6 +679,50 @@ export function PartnerOrdersManager() {
             />
             <Pressable onPress={() => void handleReject()} style={styles.dangerBtn}>
               <Text style={styles.dangerBtnText}>Confirm decline</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(pickupTargetId)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setPickupTargetId(null);
+          setPickupOtp('');
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Confirm pickup</Text>
+              <Pressable
+                onPress={() => {
+                  setPickupTargetId(null);
+                  setPickupOtp('');
+                }}
+                hitSlop={8}
+              >
+                <X color={'#6B7280'} size={20} />
+              </Pressable>
+            </View>
+            <Text style={styles.modalSub}>
+              Enter the kitchen pickup OTP if the restaurant asks for it, then
+              confirm. Same as Swiggy / Zomato pickup.
+            </Text>
+            <TextInput
+              value={pickupOtp}
+              onChangeText={setPickupOtp}
+              placeholder="Pickup OTP (if required)"
+              placeholderTextColor={'#9CA3AF'}
+              keyboardType="number-pad"
+              style={styles.input}
+              maxLength={8}
+            />
+            <Pressable onPress={() => void handlePickup()} style={styles.primaryBtn}>
+              <Package color="#fff" size={18} />
+              <Text style={styles.primaryBtnText}>Order picked up</Text>
             </Pressable>
           </View>
         </View>

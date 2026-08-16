@@ -290,8 +290,13 @@ export function useDeliveryOrderMutations() {
   });
 
   const pickup = useMutation({
-    mutationFn: (deliveryId: string) =>
-      deliveryPartnerApi.markPickedUp(deliveryId),
+    mutationFn: ({
+      deliveryId,
+      otp,
+    }: {
+      deliveryId: string;
+      otp?: string;
+    }) => deliveryPartnerApi.markPickedUp(deliveryId, { otp }),
     onMutate: async () => {
       const previous = queryClient.getQueryData<PartnerDelivery | null>(
         deliveryPartnerKeys.active()

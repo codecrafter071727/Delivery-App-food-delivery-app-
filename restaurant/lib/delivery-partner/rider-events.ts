@@ -141,6 +141,12 @@ export function applyRiderSocketEvent(
         isRead: false,
         data: asRecord(record.data),
       });
+      queryClient.setQueryData(
+        notificationKeys.unreadCount(),
+        (current: { count?: number } | undefined) => ({
+          count: Math.max(0, (current?.count ?? 0) + 1),
+        })
+      );
       invalidate(queryClient, notificationKeys.all);
       break;
     }
