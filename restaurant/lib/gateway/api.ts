@@ -1,3 +1,4 @@
+import { authApi } from '@/lib/auth/api';
 import { api, refreshCsrfToken } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/errors';
 
@@ -164,6 +165,24 @@ export async function warmGatewaySession(): Promise<GatewayWarmResult> {
   }
 
   await refreshCsrfToken(true).catch(() => undefined);
+
+  try {
+    await authApi.health();
+  } catch (error) {
+    const message = String(
+      error instanceof Error ? error.message : error
+    ).toLowerCase();
+    const looksMissing =
+      message.includes('(404)') ||
+      message.includes('not found') ||
+      message.includes('cannot get');
+    if (!looksMissing) {
+      degraded = true;
+      if (readyStatus === 'unknown' || readyStatus === 'ok') {
+        readyStatus = 'degraded';
+      }
+    }
+  }
 
   return { reachable: true, readyStatus, degraded };
 }

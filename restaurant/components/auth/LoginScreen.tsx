@@ -1,9 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronsRight, Lock, Mail } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   KeyboardAvoidingView,
   PanResponder,
@@ -15,7 +14,6 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRef } from 'react';
 
 import { AuthBanner } from '@/components/auth/AuthBanner';
 import { AuthLoadingScreen } from '@/components/auth/AuthLoadingScreen';
@@ -27,7 +25,7 @@ import {
 } from '@/components/auth/AuthExtras';
 import { AuthField } from '@/components/auth/AuthField';
 import { RoleSelector } from '@/components/auth/RoleSelector';
-import { BRAND_NAME } from '@/constants/theme';
+import { useSocialSignIn } from '@/lib/auth/use-social-sign-in';
 import { resolvePostAuthRoute } from '@/lib/navigation/post-auth';
 import { useGatewayProbe } from '@/lib/gateway/hooks';
 import { useAuthStore } from '@/store/auth-store';
@@ -153,12 +151,34 @@ export function LoginScreen() {
 
   handleLoginRef.current = handleLogin;
 
+  const finishSocial = useCallback(async () => {
+    setIsRedirecting(true);
+    try {
+      const userRole = useAuthStore.getState().user?.role ?? role;
+      const target = await resolvePostAuthRoute(userRole);
+      router.replace(target);
+    } catch {
+      setIsRedirecting(false);
+      setError('Signed in, but could not open your dashboard. Try again.');
+    }
+  }, [role, router]);
+
+  const onSocialError = useCallback((message: string) => {
+    setIsRedirecting(false);
+    setError(message);
+  }, []);
+
+  const social = useSocialSignIn({
+    role,
+    onSuccess: finishSocial,
+    onError: onSocialError,
+  });
+  const formBusy = busy || Boolean(social.busy);
+  busyRef.current = formBusy;
+
   if (isRedirecting) {
     return <AuthLoadingScreen message="Signing you in…" />;
   }
-
-  const comingSoon = (provider: string) =>
-    Alert.alert(`${provider} sign-in`, 'Social sign-in is coming soon.');
 
   return (
     <View className="flex-1 bg-[#EA4B14]">
@@ -189,7 +209,7 @@ export function LoginScreen() {
             </View>
 
             <View className="bg-white rounded-t-[40px] px-6 pt-6 pb-12">
-              <RoleSelector value={role} onChange={setRole} disabled={busy} />
+              <RoleSelector value={role} onChange={setRole} disabled={formBusy} />
 
               <AuthBanner type="success" message={success} />
               <AuthBanner
@@ -256,7 +276,7 @@ export function LoginScreen() {
               >
                 <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
                   <Text className="text-white text-[16px] font-bold text-center">
-                    {busy ? 'Signing in...' : 'Swipe to Login'}
+                    {formBusy ? 'Signing in...' : 'Swipe to Login'}
                   </Text>
                 </View>
 
@@ -275,7 +295,7 @@ export function LoginScreen() {
                     }
                   ]}
                 >
-                  {busy ? (
+                  {formBusy ? (
                     <ActivityIndicator color="#EA4B14" />
                   ) : (
                     <ChevronsRight color="#EA4B14" size={24} />
@@ -287,8 +307,12 @@ export function LoginScreen() {
 
               <View className="mt-4 mb-4">
                 <SocialButtons
-                  onGoogle={() => comingSoon('Google')}
-                  onApple={() => comingSoon('Apple')}
+                  onGoogle={() => void social.signInWithGoogle()}
+                  onApple={() => void social.signInWithApple()}
+                  googleBusy={social.busy === 'google'}
+                  appleBusy={social.busy === 'apple'}
+                  showApple={social.appleAvailable}
+                  disabled={formBusy}
                 />
               </View>
 
@@ -306,10 +330,12 @@ export function LoginScreen() {
               <Pressable
                 onPress={() => router.push('/verify-otp')}
                 hitSlop={8}
-                className="mb-2 mt-2"
+                className="mb-2 mt-2 h-12 items-center justify-center rounded-full border border-[#FED7AA] bg-[#FFF7ED]"
               >
-                <Text className="text-center text-[15px] font-semibold text-secondary-light">
-                  Sign in with OTP instead
+                <Text className="text-center text-[15px] font-bold text-[#EA4B14]">
+                  {role === 'delivery'
+                    ? 'Continue with phone OTP'
+                    : 'Sign in with OTP instead'}
                 </Text>
               </Pressable>
 

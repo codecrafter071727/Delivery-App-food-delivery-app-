@@ -1,0 +1,79 @@
+{
+  "expo": {
+    "name": "TOKAJO FOODS",
+    "slug": "restaurant-portal",
+    "version": "1.0.0",
+    "scheme": "tokajofoods",
+    "orientation": "portrait",
+    "icon": "./assets/tokajo-logo.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/tokajo-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F5C518"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      "expo-web-browser",
+      "expo-apple-authentication",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow TOKAJO FOODS to access your location so we can assign nearby deliveries and share your live position while you are online.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isIosBackgroundLocationEnabled": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/tokajo-logo.png",
+          "color": "#7A0E22",
+          "defaultChannel": "tokajo-delivery-alerts"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tokajofoods.restaurant",
+      "usesAppleSignIn": true
+    },
+    "android": {
+      "package": "com.tokajofoods.restaurant",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#F5C518",
+        "foregroundImage": "./assets/tokajo-logo.png"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS",
+        "CAMERA",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/tokajo-logo.png",
+      "bundler": "metro"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "bcbf8fec-a400-4e24-9571-70c066da9080"
+      }
+    },
+    "owner": "akanksha_singh"
+  }
+}
