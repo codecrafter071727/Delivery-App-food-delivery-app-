@@ -1568,6 +1568,56 @@ export const deliveryPartnerApi = {
     if (mapped.id) return mapped;
     return (await deliveryPartnerApi.getMe()) ?? mapped;
   },
+
+  /**
+   * POST /partners/me/devices/register — rider FCM/APNs for offers
+   * (proxies notification-service with app: "rider" + zone/tier).
+   * Do not also POST notification-service /devices/register.
+   */
+  registerOfferDevice: async (payload: {
+    token: string;
+    platform: 'ios' | 'android' | 'web';
+    deviceId: string;
+    appVersion?: string;
+  }): Promise<{ deviceId: string; tokenMasked: string }> => {
+    const token = payload.token.trim();
+    if (token.length < 10) {
+      throw new PartnerApiError(
+        'Could not read a push token on this phone.',
+        'PUSH_UNAVAILABLE'
+      );
+    }
+    const res = await request<Record<string, unknown>>(
+      `${ME_BASE}/devices/register`,
+      {
+        method: 'POST',
+        body: {
+          platform: payload.platform,
+          token,
+          deviceId: payload.deviceId,
+          appVersion: payload.appVersion,
+          app: 'rider',
+        },
+      }
+    );
+    const record = asRecord(res.data ?? res);
+    const deviceId =
+      pickString(record, ['deviceId', '_id', 'id']) ?? payload.deviceId;
+    return {
+      deviceId,
+      tokenMasked: pickString(record, ['tokenMasked', 'maskedToken']) ?? '••••',
+    };
+  },
+
+  /** DELETE /partners/me/devices/:deviceId */
+  unregisterOfferDevice: async (deviceId: string): Promise<void> => {
+    const id = deviceId.trim();
+    if (!id) return;
+    await request(`${ME_BASE}/devices/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      body: {},
+    });
+  },
 };
 
 export function formatDeliveryAddress(

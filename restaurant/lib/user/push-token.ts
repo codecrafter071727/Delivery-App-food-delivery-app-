@@ -7,6 +7,7 @@ import { storageDeleteItem, storageGetItem, storageSetItem } from '@/lib/storage
 import type { StoredPushDevice, UserDevice } from '@/lib/user/account-types';
 
 const STORE_KEY = 'user_service_push_device';
+const RIDER_OFFER_STORE_KEY = 'rider_offer_push_device';
 
 export function platformPushPlatform(): 'ios' | 'android' | 'web' {
   if (Platform.OS === 'ios') return 'ios';
@@ -47,6 +48,19 @@ export async function saveStoredPushDevice(device: UserDevice): Promise<void> {
 
 export async function clearStoredPushDevice(): Promise<void> {
   await storageDeleteItem(STORE_KEY);
+}
+
+export async function loadStoredRiderOfferDevice(): Promise<string | null> {
+  const raw = await storageGetItem(RIDER_OFFER_STORE_KEY);
+  return raw?.trim() || null;
+}
+
+export async function saveStoredRiderOfferDevice(deviceId: string): Promise<void> {
+  await storageSetItem(RIDER_OFFER_STORE_KEY, deviceId.trim());
+}
+
+export async function clearStoredRiderOfferDevice(): Promise<void> {
+  await storageDeleteItem(RIDER_OFFER_STORE_KEY);
 }
 
 /**

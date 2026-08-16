@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 
 import { fonts } from '@/constants/typography';
 import { getAuthDeviceId } from '@/lib/auth/device';
+import { deliveryPartnerApi } from '@/lib/delivery-partner/api';
 import { getApiErrorCode } from '@/lib/errors';
 import { isExpoGoRuntime } from '@/lib/notification/device-alerts';
 import {
@@ -30,9 +31,12 @@ import type { StoredPushDevice, UserDevice, UserSession } from '@/lib/user/accou
 import {
   isThisPushDevice,
   loadStoredPushDevice,
+  loadStoredRiderOfferDevice,
   platformAppVersion,
   platformPushPlatform,
   resolvePlatformPushToken,
+  saveStoredRiderOfferDevice,
+  clearStoredRiderOfferDevice,
 } from '@/lib/user/push-token';
 import { useAuthStore } from '@/store/auth-store';
 
@@ -187,13 +191,26 @@ export function AccountSessionsDevices() {
         return;
       }
       const deviceId = authDeviceId || (await getAuthDeviceId());
+      const platform = platformPushPlatform();
+      const appVersion = platformAppVersion();
       await registerDevice.mutateAsync({
         token,
-        platform: platformPushPlatform(),
+        platform,
         deviceId,
-        appVersion: platformAppVersion(),
+        appVersion,
         app: 'rider',
       });
+      try {
+        const offer = await deliveryPartnerApi.registerOfferDevice({
+          token,
+          platform,
+          deviceId,
+          appVersion,
+        });
+        if (offer.deviceId) await saveStoredRiderOfferDevice(offer.deviceId);
+      } catch {
+        // Setup may not be finished; user-service token still saved.
+      }
       Alert.alert('Alerts on', 'This phone will get trip and account alerts.');
     } catch (err) {
       Alert.alert(
@@ -224,6 +241,15 @@ export function AccountSessionsDevices() {
     setPushBusy(true);
     try {
       await unregisterDevice.mutateAsync(device.deviceId);
+      const offerId = await loadStoredRiderOfferDevice();
+      if (offerId) {
+        try {
+          await deliveryPartnerApi.unregisterOfferDevice(offerId);
+        } catch {
+          // Already gone.
+        }
+        await clearStoredRiderOfferDevice();
+      }
       Alert.alert('Alerts off', 'This token will no longer receive push.');
     } catch (err) {
       if (getApiErrorCode(err) === 'DEVICE_NOT_FOUND') {
