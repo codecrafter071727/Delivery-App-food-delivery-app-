@@ -44,6 +44,8 @@ import type {
   PartnerDailyEarning,
   PartnerIncentive,
 } from '@/lib/delivery-partner/analytics-types';
+import { usePartnerBank } from '@/lib/delivery-partner/bank-hooks';
+import { bankStatusLabel } from '@/lib/delivery-partner/bank-types';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import { getApiErrorMessage } from '@/lib/errors';
 
@@ -119,7 +121,9 @@ export function PartnerEarningsManager() {
   const hasChartData = chartPoints.some((p) => p.earnings > 0 || p.orders > 0);
   const incentiveRows = incentivesQuery.data?.incentives ?? [];
   const payout = summary?.payout;
-  const hasPayout = Boolean(payout?.bankAccountNo || payout?.ifscCode || payout?.upiId);
+  const bankQuery = usePartnerBank(true);
+  const bank = bankQuery.data;
+  const hasPayout = Boolean(bank?.hasAccount || payout?.bankAccountNo || payout?.ifscCode);
 
   const loading = (earnings.isLoading && !summary) || (daily.isLoading && !daily.data);
   const error = earnings.error && !summary ? getApiErrorMessage(earnings.error, 'Could not load earnings.') : null;
@@ -131,6 +135,7 @@ export function PartnerEarningsManager() {
         earnings.refetch(),
         daily.refetch(),
         incentivesQuery.refetch(),
+        bankQuery.refetch(),
       ]);
     } finally {
       setPullRefreshing(false);
@@ -372,26 +377,41 @@ export function PartnerEarningsManager() {
             </View>
 
             {/* Payout */}
-            <View style={styles.transactionsContainer}>
+            <Pressable
+              onPress={() => router.push(DELIVERY_ROUTES.profile)}
+              style={styles.transactionsContainer}
+            >
               <View style={styles.txHeader}>
                 <Text style={styles.txTitle}>Payout Account</Text>
+                <Text style={styles.payoutMeta}>Manage</Text>
               </View>
               {hasPayout ? (
                 <View style={styles.payoutRows}>
-                  {payout?.accountHolderName ? (
-                    <Text style={styles.payoutName}>{payout.accountHolderName}</Text>
+                  {bank?.holderName || payout?.accountHolderName ? (
+                    <Text style={styles.payoutName}>
+                      {bank?.holderName || payout?.accountHolderName}
+                    </Text>
                   ) : null}
-                  {payout?.bankName ? (
-                    <Text style={styles.payoutMeta}>{payout.bankName}</Text>
+                  {bank?.bankName || payout?.bankName ? (
+                    <Text style={styles.payoutMeta}>
+                      {bank?.bankName || payout?.bankName}
+                    </Text>
                   ) : null}
-                  {payout?.bankAccountNo ? (
-                    <Text style={styles.payoutLine}>A/C ····{String(payout.bankAccountNo).slice(-4)}</Text>
+                  <Text style={styles.payoutLine}>
+                    A/C {bank?.accountMasked || (payout?.bankAccountNo
+                      ? `····${String(payout.bankAccountNo).slice(-4)}`
+                      : '—')}
+                  </Text>
+                  {(bank?.ifsc || payout?.ifscCode) ? (
+                    <Text style={styles.payoutMeta}>
+                      IFSC {bank?.ifsc || payout?.ifscCode}
+                    </Text>
                   ) : null}
-                  {payout?.ifscCode ? (
-                    <Text style={styles.payoutMeta}>IFSC {payout.ifscCode}</Text>
-                  ) : null}
-                  {payout?.upiId ? (
-                    <Text style={styles.payoutLine}>UPI {payout.upiId}</Text>
+                  {bank?.hasAccount ? (
+                    <Text style={styles.payoutMeta}>
+                      {bankStatusLabel(bank.verificationStatus)}
+                      {bank.payoutsEnabled ? ' · Instant payouts on' : ' · Verify in Profile'}
+                    </Text>
                   ) : null}
                 </View>
               ) : (
@@ -400,11 +420,11 @@ export function PartnerEarningsManager() {
                     <AlertTriangle color="#F59E0B" size={20} />
                   </View>
                   <Text style={styles.warningText}>
-                    No payout account linked. Add bank details in Profile.
+                    No payout account linked. Add bank + IFSC in Profile (OTP if changing).
                   </Text>
                 </View>
               )}
-            </View>
+            </Pressable>
           </>
         )}
       </ScrollView>

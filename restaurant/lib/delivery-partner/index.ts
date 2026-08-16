@@ -19,6 +19,7 @@ export * from '@/lib/delivery-partner/analytics-types';
 export * from '@/lib/delivery-partner/restaurants-types';
 export * from '@/lib/delivery-partner/support-types';
 export * from '@/lib/delivery-partner/documents-types';
+export * from '@/lib/delivery-partner/bank-types';
 export {
   deliveryPartnerApi,
   formatDeliveryAddress,
@@ -48,7 +49,9 @@ export {
   partnerSupportApi,
   USE_MOCK_PARTNER_SUPPORT,
 } from '@/lib/delivery-partner/support-api';
+export { partnerBankApi, formatBankError } from '@/lib/delivery-partner/bank-api';
 export * from '@/lib/delivery-partner/hooks';
+export * from '@/lib/delivery-partner/bank-hooks';
 export * from '@/lib/delivery-partner/analytics-hooks';
 export * from '@/lib/delivery-partner/restaurants-hooks';
 export * from '@/lib/delivery-partner/support-hooks';

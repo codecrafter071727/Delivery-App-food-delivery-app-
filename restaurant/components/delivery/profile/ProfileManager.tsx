@@ -4,7 +4,6 @@ import {
   Bike,
   BadgeCheck,
   Camera,
-  CreditCard,
   Clock3,
   KeyRound,
   LogOut,
@@ -57,6 +56,7 @@ import {
   type UpdatePartnerProfilePayload,
   type VehicleType,
 } from '@/lib/delivery-partner/types';
+import { partnerBankKeys } from '@/lib/delivery-partner/bank-hooks';
 import { getApiErrorMessage } from '@/lib/errors';
 import {
   formatAccountError,
@@ -70,18 +70,14 @@ import {
   PlatformAccountSection,
 } from '@/components/delivery/profile/PlatformAccountSection';
 import { AccountSessionsDevices } from '@/components/delivery/profile/AccountSessionsDevices';
+import { PartnerBankTaxSection } from '@/components/delivery/profile/BankTaxSection';
 import { useAuthStore } from '@/store/auth-store';
 
-type EditSection = 'personal' | 'vehicle' | 'payout' | 'password' | null;
+type EditSection = 'personal' | 'vehicle' | 'password' | null;
 
 function dash(value?: string | null) {
   const v = value?.trim();
   return v ? v : '—';
-}
-
-function notSet(value?: string | null) {
-  const v = value?.trim();
-  return v ? v : 'Not set';
 }
 
 function partnerIdShort(id?: string) {
@@ -230,10 +226,6 @@ export function PartnerProfileManager() {
   const [vehicleModel, setVehicleModel] = useState('');
   const [vehicleColor, setVehicleColor] = useState('');
 
-  const [bankAccountNo, setBankAccountNo] = useState('');
-  const [ifscCode, setIfscCode] = useState('');
-  const [upiId, setUpiId] = useState('');
-
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -306,6 +298,9 @@ export function PartnerProfileManager() {
         }),
         queryClient.invalidateQueries({
           queryKey: platformAccountKeys.devices(),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: partnerBankKeys.all,
         }),
       ]);
     } finally {
@@ -432,11 +427,6 @@ export function PartnerProfileManager() {
       setVehicleModel(profile.vehicle?.model ?? profile.vehicleModel ?? '');
       setVehicleColor(profile.vehicle?.color ?? profile.vehicleColor ?? '');
     }
-    if (section === 'payout') {
-      setBankAccountNo(profile.payout?.bankAccountNo ?? '');
-      setIfscCode(profile.payout?.ifscCode ?? '');
-      setUpiId(profile.payout?.upiId ?? '');
-    }
     setEditSection(section);
   };
 
@@ -483,12 +473,6 @@ export function PartnerProfileManager() {
       payload.vehicleNumber = vehicleNumber.trim();
       payload.vehicleModel = vehicleModel.trim();
       payload.vehicleColor = vehicleColor.trim();
-    }
-
-    if (editSection === 'payout') {
-      payload.bankAccountNo = bankAccountNo.trim();
-      payload.ifscCode = ifscCode.trim();
-      payload.upiId = upiId.trim();
     }
 
     setSaving(true);
@@ -580,9 +564,7 @@ export function PartnerProfileManager() {
       ? 'Edit name'
       : editSection === 'vehicle'
         ? 'Edit Vehicle Details'
-        : editSection === 'payout'
-          ? 'Edit Payout Details'
-          : editSection === 'password'
+        : editSection === 'password'
             ? 'Change password'
             : '';
 
@@ -887,44 +869,7 @@ export function PartnerProfileManager() {
               </View>
             </View>
 
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.sectionTitleRow}>
-                  <CreditCard color={'#EA4B14'} size={16} />
-                  <Text style={styles.sectionTitle}>Payout Details</Text>
-                </View>
-                <Pressable
-                  onPress={() => openEdit('payout')}
-                  style={styles.editBtn}
-                >
-                  <Pencil color={'#6B7280'} size={13} />
-                  <Text style={styles.editText}>Edit</Text>
-                </Pressable>
-              </View>
-              <View style={styles.fieldsRowWrap}>
-                <View style={styles.thirdField}>
-                  <FieldBox
-                    label="Bank Account"
-                    value={notSet(profile.payout?.bankAccountNo)}
-                    muted={!profile.payout?.bankAccountNo?.trim()}
-                  />
-                </View>
-                <View style={styles.thirdField}>
-                  <FieldBox
-                    label="IFSC Code"
-                    value={notSet(profile.payout?.ifscCode)}
-                    muted={!profile.payout?.ifscCode?.trim()}
-                  />
-                </View>
-                <View style={styles.thirdField}>
-                  <FieldBox
-                    label="UPI ID"
-                    value={notSet(profile.payout?.upiId)}
-                    muted={!profile.payout?.upiId?.trim()}
-                  />
-                </View>
-              </View>
-            </View>
+            <PartnerBankTaxSection />
 
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -1151,32 +1096,6 @@ export function PartnerProfileManager() {
                     value={vehicleColor}
                     onChangeText={setVehicleColor}
                     placeholder="Optional"
-                  />
-                </>
-              ) : null}
-
-              {editSection === 'payout' ? (
-                <>
-                  <FormField
-                    label="Bank Account"
-                    value={bankAccountNo}
-                    onChangeText={setBankAccountNo}
-                    placeholder="Account number"
-                    keyboardType="numeric"
-                  />
-                  <FormField
-                    label="IFSC Code"
-                    value={ifscCode}
-                    onChangeText={setIfscCode}
-                    placeholder="IFSC"
-                    autoCapitalize="characters"
-                  />
-                  <FormField
-                    label="UPI ID"
-                    value={upiId}
-                    onChangeText={setUpiId}
-                    placeholder="name@upi"
-                    autoCapitalize="none"
                   />
                 </>
               ) : null}

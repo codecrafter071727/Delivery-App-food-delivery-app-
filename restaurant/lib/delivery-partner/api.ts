@@ -1101,8 +1101,8 @@ export const deliveryPartnerApi = {
   /**
    * PUT profile fields.
    * Live schema for PUT /partners/me only accepts personal keys
-   * (firstName, lastName, phone, email) — rejects vehicle / dob / mobile.
-   * Vehicle + payout use dedicated sub-routes with fallbacks.
+   * (firstName, lastName, phone, email) — rejects bank (`USE_BANK_API`).
+   * Vehicle uses dedicated sub-routes with fallbacks. Bank is PUT /partners/me/bank.
    */
   updateProfile: async (
     payload: UpdatePartnerProfilePayload
@@ -1143,23 +1143,21 @@ export const deliveryPartnerApi = {
       vehicleFlat.vehicleColor = color;
     }
 
-    const payout: Record<string, unknown> = {};
-    if (payload.bankAccountNo !== undefined) {
-      payout.bankAccountNo = payload.bankAccountNo.trim();
-    }
-    if (payload.ifscCode !== undefined) {
-      payout.ifscCode = payload.ifscCode.trim().toUpperCase();
-    }
-    if (payload.upiId !== undefined) {
-      payout.upiId = payload.upiId.trim();
-    }
-
     const hasPersonal = Object.keys(personal).length > 0;
     const hasVehicle = Object.keys(vehicleNested).length > 0;
-    const hasPayout = Object.keys(payout).length > 0;
 
-    if (!hasPersonal && !hasVehicle && !hasPayout) {
+    if (!hasPersonal && !hasVehicle) {
       throw new Error('Nothing to update.');
+    }
+
+    if (
+      payload.bankAccountNo !== undefined ||
+      payload.ifscCode !== undefined
+    ) {
+      throw new PartnerApiError(
+        'Bank details are saved from Payout, not profile edit.',
+        'USE_BANK_API'
+      );
     }
 
     const attempts: Array<{
@@ -1189,16 +1187,6 @@ export const deliveryPartnerApi = {
         { path: `${ME_BASE}/vehicle`, body: vehicleFlat },
         { path: `${ME_BASE}/vehicle-details`, body: vehicleNested },
         { path: `${ME_BASE}/vehicle-details`, body: vehicleFlat }
-      );
-    }
-
-    // Payout: try flat keys on /me first, then dedicated routes.
-    if (hasPayout) {
-      attempts.push(
-        { path: ME_BASE, body: payout },
-        { path: `${ME_BASE}/payout`, body: payout },
-        { path: `${ME_BASE}/bank-details`, body: payout },
-        { path: `${ME_BASE}/bank`, body: payout }
       );
     }
 
