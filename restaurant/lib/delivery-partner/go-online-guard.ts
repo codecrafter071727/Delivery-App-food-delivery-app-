@@ -160,47 +160,56 @@ export function getPartnerVerificationBadge(
 
 /**
  * Client-side gate before calling go-online.
- * Returns null when the request is allowed to proceed.
+ * KYC / document upload is optional for duty. Only suspended, blocked, or
+ * deactivated accounts are stopped here. GPS is still required by the API.
  */
 export function getGoOnlineBlocker(
   profile?: DeliveryPartnerProfile | null
 ): GoOnlineBlocker | null {
   if (!profile) return null;
 
-  const { submitted, verified, total } = getDocumentProgress(profile);
+  const status = normalizePartnerAccountStatus(profile.status);
 
-  if (submitted < total) {
+  if (
+    status === 'suspended' ||
+    status === 'blocked' ||
+    status === 'disabled' ||
+    status === 'deactivated' ||
+    status === 'banned'
+  ) {
     return {
-      reason: 'documents',
-      title: 'Documents required',
-      message: `Upload all required documents first (${submitted}/${total} submitted). Then wait for verification before going online.`,
-      actionLabel: 'Open Documents',
-      actionHref: DELIVERY_ROUTES.documents,
+      reason: 'inactive',
+      title:
+        status === 'suspended' ? 'Account suspended' : 'Account blocked',
+      message:
+        'This partner account cannot go online. Contact support if you think this is a mistake.',
+      actionLabel: 'Open support',
+      actionHref: DELIVERY_ROUTES.support,
     };
   }
 
-  if (isPartnerAccountActive(profile)) {
-    return null;
-  }
+  // --- KYC was a duty gate; keep the old checks commented, not deleted. ---
+  // const { submitted, verified, total } = getDocumentProgress(profile);
+  // if (submitted < total) {
+  //   return {
+  //     reason: 'documents',
+  //     title: 'Documents required',
+  //     message: `Upload all required documents first (${submitted}/${total} submitted). Then wait for verification before going online.`,
+  //     actionLabel: 'Open Documents',
+  //     actionHref: DELIVERY_ROUTES.documents,
+  //   };
+  // }
+  // if (!isPartnerAccountActive(profile) && verified < total) {
+  //   return {
+  //     reason: 'pending_review',
+  //     title: 'Verification pending',
+  //     message: `Documents are under review (${verified}/${total} verified). Only active partners can go online after approval.`,
+  //     actionLabel: 'View Documents',
+  //     actionHref: DELIVERY_ROUTES.documents,
+  //   };
+  // }
 
-  if (verified < total) {
-    return {
-      reason: 'pending_review',
-      title: 'Verification pending',
-      message: `Documents are under review (${verified}/${total} verified). Only active partners can go online after approval.`,
-      actionLabel: 'View Documents',
-      actionHref: DELIVERY_ROUTES.documents,
-    };
-  }
-
-  return {
-    reason: 'inactive',
-    title: 'Account not active yet',
-    message:
-      'Only active partners can go online. Your documents look complete — wait for admin activation, or contact support.',
-    actionLabel: 'View Documents',
-    actionHref: DELIVERY_ROUTES.documents,
-  };
+  return null;
 }
 
 /** Friendlier copy for go-online API failures. */

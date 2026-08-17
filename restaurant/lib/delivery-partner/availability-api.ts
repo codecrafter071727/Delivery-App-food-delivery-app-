@@ -461,7 +461,7 @@ export function applyDutyStatusToProfile(
 
 export const DUTY_ERROR_COPY: Record<string, string> = {
   PARTNER_NOT_ACTIVE:
-    'Only active partners can go online. Finish KYC and wait for account activation.',
+    'Could not go online. Check GPS and try again.',
   PARTNER_NOT_FOUND: 'No delivery partner profile found. Complete registration first.',
   PARTNER_SUSPENDED: 'Your account is suspended. Contact support.',
   PARTNER_BLOCKED: 'Your account is blocked. Contact support.',
