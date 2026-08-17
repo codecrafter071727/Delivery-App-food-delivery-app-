@@ -36,9 +36,27 @@ const keepRetrying = (failureCount: number, error: unknown) => {
   ) {
     return false;
   }
-  if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED') return false;
+  if (
+    code === 'FORBIDDEN' ||
+    code === 'UNAUTHORIZED' ||
+    code === 'TRACKING_COMPLETE' ||
+    code === 'TRACKING_INCOMPLETE'
+  ) {
+    return false;
+  }
   return failureCount < 2;
 };
+
+function isEmptyTrackingError(error: unknown) {
+  const code = getApiErrorCode(error);
+  return (
+    code === 'LOCATION_REQUIRED' ||
+    code === 'LOCATION_NOT_FOUND' ||
+    code === 'TRACKING_COMPLETE' ||
+    code === 'TRACKING_INCOMPLETE' ||
+    code === 'DELIVERY_NOT_FOUND'
+  );
+}
 
 export function useNearbyHeatmap(enabled = true) {
   const isActive = useAppIsActive();
@@ -100,7 +118,14 @@ export function useTrackingRoute(orderId?: string, enabled = true) {
 
   return useQuery({
     queryKey: partnerTrackingKeys.route(id),
-    queryFn: () => partnerTrackingApi.getRoute(id!),
+    queryFn: async () => {
+      try {
+        return await partnerTrackingApi.getRoute(id!);
+      } catch (error) {
+        if (isEmptyTrackingError(error)) return null;
+        throw error;
+      }
+    },
     enabled: enabled && Boolean(id),
     staleTime: LIVE_INTERVALS.deliveryTracking / 2,
     gcTime: 5 * 60_000,
@@ -126,7 +151,7 @@ export function useTrackingEta(orderId?: string, enabled = true) {
         return await partnerTrackingApi.getEta(id!);
       } catch (error) {
         const code = getApiErrorCode(error);
-        if (code === 'LOCATION_REQUIRED' || code === 'LOCATION_NOT_FOUND') {
+        if (isEmptyTrackingError(error) || code === 'LOCATION_REQUIRED') {
           return null;
         }
         throw error;
@@ -152,7 +177,14 @@ export function useLocationHistory(deliveryId?: string, enabled = true) {
 
   return useQuery({
     queryKey: partnerTrackingKeys.history(id),
-    queryFn: () => partnerTrackingApi.getLocationHistory(id!),
+    queryFn: async () => {
+      try {
+        return await partnerTrackingApi.getLocationHistory(id!);
+      } catch (error) {
+        if (isEmptyTrackingError(error)) return null;
+        throw error;
+      }
+    },
     enabled: enabled && Boolean(id),
     staleTime: LIVE_INTERVALS.deliveryTracking,
     gcTime: 5 * 60_000,
@@ -176,10 +208,7 @@ export function useLastLocation(enabled = true) {
       try {
         return await partnerTrackingApi.getLastLocation();
       } catch (error) {
-        const code = getApiErrorCode(error);
-        if (code === 'LOCATION_NOT_FOUND' || code === 'LOCATION_REQUIRED') {
-          return null;
-        }
+        if (isEmptyTrackingError(error)) return null;
         throw error;
       }
     },
@@ -208,10 +237,7 @@ export function useLiveLocation(orderId?: string, enabled = true) {
       try {
         return await partnerTrackingApi.getLiveLocation(id!);
       } catch (error) {
-        const code = getApiErrorCode(error);
-        if (code === 'LOCATION_NOT_FOUND' || code === 'LOCATION_REQUIRED') {
-          return null;
-        }
+        if (isEmptyTrackingError(error)) return null;
         throw error;
       }
     },
@@ -235,7 +261,14 @@ export function useTrackingStatus(deliveryId?: string, enabled = true) {
 
   return useQuery({
     queryKey: [...partnerTrackingKeys.all, 'status', id ?? ''] as const,
-    queryFn: () => partnerTrackingApi.getTrackingStatus(id!),
+    queryFn: async () => {
+      try {
+        return await partnerTrackingApi.getTrackingStatus(id!);
+      } catch (error) {
+        if (isEmptyTrackingError(error)) return null;
+        throw error;
+      }
+    },
     enabled: enabled && Boolean(id),
     staleTime: LIVE_INTERVALS.deliveryTracking / 2,
     gcTime: 5 * 60_000,

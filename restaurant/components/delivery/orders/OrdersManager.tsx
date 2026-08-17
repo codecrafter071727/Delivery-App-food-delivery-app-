@@ -52,6 +52,7 @@ import {
   useDeliveryPartnerMe,
 } from '@/lib/delivery-partner/hooks';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
+import { formatLocationError } from '@/lib/delivery-partner/tracking-api';
 import {
   useLiveLocation,
   useLocationHistory,
@@ -903,6 +904,25 @@ function DeliveryCard({
     latitude: p.latitude,
     longitude: p.longitude,
   }));
+  const trackingBusy =
+    live &&
+    ((trackingQuery.isLoading && !trackingQuery.data) ||
+      (routeQuery.isLoading && !routeQuery.data) ||
+      (etaQuery.isLoading && !etaQuery.data));
+  const trackingError =
+    trackingQuery.error ??
+    statusQuery.error ??
+    routeQuery.error ??
+    etaQuery.error ??
+    liveLocationQuery.error;
+  const onRetryTracking = () => {
+    void trackingQuery.refetch();
+    void statusQuery.refetch();
+    void routeQuery.refetch();
+    void etaQuery.refetch();
+    void liveLocationQuery.refetch();
+    void historyQuery.refetch();
+  };
 
   return (
     <View style={styles.jobCard}>
@@ -931,6 +951,19 @@ function DeliveryCard({
           ) : null}
         </View>
       )}
+
+      {live && trackingBusy ? (
+        <View style={styles.trackBanner}>
+          <ActivityIndicator color={authTheme.brand} size="small" />
+          <Text style={styles.trackBannerText}>Getting live route & ETA…</Text>
+        </View>
+      ) : live && trackingError && !tracking ? (
+        <Pressable onPress={onRetryTracking} style={styles.trackBanner}>
+          <Text style={styles.trackBannerText}>
+            {formatLocationError(trackingError, 'Could not load live tracking. Retry')}
+          </Text>
+        </Pressable>
+      ) : null}
 
       <DeliveryTripMap
         delivery={delivery}
@@ -1293,6 +1326,21 @@ const styles = StyleSheet.create({
     gap: 16,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.03)',
+  },
+  trackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFF7ED',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  trackBannerText: {
+    flex: 1,
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: '#9A3412',
   },
   jobTop: {
     flexDirection: 'row',
