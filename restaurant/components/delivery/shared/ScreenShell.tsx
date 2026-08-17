@@ -53,6 +53,7 @@ const PAGE_COPY: Record<string, string> = {
   Shifts: 'Book slots & attendance',
   Hubs: 'Nearby hubs & cash drop',
   Demand: 'Nearby order heatmap',
+  Incentives: 'Bonuses, rewards & leaderboard',
 };
 
 function partnerDisplayId(id?: string) {

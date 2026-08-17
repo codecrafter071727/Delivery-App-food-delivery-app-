@@ -524,6 +524,9 @@ export function PartnerEarningsManager() {
                 <View style={styles.transactionsContainer}>
                   <View style={styles.txHeader}>
                     <Text style={styles.txTitle}>Incentive Programs</Text>
+                    <Pressable onPress={() => router.push(DELIVERY_ROUTES.incentives)}>
+                      <Text style={styles.payoutCta}>See all</Text>
+                    </Pressable>
                   </View>
                   {incentivesQuery.isError && !incentiveRows.length ? (
                     <View style={styles.empty}>
@@ -882,6 +885,7 @@ function IncentiveProgramRow({
   currency: string;
   bordered: boolean;
 }) {
+  const router = useRouter();
   const reward =
     formatIncentiveAmount(incentive.amount, incentive.currency ?? currency) ?? undefined;
   const progress = incentive.progress ?? 0;
@@ -889,7 +893,10 @@ function IncentiveProgramRow({
   const pct = target > 0 ? Math.max(0, Math.min(100, (progress / target) * 100)) : 0;
 
   return (
-    <View style={[styles.programRow, bordered && styles.rowBorder]}>
+    <Pressable
+      onPress={() => router.push(DELIVERY_ROUTES.incentives)}
+      style={[styles.programRow, bordered && styles.rowBorder]}
+    >
       <View style={styles.programTop}>
         <Text style={styles.programTitle} numberOfLines={2}>
           {incentive.title}
@@ -914,7 +921,7 @@ function IncentiveProgramRow({
           </View>
         </>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 

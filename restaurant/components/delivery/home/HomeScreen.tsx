@@ -10,6 +10,7 @@ import {
   Star,
   UtensilsCrossed,
   Building2,
+  Gift,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import {
@@ -143,6 +144,15 @@ const MORE_FEATURES = [
     icon: Flame,
     accent: '#B45309',
     soft: '#FFFBEB',
+  },
+  {
+    key: 'incentives',
+    label: 'Incentives',
+    description: 'Bonuses, points & leaderboard',
+    href: DELIVERY_ROUTES.incentives,
+    icon: Gift,
+    accent: '#C2410C',
+    soft: '#FFF7ED',
   },
   {
     key: 'support',

@@ -138,6 +138,24 @@ export function socketErrorCopy(code?: string): string | undefined {
       return 'That history filter is not valid. Try All, Delivered, or Cancelled.';
     case 'VALIDATION_ERROR':
       return 'Please check the details and try again.';
+    case 'INCENTIVE_NOT_FOUND':
+      return 'This incentive is no longer available.';
+    case 'INCENTIVE_NOT_OPEN':
+      return 'This program is paused or has ended.';
+    case 'OPT_IN_NOT_REQUIRED':
+      return 'You are already enrolled in this program.';
+    case 'INCENTIVE_NOT_ELIGIBLE':
+      return 'You are not eligible for this bonus right now.';
+    case 'REWARD_NOT_FOUND':
+      return 'That reward is no longer in the catalog.';
+    case 'INSUFFICIENT_POINTS':
+      return 'Not enough reward points to redeem this.';
+    case 'OUT_OF_STOCK':
+      return 'This reward is out of stock. Try another one.';
+    case 'NO_ZONE':
+      return 'Set your delivery zone on Home to see the leaderboard.';
+    case 'ZONE_NOT_FOUND':
+      return 'Your zone is missing. Update location on Home and retry.';
     default:
       return undefined;
   }

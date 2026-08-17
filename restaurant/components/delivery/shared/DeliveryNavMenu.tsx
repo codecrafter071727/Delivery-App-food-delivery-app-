@@ -5,6 +5,7 @@ import {
   Building2,
   CalendarClock,
   FileText,
+  Gift,
   Flame,
   HelpCircle,
   Home,
@@ -74,6 +75,7 @@ const ICONS: Record<DeliveryTabKey, typeof Home> = {
   shifts: CalendarClock,
   hubs: Building2,
   heatmap: Flame,
+  incentives: Gift,
 };
 
 /** Hamburger button + slide-over menu (profile card + tabs + logout). */

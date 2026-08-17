@@ -8,6 +8,7 @@
  *   navigation.ts   — /delivery/* routes + tab config
  *   analytics-*     — performance / earnings / incentives
  *   finance-*       — wallet / payouts / COD remit / doorstep UPI
+ *   incentives-*    — bonuses, rewards, quests, challenges, leaderboard
  *   restaurants-*   — partner restaurants
  *   support-*       — help / tickets (mock until API)
  *   tracking-*      — GPS ping, heartbeat, heatmap, trip map/ETA
@@ -56,9 +57,12 @@ export {
 export { partnerBankApi, formatBankError, shareTaxPdf } from '@/lib/delivery-partner/bank-api';
 export { partnerFinanceApi, formatFinanceError } from '@/lib/delivery-partner/finance-api';
 export * from '@/lib/delivery-partner/finance-types';
+export { partnerIncentivesApi, formatIncentiveError } from '@/lib/delivery-partner/incentives-api';
+export * from '@/lib/delivery-partner/incentives-types';
 export * from '@/lib/delivery-partner/hooks';
 export * from '@/lib/delivery-partner/bank-hooks';
 export * from '@/lib/delivery-partner/finance-hooks';
+export * from '@/lib/delivery-partner/incentives-hooks';
 export * from '@/lib/delivery-partner/analytics-hooks';
 export * from '@/lib/delivery-partner/restaurants-hooks';
 export * from '@/lib/delivery-partner/support-hooks';

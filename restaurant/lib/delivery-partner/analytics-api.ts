@@ -425,6 +425,11 @@ function mapIncentive(raw: unknown, index: number): PartnerIncentive | null {
   const record = asRecord(raw);
   if (!Object.keys(record).length) return null;
 
+  const nested = asRecord(record.progress);
+  const nextSlab = asRecord(nested.nextSlab);
+  const slabs = Array.isArray(record.slabs) ? record.slabs : [];
+  const lastSlab = asRecord(slabs[slabs.length - 1]);
+
   const id =
     pickString(record, ['_id', 'id', 'incentiveId', 'programId', 'code']) ??
     `incentive-${index}`;
@@ -435,22 +440,29 @@ function mapIncentive(raw: unknown, index: number): PartnerIncentive | null {
       'programName',
       'incentiveName',
       'label',
-    ]) ?? 'Incentive';
+    ]) ??
+    pickString(nested, ['title', 'name']) ??
+    'Incentive';
 
-  const progress = pickNumber(record, [
-    'progress',
-    'current',
-    'completed',
-    'achieved',
-    'currentValue',
-  ]);
-  const target = pickNumber(record, [
-    'target',
-    'goal',
-    'required',
-    'threshold',
-    'targetValue',
-  ]);
+  const progress =
+    pickNumber(nested, ['metric', 'current', 'progress', 'value']) ??
+    pickNumber(record, [
+      'progress',
+      'current',
+      'completed',
+      'achieved',
+      'currentValue',
+    ]);
+  const target =
+    pickNumber(nextSlab, ['target', 'threshold']) ??
+    pickNumber(lastSlab, ['target', 'threshold']) ??
+    pickNumber(record, [
+      'target',
+      'goal',
+      'required',
+      'threshold',
+      'targetValue',
+    ]);
 
   let progressLabel = pickString(record, [
     'progressLabel',
@@ -461,14 +473,18 @@ function mapIncentive(raw: unknown, index: number): PartnerIncentive | null {
     progressLabel = `${progress} / ${target}`;
   }
 
-  const amount = pickNumber(record, [
-    'amount',
-    'bonus',
-    'bonusAmount',
-    'reward',
-    'rewardAmount',
-    'incentiveAmount',
-  ]);
+  const amount =
+    pickNumber(nested, ['bonusPendingInr', 'bonusEarnedInr']) ??
+    pickNumber(nextSlab, ['bonusInr', 'bonus']) ??
+    pickNumber(lastSlab, ['bonusInr', 'bonus']) ??
+    pickNumber(record, [
+      'amount',
+      'bonus',
+      'bonusAmount',
+      'reward',
+      'rewardAmount',
+      'incentiveAmount',
+    ]);
   const currency = pickString(record, ['currency']) ?? 'INR';
 
   return {
@@ -482,14 +498,20 @@ function mapIncentive(raw: unknown, index: number): PartnerIncentive | null {
       'message',
     ]),
     status: pickString(record, ['status', 'state', 'eligibility']),
-    type: pickString(record, ['type', 'category', 'incentiveType']),
+    type: pickString(record, ['type', 'category', 'incentiveType', 'kind']),
     amount,
     currency,
     progress,
     target,
     progressLabel,
-    startsAt: pickString(record, ['startsAt', 'startDate', 'from']),
-    endsAt: pickString(record, ['endsAt', 'endDate', 'to', 'expiresAt']),
+    startsAt: pickString(record, ['startsAt', 'startDate', 'from', 'startAt']),
+    endsAt: pickString(record, [
+      'endsAt',
+      'endDate',
+      'to',
+      'expiresAt',
+      'endAt',
+    ]),
     raw: record,
   };
 }

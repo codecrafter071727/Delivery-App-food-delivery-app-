@@ -14,6 +14,7 @@ import {
   Zap,
 } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
+import { useRouter } from 'expo-router';
 import {
   ActivityIndicator,
   Pressable,
@@ -49,6 +50,7 @@ import type {
   PartnerIncentive,
   EarningsPeriodDays,
 } from '@/lib/delivery-partner/analytics-types';
+import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import { getApiErrorMessage } from '@/lib/errors';
 
 // Helper for polar coordinates and SVG paths
@@ -196,6 +198,7 @@ function MiniBarChart({
 }
 
 export function PartnerAnalyticsManager() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const chartWidth = Math.max(windowWidth - 72, 240);
@@ -451,10 +454,17 @@ export function PartnerAnalyticsManager() {
             <View style={styles.listSection}>
               <View style={styles.listHeader}>
                 <Text style={styles.listTitle}>Incentive Programs</Text>
+                <Pressable onPress={() => router.push(DELIVERY_ROUTES.incentives)}>
+                  <Text style={styles.listSeeAll}>See all</Text>
+                </Pressable>
               </View>
               {incentiveRows.length > 0 ? (
                 incentiveRows.map((item) => (
-                  <View key={item.id} style={styles.whiteCard}>
+                  <Pressable
+                    key={item.id}
+                    style={styles.whiteCard}
+                    onPress={() => router.push(DELIVERY_ROUTES.incentives)}
+                  >
                     <View style={styles.programTop}>
                       <Text style={styles.programTitle} numberOfLines={2}>
                         {item.title}
@@ -468,7 +478,7 @@ export function PartnerAnalyticsManager() {
                         {item.description}
                       </Text>
                     ) : null}
-                  </View>
+                  </Pressable>
                 ))
               ) : (
                 <Text style={styles.emptyText}>
