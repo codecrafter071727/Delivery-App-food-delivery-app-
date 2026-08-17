@@ -7,6 +7,7 @@
  *   types.ts        — shared DTOs
  *   navigation.ts   — /delivery/* routes + tab config
  *   analytics-*     — performance / earnings / incentives
+ *   finance-*       — wallet / payouts / COD remit / doorstep UPI
  *   restaurants-*   — partner restaurants
  *   support-*       — help / tickets (mock until API)
  *   tracking-*      — GPS ping, heartbeat, heatmap, trip map/ETA
@@ -52,8 +53,11 @@ export {
   USE_MOCK_PARTNER_SUPPORT,
 } from '@/lib/delivery-partner/support-api';
 export { partnerBankApi, formatBankError, shareTaxPdf } from '@/lib/delivery-partner/bank-api';
+export { partnerFinanceApi, formatFinanceError } from '@/lib/delivery-partner/finance-api';
+export * from '@/lib/delivery-partner/finance-types';
 export * from '@/lib/delivery-partner/hooks';
 export * from '@/lib/delivery-partner/bank-hooks';
+export * from '@/lib/delivery-partner/finance-hooks';
 export * from '@/lib/delivery-partner/analytics-hooks';
 export * from '@/lib/delivery-partner/restaurants-hooks';
 export * from '@/lib/delivery-partner/support-hooks';

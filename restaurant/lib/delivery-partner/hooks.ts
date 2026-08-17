@@ -378,6 +378,9 @@ export function useDeliveryOrderMutations() {
       queryClient.invalidateQueries({
         queryKey: [...deliveryPartnerKeys.all, 'tracking'],
       }),
+      queryClient.invalidateQueries({
+        queryKey: [...deliveryPartnerKeys.all, 'finance'],
+      }),
     ]);
   };
 

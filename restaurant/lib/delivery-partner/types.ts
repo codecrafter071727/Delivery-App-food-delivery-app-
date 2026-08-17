@@ -187,6 +187,8 @@ export type PartnerDelivery = {
   amount?: number;
   currency?: string;
   paymentMethod?: string;
+  settledVia?: string | null;
+  cashCollected?: boolean;
   distanceKm?: number;
   etaMinutes?: number;
   earning?: number;

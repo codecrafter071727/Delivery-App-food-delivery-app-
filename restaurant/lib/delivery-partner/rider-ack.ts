@@ -88,6 +88,36 @@ export function socketErrorCopy(code?: string): string | undefined {
       return 'Chat is closed for this trip.';
     case 'COD_LIMIT_EXCEEDED':
       return 'COD limit reached. Remit cash before accepting more COD orders.';
+    case 'BANK_NOT_VERIFIED':
+      return 'Verify bank (penny-drop) before instant payout.';
+    case 'BANK_DETAILS_REQUIRED':
+      return 'Add a bank account in Profile before payouts.';
+    case 'BELOW_MINIMUM':
+      return 'Amount is below the minimum.';
+    case 'INSUFFICIENT_BALANCE':
+      return 'Not enough payable earnings for this payout.';
+    case 'DAILY_CAP_REACHED':
+      return 'Daily instant cap reached. Wait for weekly payout.';
+    case 'DAILY_COUNT_REACHED':
+      return 'Daily instant count reached. Try again tomorrow.';
+    case 'FEE_EXCEEDS_AMOUNT':
+      return 'Fee would wipe this payout. Request a larger amount.';
+    case 'INSUFFICIENT_COD_CASH':
+      return 'That remit is more than cash in hand.';
+    case 'NO_COD_DUE':
+      return 'No COD cash to remit.';
+    case 'NOT_COD':
+      return 'This order is prepaid — no doorstep collection.';
+    case 'ALREADY_COLLECTED_CASH':
+      return 'Cash was already recorded for this trip.';
+    case 'COD_ALREADY_SETTLED':
+      return 'This COD is already marked paid via UPI.';
+    case 'UPI_QR_UNAVAILABLE':
+      return 'Platform UPI QR is unavailable. Collect cash or retry.';
+    case 'PAYOUT_NOT_FOUND':
+      return 'That payout is no longer available.';
+    case 'IDEMPOTENCY_CONFLICT':
+      return 'This request key was used on another account. Retry.';
     case 'DELIVERY_CAPACITY_FULL':
       return 'You already have a full batch. Finish a trip first.';
     case 'ILLEGAL_TRANSITION':

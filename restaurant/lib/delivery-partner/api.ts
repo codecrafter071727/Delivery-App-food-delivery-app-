@@ -413,6 +413,8 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
       'paymentMode',
       'paymentType',
     ]),
+    settledVia: pickString(source, ['settledVia', 'codSettledVia']) ?? null,
+    cashCollected: pickBool(source, ['cashCollected', 'codCollected', 'codCashCollected']),
     distanceKm: pickNumber(source, ['distanceKm', 'distance', 'tripDistance']),
     etaMinutes: pickNumber(source, ['etaMinutes', 'eta', 'estimatedMinutes']),
     earning: pickNumber(source, [

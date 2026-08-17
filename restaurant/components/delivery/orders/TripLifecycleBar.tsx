@@ -13,11 +13,13 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react-native';
 
 import { fonts } from '@/constants/typography';
+import { CodUpiSheet } from '@/components/delivery/orders/CodUpiSheet';
 import {
   nextDeliveryAction,
   normalizeDeliveryStatus,
   resolveTripStep,
 } from '@/lib/delivery-partner/api';
+import { isCodPayment } from '@/lib/delivery-partner/finance-types';
 import { useDeliveryOrderMutations } from '@/lib/delivery-partner/hooks';
 import { formatTripError } from '@/lib/delivery-partner/rider-ack';
 import {
@@ -194,8 +196,17 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
   const postAccept = status !== 'assigned';
   const canCancel = delivery.canCancel !== false && postAccept;
   const canIssue = delivery.canReportIssue !== false && postAccept;
+  const settledUpi = (delivery.settledVia ?? '').toLowerCase() === 'upi';
+  const showCodUpi =
+    isCodPayment(delivery.paymentMethod) &&
+    (status === 'picked_up' ||
+      status === 'out_for_delivery' ||
+      status === 'at_customer') &&
+    !settledUpi &&
+    !delivery.cashCollected;
 
   const [sheet, setSheet] = useState<SheetKey>(null);
+  const [showUpi, setShowUpi] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [otp, setOtp] = useState('');
   const [checklistOk, setChecklistOk] = useState(true);
@@ -663,8 +674,24 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
               delivery.otpVerified ? 'OTP verified' : 'OTP pending',
               delivery.proofPhotoUrl ? 'Photo added' : 'No photo',
               delivery.signatureUrl ? 'Signature added' : 'No signature',
-            ].join(' · ')}
+              isCodPayment(delivery.paymentMethod)
+                ? settledUpi
+                  ? 'COD settled UPI'
+                  : 'COD — collect cash or UPI'
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </Text>
+          {showCodUpi ? (
+            <Pressable
+              onPress={() => setShowUpi(true)}
+              disabled={disabled}
+              style={styles.secondary}
+            >
+              <Text style={styles.secondaryText}>Collect UPI (platform QR)</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => {
               setOtp('');
@@ -730,6 +757,15 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
       status === 'out_for_delivery' ||
       status === 'at_customer' ? (
         <View style={styles.group}>
+          {showCodUpi && status !== 'at_customer' ? (
+            <Pressable
+              onPress={() => setShowUpi(true)}
+              disabled={disabled}
+              style={styles.secondary}
+            >
+              <Text style={styles.secondaryText}>Collect COD via UPI</Text>
+            </Pressable>
+          ) : null}
           {delivery.contactAttemptCount ? (
             <Text style={styles.waitText}>
               Customer contact {delivery.contactAttemptCount}×
@@ -1184,6 +1220,11 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
           </View>
         </View>
       </Modal>
+      <CodUpiSheet
+        visible={showUpi}
+        deliveryId={delivery.id}
+        onClose={() => setShowUpi(false)}
+      />
     </View>
   );
 }

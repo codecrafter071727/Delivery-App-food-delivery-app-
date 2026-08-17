@@ -18,6 +18,7 @@ import {
   useDeliveryTimeline,
 } from '@/lib/delivery-partner/hooks';
 import { formatTripError } from '@/lib/delivery-partner/rider-ack';
+import { useTripEarnings } from '@/lib/delivery-partner/finance-hooks';
 import type { PartnerDelivery } from '@/lib/delivery-partner/types';
 
 type Props = {
@@ -71,6 +72,7 @@ export function TripDetailSheet({
     enabled,
     live,
   });
+  const tripEarn = useTripEarnings(deliveryId ?? undefined, enabled);
 
   const delivery = detail.data ?? fallback ?? null;
   const loading = detail.isLoading && !delivery;
@@ -80,6 +82,7 @@ export function TripDetailSheet({
     void detail.refetch();
     void timeline.refetch();
     void events.refetch();
+    void tripEarn.refetch();
   };
 
   return (
@@ -137,6 +140,48 @@ export function TripDetailSheet({
                     </Text>
                   ) : null}
                 </View>
+              ) : null}
+
+              {tripEarn.data ? (
+                <View style={styles.summary}>
+                  <Text style={styles.sectionTitle}>Trip earnings</Text>
+                  <Text style={styles.earn}>
+                    Net {money(tripEarn.data.net, tripEarn.data.currency)}
+                  </Text>
+                  <Text style={styles.muted}>
+                    Gross {money(tripEarn.data.gross, tripEarn.data.currency)}
+                    {tripEarn.data.actualDistanceKm != null
+                      ? ` · ${tripEarn.data.actualDistanceKm} km`
+                      : ''}
+                    {tripEarn.data.waitMinutes
+                      ? ` · wait ${tripEarn.data.waitMinutes} min`
+                      : ''}
+                  </Text>
+                  {(
+                    [
+                      ['Base', tripEarn.data.breakdown.baseFare],
+                      ['Distance', tripEarn.data.breakdown.distanceFare],
+                      ['Surge', tripEarn.data.breakdown.surge],
+                      ['Wait', tripEarn.data.breakdown.waitTime],
+                      ['Tip', tripEarn.data.breakdown.tip],
+                      ['Incentive', tripEarn.data.breakdown.incentive],
+                      ['Platform fee', tripEarn.data.breakdown.platformFee],
+                      ['TDS', tripEarn.data.breakdown.tds],
+                    ] as const
+                  ).map(([label, value]) =>
+                    value ? (
+                      <Text key={label} style={styles.muted}>
+                        {label} {money(value, tripEarn.data.currency)}
+                      </Text>
+                    ) : null
+                  )}
+                </View>
+              ) : tripEarn.isError ? (
+                <Pressable onPress={() => void tripEarn.refetch()} style={styles.inlineError}>
+                  <Text style={styles.inlineErrorText}>
+                    {formatTripError(tripEarn.error, 'Could not load trip earnings. Retry')}
+                  </Text>
+                </Pressable>
               ) : null}
 
               <Text style={styles.sectionTitle}>Timeline</Text>

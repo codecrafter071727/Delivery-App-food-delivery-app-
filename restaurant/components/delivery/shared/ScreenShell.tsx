@@ -4,6 +4,7 @@ import { Image, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GatewayStatusBanner } from '@/components/delivery/shared/GatewayStatusBanner';
+import { CodLimitBanner } from '@/components/delivery/shared/CodLimitBanner';
 import { DeliveryHeaderActions } from '@/components/delivery/shared/HeaderActions';
 import { DeliveryHeaderScrollProvider } from '@/components/delivery/shared/header-scroll';
 import { DeliveryTabBar } from '@/components/delivery/shared/TabBar';
@@ -229,6 +230,7 @@ function DeliveryScreenShellInner({
       ) : null}
 
       <GatewayStatusBanner />
+      <CodLimitBanner />
 
       <View style={[styles.body, flush && styles.bodyFlush]}>
         {children ?? (

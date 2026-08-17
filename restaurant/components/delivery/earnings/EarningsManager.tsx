@@ -1,6 +1,5 @@
 import {
   AlertTriangle,
-  ArrowDownCircle,
   Clock,
   Gift,
   HelpCircle,
@@ -18,7 +17,6 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   useWindowDimensions,
   View,
@@ -27,6 +25,9 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
+import { CodRemitSheet } from '@/components/delivery/earnings/CodRemitSheet';
+import { InstantPayoutSheet } from '@/components/delivery/earnings/InstantPayoutSheet';
+import { PayoutDetailSheet } from '@/components/delivery/earnings/PayoutDetailSheet';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import {
@@ -46,8 +47,22 @@ import type {
 } from '@/lib/delivery-partner/analytics-types';
 import { usePartnerBank } from '@/lib/delivery-partner/bank-hooks';
 import { bankStatusLabel, isBankVerified } from '@/lib/delivery-partner/bank-types';
+import { formatFinanceError } from '@/lib/delivery-partner/finance-api';
+import {
+  useCodPending,
+  useCodRemittanceHistory,
+  useInstantPayoutEligibility,
+  usePartnerPayouts,
+  usePartnerWallet,
+  usePayoutSchedule,
+  useWalletTransactions,
+} from '@/lib/delivery-partner/finance-hooks';
+import {
+  eligibilityReasonCopy,
+  payoutStatusLabel,
+  walletTxnLabel,
+} from '@/lib/delivery-partner/finance-types';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
-import { getApiErrorMessage } from '@/lib/errors';
 
 const PERIODS: { label: string; days: EarningsPeriodDays }[] = [
   { label: 'Today', days: 1 },
@@ -56,14 +71,43 @@ const PERIODS: { label: string; days: EarningsPeriodDays }[] = [
   { label: '90D', days: 90 },
 ];
 
+const TABS = [
+  { key: 'wallet', label: 'Wallet' },
+  { key: 'cod', label: 'COD' },
+  { key: 'payouts', label: 'Payouts' },
+  { key: 'ledger', label: 'Ledger' },
+] as const;
+
+type TabKey = (typeof TABS)[number]['key'];
+
+const TXN_TYPES = [
+  { key: '', label: 'All' },
+  { key: 'delivery_credit', label: 'Trips' },
+  { key: 'payout_debit', label: 'Payouts' },
+  { key: 'cod_collect', label: 'COD in' },
+  { key: 'cod_remit', label: 'Remits' },
+  { key: 'incentive_credit', label: 'Bonus' },
+];
+
+function when(iso?: string | null) {
+  if (!iso) return '';
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return '';
+  return new Date(ms).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function SimpleLineChart({ points, width }: { points: PartnerDailyEarning[]; width: number }) {
   if (!points.length || width <= 0) return null;
   const values = points.map((p) => p.earnings);
   const max = Math.max(...values, 1);
   const height = 180;
-  
-  const stepX = (width - 40) / Math.max(1, (points.length - 1));
-  
+  const stepX = (width - 40) / Math.max(1, points.length - 1);
+
   let path = '';
   points.forEach((p, i) => {
     const x = i * stepX;
@@ -74,21 +118,38 @@ function SimpleLineChart({ points, width }: { points: PartnerDailyEarning[]; wid
 
   return (
     <View style={{ width, height, marginTop: 16 }}>
-      {/* Y Axis pseudo-labels */}
-      <View style={{ position: 'absolute', left: 0, top: 0, bottom: 20, justifyContent: 'space-between' }}>
-        <Text style={styles.chartYLabel}>{(max).toFixed(0)}</Text>
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 20,
+          justifyContent: 'space-between',
+        }}
+      >
+        <Text style={styles.chartYLabel}>{max.toFixed(0)}</Text>
         <Text style={styles.chartYLabel}>{(max * 0.5).toFixed(0)}</Text>
         <Text style={styles.chartYLabel}>0</Text>
       </View>
       <View style={{ marginLeft: 30 }}>
         <Svg width={width - 30} height={height}>
-          <Path d={path} fill="none" stroke="#EA4B14" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <Path
+            d={path}
+            fill="none"
+            stroke="#EA4B14"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </Svg>
-        {/* X axis labels */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-          {points.filter((_, i) => i % 2 === 0).map((p, i) => (
-            <Text key={i} style={styles.chartXLabel}>{p.label.slice(0, 3)}</Text>
-          ))}
+          {points
+            .filter((_, i) => i % 2 === 0)
+            .map((p, i) => (
+              <Text key={i} style={styles.chartXLabel}>
+                {p.label.slice(0, 3)}
+              </Text>
+            ))}
         </View>
       </View>
     </View>
@@ -100,17 +161,32 @@ export function PartnerEarningsManager() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const chartWidth = Math.max(windowWidth - 72, 240);
-  
+
   const [days, setDays] = useState<EarningsPeriodDays>(7);
+  const [tab, setTab] = useState<TabKey>('wallet');
+  const [txnType, setTxnType] = useState('');
+  const [txnPage, setTxnPage] = useState(1);
+  const [payoutPage, setPayoutPage] = useState(1);
+  const [remitPage, setRemitPage] = useState(1);
   const [pullRefreshing, setPullRefreshing] = useState(false);
-  const [autoSettle, setAutoSettle] = useState(false);
+  const [showInstant, setShowInstant] = useState(false);
+  const [showRemit, setShowRemit] = useState(false);
+  const [payoutId, setPayoutId] = useState<string | null>(null);
 
   const earnings = usePartnerEarnings(days);
   const daily = usePartnerDailyEarnings(days);
   const incentivesQuery = usePartnerIncentives();
+  const wallet = usePartnerWallet(true);
+  const eligibility = useInstantPayoutEligibility(true);
+  const schedule = usePayoutSchedule(true);
+  const codPending = useCodPending(true);
+  const remittances = useCodRemittanceHistory(remitPage, tab === 'cod');
+  const payouts = usePartnerPayouts(payoutPage, tab === 'payouts');
+  const ledger = useWalletTransactions(txnPage, txnType || undefined, tab === 'ledger');
+  const bankQuery = usePartnerBank(true);
 
   const summary = earnings.data;
-  const currency = summary?.currency ?? 'INR';
+  const currency = wallet.data?.currency ?? summary?.currency ?? 'INR';
   const chartPoints = useMemo(() => {
     const points = daily.data?.points ?? [];
     return days <= 7
@@ -121,12 +197,16 @@ export function PartnerEarningsManager() {
   const hasChartData = chartPoints.some((p) => p.earnings > 0 || p.orders > 0);
   const incentiveRows = incentivesQuery.data?.incentives ?? [];
   const payout = summary?.payout;
-  const bankQuery = usePartnerBank(true);
   const bank = bankQuery.data;
   const hasPayout = Boolean(bank?.hasAccount || payout?.bankAccountNo || payout?.ifscCode);
+  const cashDue = wallet.data?.cashInHand ?? codPending.data?.cashInHand ?? 0;
+  const payable = wallet.data?.earningsBalance ?? 0;
 
-  const loading = (earnings.isLoading && !summary) || (daily.isLoading && !daily.data);
-  const error = earnings.error && !summary ? getApiErrorMessage(earnings.error, 'Could not load earnings.') : null;
+  const loading = (earnings.isLoading && !summary) || (wallet.isLoading && !wallet.data);
+  const error =
+    earnings.error && !summary && wallet.error && !wallet.data
+      ? formatFinanceError(wallet.error, 'Could not load wallet.')
+      : null;
 
   const onRefresh = async () => {
     setPullRefreshing(true);
@@ -136,6 +216,13 @@ export function PartnerEarningsManager() {
         daily.refetch(),
         incentivesQuery.refetch(),
         bankQuery.refetch(),
+        wallet.refetch(),
+        eligibility.refetch(),
+        schedule.refetch(),
+        codPending.refetch(),
+        remittances.refetch(),
+        payouts.refetch(),
+        ledger.refetch(),
       ]);
     } finally {
       setPullRefreshing(false);
@@ -173,12 +260,18 @@ export function PartnerEarningsManager() {
     },
   ] as const;
 
+  const openInstant = () => {
+    if (!eligibility.data?.bankVerified && !isBankVerified(bank)) {
+      router.push(DELIVERY_ROUTES.profile);
+      return;
+    }
+    setShowInstant(true);
+  };
+
   return (
     <View style={styles.root}>
-      {/* Background shape behind cards */}
       <View style={styles.heroBackground} />
-      
-      {/* Header */}
+
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable
           onPress={() => {
@@ -190,9 +283,27 @@ export function PartnerEarningsManager() {
           <ChevronLeft color="#000000" size={24} />
         </Pressable>
         <Text style={styles.headerTitle}>Wallet</Text>
-        <Pressable style={styles.backBtn}>
+        <Pressable
+          onPress={() => router.push(DELIVERY_ROUTES.profile)}
+          style={styles.backBtn}
+        >
           <Settings2 color="#000000" size={20} />
         </Pressable>
+      </View>
+
+      <View style={styles.tabRow}>
+        {TABS.map((item) => {
+          const active = tab === item.key;
+          return (
+            <Pressable
+              key={item.key}
+              onPress={() => setTab(item.key)}
+              style={[styles.tab, active && styles.tabOn]}
+            >
+              <Text style={[styles.tabText, active && styles.tabTextOn]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       <ScrollView
@@ -212,11 +323,11 @@ export function PartnerEarningsManager() {
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator color="#EA4B14" size="large" />
-            <Text style={styles.mutedText}>Loading earnings…</Text>
+            <Text style={styles.mutedText}>Loading wallet…</Text>
           </View>
         ) : error ? (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Couldn’t load earnings</Text>
+            <Text style={styles.sectionTitle}>Couldn’t load wallet</Text>
             <Text style={[styles.mutedText, { marginTop: 6 }]}>{error}</Text>
             <Pressable onPress={() => void onRefresh()} style={styles.retryBtn}>
               <Text style={styles.retryText}>Retry</Text>
@@ -224,238 +335,486 @@ export function PartnerEarningsManager() {
           </View>
         ) : (
           <>
-            {/* Top Cards: Total Earnings & Due */}
-            <View style={styles.topRow}>
-              <View style={[styles.walletCard, styles.earningsCard]}>
-                <Text style={styles.walletCardTitle}>Total Earnings</Text>
-                <Text style={styles.walletCardAmount}>
-                  {formatCurrency(summary?.totalEarnings ?? 0, currency)}
-                </Text>
-                <Pressable style={styles.walletCardBtn}>
-                  <Text style={styles.walletCardBtnTextBlack}>Withdraw Now</Text>
-                </Pressable>
-              </View>
+            {tab === 'wallet' ? (
+              <>
+                <View style={styles.topRow}>
+                  <View style={[styles.walletCard, styles.earningsCard]}>
+                    <Text style={styles.walletCardTitle}>Payable earnings</Text>
+                    <Text style={styles.walletCardAmount}>
+                      {formatCurrency(payable, currency)}
+                    </Text>
+                    <Pressable onPress={openInstant} style={styles.walletCardBtn}>
+                      <Text style={styles.walletCardBtnTextBlack}>Withdraw</Text>
+                    </Pressable>
+                  </View>
 
-              <View style={[styles.walletCard, styles.dueCard]}>
-                <Text style={styles.walletCardTitle}>Due to company</Text>
-                <Text style={styles.walletCardAmount}>
-                  {formatCurrency(summary?.deductions ?? 0, currency)}
-                </Text>
-                <Pressable style={styles.walletCardBtn}>
-                  <Text style={styles.walletCardBtnTextBlack}>Settle Now</Text>
-                </Pressable>
-              </View>
-            </View>
-
-            {/* Action Row */}
-            <View style={styles.actionRow}>
-              <Pressable style={styles.actionBtn}>
-                <ArrowDownCircle color="#000000" size={20} strokeWidth={1.5} />
-                <Text style={styles.actionText}>Cash Out</Text>
-              </Pressable>
-              <Pressable style={styles.actionBtn}>
-                <Clock color="#000000" size={20} strokeWidth={1.5} />
-                <Text style={styles.actionText}>History</Text>
-              </Pressable>
-              <Pressable style={styles.actionBtn}>
-                <HelpCircle color="#000000" size={20} strokeWidth={1.5} />
-                <Text style={styles.actionText}>Support</Text>
-              </Pressable>
-            </View>
-
-            {/* Breakdown Grid */}
-            <View style={styles.breakdownGrid}>
-              {breakdown.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <View key={item.key} style={styles.splitCard}>
-                    <View style={styles.splitIconRow}>
-                      <View style={styles.splitIcon}>
-                        <Icon color="#EA4B14" size={16} />
-                      </View>
-                      <Text style={styles.splitLabel}>{item.label}</Text>
-                    </View>
-                    <Text
-                      style={[
-                        styles.splitAmount,
-                        'negative' in item && item.negative
-                          ? { color: authTheme.error }
-                          : null,
-                      ]}
-                      numberOfLines={1}
+                  <View style={[styles.walletCard, styles.dueCard]}>
+                    <Text style={styles.walletCardTitle}>COD in hand</Text>
+                    <Text style={styles.walletCardAmount}>
+                      {formatCurrency(cashDue, currency)}
+                    </Text>
+                    <Pressable
+                      onPress={() => setShowRemit(true)}
+                      style={styles.walletCardBtn}
                     >
-                      {item.value}
+                      <Text style={styles.walletCardBtnTextBlack}>Remit</Text>
+                    </Pressable>
+                  </View>
+                </View>
+
+                {wallet.data?.pendingPayouts ? (
+                  <Text style={styles.mutedText}>
+                    In-flight payouts {formatCurrency(wallet.data.pendingPayouts, currency)} ·
+                    lifetime {formatCurrency(wallet.data.lifetimeEarnings, currency)}
+                  </Text>
+                ) : null}
+
+                <View style={styles.actionRow}>
+                  <Pressable onPress={openInstant} style={styles.actionBtn}>
+                    <Zap color="#000000" size={20} strokeWidth={1.5} />
+                    <Text style={styles.actionText}>Instant</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setTab('ledger')}
+                    style={styles.actionBtn}
+                  >
+                    <Clock color="#000000" size={20} strokeWidth={1.5} />
+                    <Text style={styles.actionText}>History</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => router.push(DELIVERY_ROUTES.support)}
+                    style={styles.actionBtn}
+                  >
+                    <HelpCircle color="#000000" size={20} strokeWidth={1.5} />
+                    <Text style={styles.actionText}>Support</Text>
+                  </Pressable>
+                </View>
+
+                {(codPending.data?.blocked ||
+                  wallet.data?.cod?.blocked ||
+                  wallet.data?.cod?.remitDueToday) ? (
+                  <View style={styles.warningBanner}>
+                    <View style={styles.warningIconWrap}>
+                      <AlertTriangle color="#F59E0B" size={20} />
+                    </View>
+                    <Text style={styles.warningText}>
+                      {codPending.data?.blocked
+                        ? `COD cap reached (${formatCurrency(cashDue)} / ${formatCurrency(codPending.data.limit)}). Remit to take new COD orders.`
+                        : 'Remit cash today so you stay under the COD cap.'}
                     </Text>
                   </View>
-                );
-              })}
-            </View>
+                ) : null}
 
-            {/* Auto-Settle Dues */}
-            <View style={styles.autoSettleBlock}>
-              <View style={styles.autoSettleInfo}>
-                <Text style={styles.autoSettleTitle}>Auto-Settle Dues</Text>
-                <Text style={styles.autoSettleSub}>
-                  Automatically pay dues from future earnings
-                </Text>
-              </View>
-              <Switch
-                value={autoSettle}
-                onValueChange={setAutoSettle}
-                trackColor={{ false: '#E5E7EB', true: '#EA4B14' }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
-
-            {/* Warning Banner */}
-            {summary?.deductions && summary.deductions > 50 ? (
-              <View style={styles.warningBanner}>
-                <View style={styles.warningIconWrap}>
-                  <AlertTriangle color="#F59E0B" size={20} />
+                <View style={styles.breakdownGrid}>
+                  {breakdown.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <View key={item.key} style={styles.splitCard}>
+                        <View style={styles.splitIconRow}>
+                          <View style={styles.splitIcon}>
+                            <Icon color="#EA4B14" size={16} />
+                          </View>
+                          <Text style={styles.splitLabel}>{item.label}</Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.splitAmount,
+                            'negative' in item && item.negative
+                              ? { color: authTheme.error }
+                              : null,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item.value}
+                        </Text>
+                      </View>
+                    );
+                  })}
                 </View>
-                <Text style={styles.warningText}>
-                  Your due amount is nearing limits. Please settle now to keep receiving new orders.
-                </Text>
+
+                <View style={styles.chartBlock}>
+                  <View style={styles.chartHeader}>
+                    <Text style={styles.chartTitle}>Statistic report</Text>
+                    <View style={styles.chartTabs}>
+                      {PERIODS.map((p) => {
+                        const active = days === p.days;
+                        return (
+                          <Pressable
+                            key={p.days}
+                            onPress={() => setDays(p.days)}
+                            style={[styles.chartTab, active && styles.chartTabActive]}
+                          >
+                            <Text
+                              style={[
+                                styles.chartTabText,
+                                active && styles.chartTabActiveText,
+                              ]}
+                            >
+                              {p.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  {hasChartData ? (
+                    <SimpleLineChart points={chartPoints} width={chartWidth} />
+                  ) : (
+                    <View style={styles.empty}>
+                      <Text style={styles.emptyText}>No earnings for this period</Text>
+                    </View>
+                  )}
+                </View>
+
+                {schedule.data ? (
+                  <View style={styles.transactionsContainer}>
+                    <View style={styles.txHeader}>
+                      <Text style={styles.txTitle}>Weekly payout</Text>
+                    </View>
+                    <Text style={styles.payoutMeta}>
+                      {schedule.data.weekday ?? 'Tuesday'} IST · next{' '}
+                      {schedule.data.nextPayoutDate ?? when(schedule.data.nextPayoutAt) ?? '—'}
+                    </Text>
+                    <Text style={styles.payoutMeta}>
+                      Instant min {formatCurrency(schedule.data.instantMin ?? 200)} · fee{' '}
+                      {schedule.data.instantFeePercent ?? 2.5}% (min{' '}
+                      {formatCurrency(schedule.data.instantFeeMin ?? 5)}) · daily cap{' '}
+                      {formatCurrency(schedule.data.instantDailyCap ?? 5000)}
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View style={styles.transactionsContainer}>
+                  <View style={styles.txHeader}>
+                    <Text style={styles.txTitle}>Incentive Programs</Text>
+                  </View>
+                  {incentivesQuery.isError && !incentiveRows.length ? (
+                    <View style={styles.empty}>
+                      <Text style={styles.emptyText}>Could not load incentives</Text>
+                    </View>
+                  ) : incentiveRows.length === 0 ? (
+                    <View style={styles.empty}>
+                      <Target color="#9CA3AF" size={22} />
+                      <Text style={styles.emptyText}>No programs available right now</Text>
+                    </View>
+                  ) : (
+                    incentiveRows.map((item, index) => (
+                      <IncentiveProgramRow
+                        key={item.id}
+                        incentive={item}
+                        currency={currency}
+                        bordered={index < incentiveRows.length - 1}
+                      />
+                    ))
+                  )}
+                </View>
+
+                <Pressable
+                  onPress={() => router.push(DELIVERY_ROUTES.profile)}
+                  style={styles.transactionsContainer}
+                >
+                  <View style={styles.txHeader}>
+                    <Text style={styles.txTitle}>Payout Account</Text>
+                    <Text style={styles.payoutCta}>
+                      {bank?.hasAccount ? 'Manage' : 'Add bank'}
+                    </Text>
+                  </View>
+                  {bankQuery.isError && !bank ? (
+                    <Text style={styles.payoutMeta}>Could not load bank. Pull to retry.</Text>
+                  ) : hasPayout ? (
+                    <View style={styles.payoutRows}>
+                      <View
+                        style={[
+                          styles.payoutBadge,
+                          {
+                            backgroundColor: isBankVerified(bank) ? '#DCFCE7' : '#FEF3C7',
+                          },
+                        ]}
+                      >
+                        <Zap
+                          color={isBankVerified(bank) ? '#15803D' : '#B45309'}
+                          size={12}
+                        />
+                        <Text
+                          style={[
+                            styles.payoutBadgeText,
+                            {
+                              color: isBankVerified(bank) ? '#15803D' : '#B45309',
+                            },
+                          ]}
+                        >
+                          {bank?.payoutsEnabled
+                            ? 'Instant payouts on'
+                            : bank?.hasAccount
+                              ? `${bankStatusLabel(bank.verificationStatus)} · verify in Profile`
+                              : 'Add bank in Profile'}
+                        </Text>
+                      </View>
+                      {bank?.holderName || payout?.accountHolderName ? (
+                        <Text style={styles.payoutName}>
+                          {bank?.holderName || payout?.accountHolderName}
+                        </Text>
+                      ) : null}
+                      <Text style={styles.payoutLine}>
+                        A/C {bank?.accountMasked ||
+                          (payout?.bankAccountNo
+                            ? `····${String(payout.bankAccountNo).slice(-4)}`
+                            : '—')}
+                      </Text>
+                      {bank?.ifsc || payout?.ifscCode ? (
+                        <Text style={styles.payoutMeta}>
+                          IFSC {bank?.ifsc || payout?.ifscCode}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : (
+                    <View style={[styles.warningBanner, { marginTop: 0 }]}>
+                      <View style={styles.warningIconWrap}>
+                        <AlertTriangle color="#F59E0B" size={20} />
+                      </View>
+                      <Text style={styles.warningText}>
+                        No payout account. Add IFSC + account in Profile. Instant
+                        payouts need penny-drop Verified — we never fake paid.
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+              </>
+            ) : null}
+
+            {tab === 'cod' ? (
+              <View style={styles.transactionsContainer}>
+                <View style={styles.txHeader}>
+                  <Text style={styles.txTitle}>Cash due to platform</Text>
+                  <Pressable onPress={() => setShowRemit(true)}>
+                    <Text style={styles.payoutCta}>Remit</Text>
+                  </Pressable>
+                </View>
+                {codPending.isError && !codPending.data ? (
+                  <Text style={styles.payoutMeta}>
+                    {formatFinanceError(codPending.error, 'Could not load COD pending.')}
+                  </Text>
+                ) : (
+                  <>
+                    <Text style={styles.walletCardAmount}>
+                      {formatCurrency(codPending.data?.cashInHand ?? 0, currency)}
+                    </Text>
+                    <Text style={styles.payoutMeta}>
+                      Limit {formatCurrency(codPending.data?.limit ?? 0)} · remaining{' '}
+                      {formatCurrency(codPending.data?.remainingCapacity ?? 0)}
+                    </Text>
+                    <Text style={styles.payoutMeta}>
+                      Today collected {formatCurrency(codPending.data?.todayCollected ?? 0)} ·{' '}
+                      {codPending.data?.todayCount ?? 0} trips · lifetime remitted{' '}
+                      {formatCurrency(codPending.data?.remittedLifetime ?? 0)}
+                    </Text>
+                    {codPending.data?.blocked ? (
+                      <Text style={[styles.payoutMeta, { color: '#B91C1C', marginTop: 8 }]}>
+                        New COD orders are blocked until you remit.
+                      </Text>
+                    ) : null}
+                  </>
+                )}
+
+                <Text style={[styles.txTitle, { marginTop: 20 }]}>Remittance history</Text>
+                {remittances.isLoading && !remittances.data ? (
+                  <ActivityIndicator color="#EA4B14" style={{ marginTop: 12 }} />
+                ) : remittances.isError ? (
+                  <Text style={styles.payoutMeta}>
+                    {formatFinanceError(remittances.error, 'Could not load remittances.')}
+                  </Text>
+                ) : !remittances.data?.items.length ? (
+                  <Text style={[styles.emptyText, { marginTop: 12 }]}>No remittances yet.</Text>
+                ) : (
+                  remittances.data.items.map((row) => (
+                    <View key={row.remittanceId} style={[styles.programRow, styles.rowBorder]}>
+                      <View style={styles.programTop}>
+                        <Text style={styles.programTitle}>
+                          {row.method.replace(/_/g, ' ')} · {row.status}
+                        </Text>
+                        <Text style={styles.programReward}>
+                          {formatCurrency(row.amount, currency)}
+                        </Text>
+                      </View>
+                      <Text style={styles.programDesc}>
+                        {[row.reference, when(row.remittedAt)].filter(Boolean).join(' · ')}
+                      </Text>
+                    </View>
+                  ))
+                )}
+                {remittances.data?.hasNext ? (
+                  <Pressable
+                    onPress={() => setRemitPage((p) => p + 1)}
+                    style={styles.retryBtn}
+                  >
+                    <Text style={styles.retryText}>Load more</Text>
+                  </Pressable>
+                ) : null}
               </View>
             ) : null}
 
-            {/* Statistic Report */}
-            <View style={styles.chartBlock}>
-              <View style={styles.chartHeader}>
-                <Text style={styles.chartTitle}>Statistic report</Text>
+            {tab === 'payouts' ? (
+              <>
+                <View style={styles.transactionsContainer}>
+                  <View style={styles.txHeader}>
+                    <Text style={styles.txTitle}>Instant eligibility</Text>
+                    <Pressable onPress={openInstant}>
+                      <Text style={styles.payoutCta}>Withdraw</Text>
+                    </Pressable>
+                  </View>
+                  {eligibility.isError && !eligibility.data ? (
+                    <Text style={styles.payoutMeta}>
+                      {formatFinanceError(eligibility.error, 'Could not check eligibility.')}
+                    </Text>
+                  ) : (
+                    <>
+                      <Text style={styles.payoutMeta}>
+                        {eligibility.data?.eligible
+                          ? `Ready · max ${formatCurrency(eligibility.data.maxAmount, currency)}`
+                          : 'Not eligible for instant payout'}
+                      </Text>
+                      {(eligibility.data?.reasons ?? []).map((code) => (
+                        <Text key={code} style={[styles.payoutMeta, { color: '#B91C1C' }]}>
+                          {eligibilityReasonCopy(code)}
+                        </Text>
+                      ))}
+                    </>
+                  )}
+                </View>
+
+                <View style={styles.transactionsContainer}>
+                  <View style={styles.txHeader}>
+                    <Text style={styles.txTitle}>Settlements</Text>
+                  </View>
+                  {payouts.isLoading && !payouts.data ? (
+                    <ActivityIndicator color="#EA4B14" />
+                  ) : payouts.isError ? (
+                    <Text style={styles.payoutMeta}>
+                      {formatFinanceError(payouts.error, 'Could not load payouts.')}
+                    </Text>
+                  ) : !payouts.data?.items.length ? (
+                    <Text style={styles.emptyText}>No payouts yet.</Text>
+                  ) : (
+                    payouts.data.items.map((row) => {
+                      const paid = row.status.toLowerCase() === 'paid' && Boolean(row.paidAt);
+                      return (
+                        <Pressable
+                          key={row.payoutId}
+                          onPress={() => setPayoutId(row.payoutId)}
+                          style={[styles.programRow, styles.rowBorder]}
+                        >
+                          <View style={styles.programTop}>
+                            <Text style={styles.programTitle}>
+                              {row.kind === 'instant' ? 'Instant' : 'Weekly'} ·{' '}
+                              {paid ? 'Paid' : payoutStatusLabel(row.status)}
+                            </Text>
+                            <Text style={styles.programReward}>
+                              {formatCurrency(row.netAmount, currency)}
+                            </Text>
+                          </View>
+                          <Text style={styles.programDesc}>
+                            {[row.bankAccountMasked, when(row.requestedAt)]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </Text>
+                        </Pressable>
+                      );
+                    })
+                  )}
+                  {payouts.data?.hasNext ? (
+                    <Pressable
+                      onPress={() => setPayoutPage((p) => p + 1)}
+                      style={styles.retryBtn}
+                    >
+                      <Text style={styles.retryText}>Load more</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </>
+            ) : null}
+
+            {tab === 'ledger' ? (
+              <View style={styles.transactionsContainer}>
+                <View style={styles.txHeader}>
+                  <Text style={styles.txTitle}>Ledger</Text>
+                </View>
                 <View style={styles.chartTabs}>
-                  {PERIODS.map((p) => {
-                    const active = days === p.days;
+                  {TXN_TYPES.map((item) => {
+                    const active = txnType === item.key;
                     return (
-                      <Pressable 
-                        key={p.days} 
-                        onPress={() => setDays(p.days)}
+                      <Pressable
+                        key={item.key || 'all'}
+                        onPress={() => {
+                          setTxnType(item.key);
+                          setTxnPage(1);
+                        }}
                         style={[styles.chartTab, active && styles.chartTabActive]}
                       >
-                        <Text style={[styles.chartTabText, active && styles.chartTabActiveText]}>
-                          {p.label}
+                        <Text
+                          style={[styles.chartTabText, active && styles.chartTabActiveText]}
+                        >
+                          {item.label}
                         </Text>
                       </Pressable>
                     );
                   })}
                 </View>
-              </View>
-
-              {hasChartData ? (
-                <SimpleLineChart points={chartPoints} width={chartWidth} />
-              ) : (
-                <View style={styles.empty}>
-                  <Text style={styles.emptyText}>No earnings for this period</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Incentives */}
-            <View style={styles.transactionsContainer}>
-              <View style={styles.txHeader}>
-                <Text style={styles.txTitle}>Incentive Programs</Text>
-              </View>
-              {incentivesQuery.isError && !incentiveRows.length ? (
-                <View style={styles.empty}>
-                  <Text style={styles.emptyText}>Could not load incentives</Text>
-                </View>
-              ) : incentiveRows.length === 0 ? (
-                <View style={styles.empty}>
-                  <Target color="#9CA3AF" size={22} />
-                  <Text style={styles.emptyText}>No programs available right now</Text>
-                </View>
-              ) : (
-                incentiveRows.map((item, index) => (
-                  <IncentiveProgramRow
-                    key={item.id}
-                    incentive={item}
-                    currency={currency}
-                    bordered={index < incentiveRows.length - 1}
-                  />
-                ))
-              )}
-            </View>
-
-            {/* Payout */}
-            <Pressable
-              onPress={() => router.push(DELIVERY_ROUTES.profile)}
-              style={styles.transactionsContainer}
-            >
-              <View style={styles.txHeader}>
-                <Text style={styles.txTitle}>Payout Account</Text>
-                <Text style={styles.payoutCta}>
-                  {bank?.hasAccount ? 'Manage' : 'Add bank'}
-                </Text>
-              </View>
-              {bankQuery.isError && !bank ? (
-                <Text style={styles.payoutMeta}>Could not load bank. Pull to retry.</Text>
-              ) : hasPayout ? (
-                <View style={styles.payoutRows}>
-                  <View
-                    style={[
-                      styles.payoutBadge,
-                      {
-                        backgroundColor: isBankVerified(bank)
-                          ? '#DCFCE7'
-                          : '#FEF3C7',
-                      },
-                    ]}
+                {ledger.isLoading && !ledger.data ? (
+                  <ActivityIndicator color="#EA4B14" style={{ marginTop: 16 }} />
+                ) : ledger.isError ? (
+                  <Text style={[styles.payoutMeta, { marginTop: 12 }]}>
+                    {formatFinanceError(ledger.error, 'Could not load ledger.')}
+                  </Text>
+                ) : !ledger.data?.items.length ? (
+                  <Text style={[styles.emptyText, { marginTop: 16 }]}>No ledger rows.</Text>
+                ) : (
+                  ledger.data.items.map((row) => {
+                    const debit = (row.direction ?? '').toLowerCase() === 'debit';
+                    return (
+                      <View key={row.id} style={[styles.programRow, styles.rowBorder]}>
+                        <View style={styles.programTop}>
+                          <Text style={styles.programTitle}>{walletTxnLabel(row.type)}</Text>
+                          <Text
+                            style={[
+                              styles.programReward,
+                              debit ? { color: '#B91C1C' } : null,
+                            ]}
+                          >
+                            {debit ? '−' : '+'}
+                            {formatCurrency(row.netAmount ?? row.amount, row.currency)}
+                          </Text>
+                        </View>
+                        <Text style={styles.programDesc}>
+                          {[row.note, row.status, when(row.createdAt)]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </Text>
+                      </View>
+                    );
+                  })
+                )}
+                {ledger.data?.hasNext ? (
+                  <Pressable
+                    onPress={() => setTxnPage((p) => p + 1)}
+                    style={styles.retryBtn}
                   >
-                    <Zap
-                      color={isBankVerified(bank) ? '#15803D' : '#B45309'}
-                      size={12}
-                    />
-                    <Text
-                      style={[
-                        styles.payoutBadgeText,
-                        {
-                          color: isBankVerified(bank) ? '#15803D' : '#B45309',
-                        },
-                      ]}
-                    >
-                      {bank?.payoutsEnabled
-                        ? 'Instant payouts on'
-                        : bank?.hasAccount
-                          ? `${bankStatusLabel(bank.verificationStatus)} · verify in Profile`
-                          : 'Add bank in Profile'}
-                    </Text>
-                  </View>
-                  {bank?.holderName || payout?.accountHolderName ? (
-                    <Text style={styles.payoutName}>
-                      {bank?.holderName || payout?.accountHolderName}
-                    </Text>
-                  ) : null}
-                  {bank?.bankName || payout?.bankName ? (
-                    <Text style={styles.payoutMeta}>
-                      {bank?.bankName || payout?.bankName}
-                    </Text>
-                  ) : null}
-                  <Text style={styles.payoutLine}>
-                    A/C {bank?.accountMasked || (payout?.bankAccountNo
-                      ? `····${String(payout.bankAccountNo).slice(-4)}`
-                      : '—')}
-                  </Text>
-                  {(bank?.ifsc || payout?.ifscCode) ? (
-                    <Text style={styles.payoutMeta}>
-                      IFSC {bank?.ifsc || payout?.ifscCode}
-                    </Text>
-                  ) : null}
-                </View>
-              ) : (
-                <View style={[styles.warningBanner, { marginTop: 0 }]}>
-                  <View style={styles.warningIconWrap}>
-                    <AlertTriangle color="#F59E0B" size={20} />
-                  </View>
-                  <Text style={styles.warningText}>
-                    No payout account. Add IFSC + account in Profile. Instant
-                    payouts need penny-drop Verified — we never fake paid.
-                  </Text>
-                </View>
-              )}
-            </Pressable>
+                    <Text style={styles.retryText}>Load more</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
           </>
         )}
       </ScrollView>
+
+      <InstantPayoutSheet visible={showInstant} onClose={() => setShowInstant(false)} />
+      <CodRemitSheet visible={showRemit} onClose={() => setShowRemit(false)} />
+      <PayoutDetailSheet
+        visible={Boolean(payoutId)}
+        payoutId={payoutId}
+        onClose={() => setPayoutId(null)}
+      />
     </View>
   );
 }
@@ -469,7 +828,8 @@ function IncentiveProgramRow({
   currency: string;
   bordered: boolean;
 }) {
-  const reward = formatIncentiveAmount(incentive.amount, incentive.currency ?? currency) ?? undefined;
+  const reward =
+    formatIncentiveAmount(incentive.amount, incentive.currency ?? currency) ?? undefined;
   const progress = incentive.progress ?? 0;
   const target = incentive.target ?? 0;
   const pct = target > 0 ? Math.max(0, Math.min(100, (progress / target) * 100)) : 0;
@@ -477,11 +837,15 @@ function IncentiveProgramRow({
   return (
     <View style={[styles.programRow, bordered && styles.rowBorder]}>
       <View style={styles.programTop}>
-        <Text style={styles.programTitle} numberOfLines={2}>{incentive.title}</Text>
+        <Text style={styles.programTitle} numberOfLines={2}>
+          {incentive.title}
+        </Text>
         {reward ? <Text style={styles.programReward}>{reward}</Text> : null}
       </View>
       {incentive.description ? (
-        <Text style={styles.programDesc} numberOfLines={2}>{incentive.description}</Text>
+        <Text style={styles.programDesc} numberOfLines={2}>
+          {incentive.description}
+        </Text>
       ) : null}
       {target > 0 ? (
         <>
@@ -522,7 +886,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingBottom: 12,
   },
   backBtn: {
     width: 40,
@@ -538,6 +902,33 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 20,
     color: '#000000',
+  },
+  tabRow: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+  },
+  tab: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabOn: {
+    backgroundColor: '#FFFFFF',
+  },
+  tabText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  tabTextOn: {
+    color: '#111827',
   },
   scroll: {
     paddingHorizontal: 16,
@@ -559,11 +950,6 @@ const styles = StyleSheet.create({
     padding: 24,
     borderWidth: 1,
     borderColor: '#F3F4F6',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
   },
   sectionTitle: {
     fontFamily: fonts.bold,
@@ -591,11 +977,6 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 20,
     padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
   },
   earningsCard: {
     backgroundColor: '#000000',
@@ -610,10 +991,10 @@ const styles = StyleSheet.create({
   },
   walletCardAmount: {
     fontFamily: fonts.extraBold,
-    fontSize: 26,
+    fontSize: 22,
     color: '#EA4B14',
     marginTop: 4,
-    marginBottom: 20,
+    marginBottom: 16,
     letterSpacing: -0.5,
   },
   walletCardBtn: {
@@ -627,11 +1008,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 13,
     color: '#000000',
-  },
-  walletCardBtnTextOrange: {
-    fontFamily: fonts.bold,
-    fontSize: 13,
-    color: '#EA4B14',
   },
   actionRow: {
     flexDirection: 'row',
@@ -650,11 +1026,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
   },
   actionText: {
     fontFamily: fonts.medium,
@@ -673,11 +1044,6 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: '#F3F4F6',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
   },
   splitIconRow: {
     flexDirection: 'row',
@@ -703,31 +1069,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 18,
     color: '#000000',
-  },
-  autoSettleBlock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  autoSettleInfo: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  autoSettleTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 15,
-    color: '#000000',
-  },
-  autoSettleSub: {
-    fontFamily: fonts.medium,
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 2,
-    lineHeight: 16,
   },
   warningBanner: {
     flexDirection: 'row',
@@ -774,10 +1115,12 @@ const styles = StyleSheet.create({
   },
   chartTabs: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     backgroundColor: '#F3F4F6',
     borderRadius: 8,
     padding: 4,
+    gap: 2,
   },
   chartTab: {
     paddingHorizontal: 10,
@@ -825,17 +1168,12 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: '#F3F4F6',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
   },
   txHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   txTitle: {
     fontFamily: fonts.bold,
