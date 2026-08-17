@@ -14,6 +14,7 @@ import {
   Package,
   Power,
   Star,
+  Award,
   User,
   UtensilsCrossed,
   Wallet,
@@ -76,6 +77,7 @@ const ICONS: Record<DeliveryTabKey, typeof Home> = {
   hubs: Building2,
   heatmap: Flame,
   incentives: Gift,
+  performance: Award,
 };
 
 /** Hamburger button + slide-over menu (profile card + tabs + logout). */

@@ -156,6 +156,12 @@ export function socketErrorCopy(code?: string): string | undefined {
       return 'Set your delivery zone on Home to see the leaderboard.';
     case 'ZONE_NOT_FOUND':
       return 'Your zone is missing. Update location on Home and retry.';
+    case 'WARNING_NOT_FOUND':
+      return 'This warning is no longer available.';
+    case 'WARNING_NOT_OPEN':
+      return 'This warning is already acknowledged or expired.';
+    case 'FORBIDDEN':
+      return 'You cannot acknowledge this warning.';
     default:
       return undefined;
   }

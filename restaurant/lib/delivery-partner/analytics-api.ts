@@ -225,6 +225,27 @@ function mapPerformance(raw: unknown): PartnerPerformance {
       streakMilestones && streakMilestones.length
         ? streakMilestones
         : undefined,
+    tier: (() => {
+      const tier = asRecord(source.tier);
+      const code = pickString(tier, ['code', 'tier']);
+      const label = pickString(tier, ['label', 'name']);
+      if (!code && !label) return undefined;
+      return { code: (code ?? 'bronze').toLowerCase(), label: label ?? code ?? 'Bronze' };
+    })(),
+    zoneRank: (() => {
+      const rank = asRecord(source.zoneRank);
+      const position = pickNumber(rank, ['rank', 'position']);
+      if (position == null) return undefined;
+      return {
+        metric: pickString(rank, ['metric']) ?? 'deliveries',
+        period: pickString(rank, ['period']) ?? 'week',
+        rank: position,
+        total: pickNumber(rank, ['total', 'totalRiders']) ?? 0,
+      };
+    })(),
+    openWarnings: pickNumber(source, ['openWarnings', 'warnings']),
+    atRisk:
+      typeof source.atRisk === 'boolean' ? source.atRisk : undefined,
     raw: source,
   };
 }

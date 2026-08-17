@@ -26,6 +26,10 @@ export type PartnerPerformance = {
   ratingDistribution?: PartnerRatingBucket[];
   /** Milestone targets from API if provided */
   streakMilestones?: number[];
+  tier?: { code: string; label: string };
+  zoneRank?: { metric: string; period: string; rank: number; total: number };
+  openWarnings?: number;
+  atRisk?: boolean;
   raw?: Record<string, unknown>;
 };
 

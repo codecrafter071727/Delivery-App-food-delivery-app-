@@ -410,13 +410,19 @@ export function PartnerAnalyticsManager() {
             <View style={styles.listSection}>
               <View style={styles.listHeader}>
                 <Text style={styles.listTitle}>Metrics & Performance</Text>
-                <Text style={styles.listSeeAll}>See all</Text>
+                <Pressable onPress={() => router.push(DELIVERY_ROUTES.performance)}>
+                  <Text style={styles.listSeeAll}>See all</Text>
+                </Pressable>
               </View>
 
               {metrics.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <View key={item.id} style={styles.listItem}>
+                  <Pressable
+                    key={item.id}
+                    style={styles.listItem}
+                    onPress={() => router.push(DELIVERY_ROUTES.performance)}
+                  >
                     <View style={styles.listIconWrap}>
                       <Icon color="#000000" size={20} />
                     </View>
@@ -425,7 +431,7 @@ export function PartnerAnalyticsManager() {
                       <Text style={styles.listSubText}>{item.category}</Text>
                     </View>
                     <Text style={styles.listValueText}>{item.value}</Text>
-                  </View>
+                  </Pressable>
                 );
               })}
             </View>

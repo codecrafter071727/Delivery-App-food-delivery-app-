@@ -3,6 +3,7 @@ export { DeliveryMenuButton } from '@/components/delivery/shared/DeliveryNavMenu
 export { DeliveryPlaceholderScreen } from '@/components/delivery/shared/PlaceholderScreen';
 export { DeliveryHomeScreen } from '@/components/delivery/home/HomeScreen';
 export { PartnerIncentivesManager } from '@/components/delivery/incentives';
+export { PartnerPerformanceManager } from '@/components/delivery/performance';
 export { PartnerOrdersManager } from '@/components/delivery/orders/OrdersManager';
 export { PartnerAvailabilityManager } from '@/components/delivery/shifts';
 export { DemandHeatmapScreen } from '@/components/delivery/heatmap';

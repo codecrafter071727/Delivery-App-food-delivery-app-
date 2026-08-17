@@ -54,6 +54,7 @@ const PAGE_COPY: Record<string, string> = {
   Hubs: 'Nearby hubs & cash drop',
   Demand: 'Nearby order heatmap',
   Incentives: 'Bonuses, rewards & leaderboard',
+  Performance: 'Ratings, tier, warnings & referrals',
 };
 
 function partnerDisplayId(id?: string) {

@@ -11,6 +11,7 @@ import {
   UtensilsCrossed,
   Building2,
   Gift,
+  Award,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import {
@@ -153,6 +154,15 @@ const MORE_FEATURES = [
     icon: Gift,
     accent: '#C2410C',
     soft: '#FFF7ED',
+  },
+  {
+    key: 'performance',
+    label: 'Performance',
+    description: 'Ratings, tier, warnings & referrals',
+    href: DELIVERY_ROUTES.performance,
+    icon: Award,
+    accent: '#7C3AED',
+    soft: '#F5F3FF',
   },
   {
     key: 'support',
@@ -738,13 +748,16 @@ export function DeliveryHomeScreen() {
             <Text style={styles.statValue}>{totalDeliveries}</Text>
             <Text style={styles.statLabel}>Deliveries</Text>
           </View>
-          <View style={styles.stat}>
+          <Pressable
+            style={styles.stat}
+            onPress={() => router.push(DELIVERY_ROUTES.performance)}
+          >
             <View style={styles.statValueRow}>
               <Star color="#D97706" size={13} fill="#FBBF24" />
               <Text style={styles.statValue}>{formatRating(avgRating)}</Text>
             </View>
             <Text style={styles.statLabel}>Rating</Text>
-          </View>
+          </Pressable>
           <View style={styles.stat}>
             <Text style={styles.statValue}>
               {formatPercent(completionRate)}
@@ -755,8 +768,17 @@ export function DeliveryHomeScreen() {
 
         {/* Performance */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Performance</Text>
-          <View style={styles.card}>
+          <Pressable
+            onPress={() => router.push(DELIVERY_ROUTES.performance)}
+            style={styles.sectionRow}
+          >
+            <Text style={styles.sectionTitle}>Performance</Text>
+            <ChevronRight color={authTheme.textMuted} size={18} />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push(DELIVERY_ROUTES.performance)}
+            style={styles.card}
+          >
             <View style={styles.perfGrid}>
               <View style={styles.perfItem}>
                 <Text style={styles.perfValue}>
@@ -783,7 +805,7 @@ export function DeliveryHomeScreen() {
                 <Text style={styles.perfLabel}>Streak</Text>
               </View>
             </View>
-          </View>
+          </Pressable>
         </View>
 
         {/* History */}

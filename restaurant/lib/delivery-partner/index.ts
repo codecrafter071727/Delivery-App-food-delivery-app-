@@ -9,6 +9,7 @@
  *   analytics-*     — performance / earnings / incentives
  *   finance-*       — wallet / payouts / COD remit / doorstep UPI
  *   incentives-*    — bonuses, rewards, quests, challenges, leaderboard
+ *   performance-*   — ratings, tier, warnings, referrals
  *   restaurants-*   — partner restaurants
  *   support-*       — help / tickets (mock until API)
  *   tracking-*      — GPS ping, heartbeat, heatmap, trip map/ETA
@@ -59,10 +60,13 @@ export { partnerFinanceApi, formatFinanceError } from '@/lib/delivery-partner/fi
 export * from '@/lib/delivery-partner/finance-types';
 export { partnerIncentivesApi, formatIncentiveError } from '@/lib/delivery-partner/incentives-api';
 export * from '@/lib/delivery-partner/incentives-types';
+export { partnerPerformanceApi, formatPerformanceError } from '@/lib/delivery-partner/performance-api';
+export * from '@/lib/delivery-partner/performance-types';
 export * from '@/lib/delivery-partner/hooks';
 export * from '@/lib/delivery-partner/bank-hooks';
 export * from '@/lib/delivery-partner/finance-hooks';
 export * from '@/lib/delivery-partner/incentives-hooks';
+export * from '@/lib/delivery-partner/performance-hooks';
 export * from '@/lib/delivery-partner/analytics-hooks';
 export * from '@/lib/delivery-partner/restaurants-hooks';
 export * from '@/lib/delivery-partner/support-hooks';

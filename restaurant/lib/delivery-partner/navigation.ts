@@ -17,6 +17,7 @@ export const DELIVERY_ROUTES = {
   hubs: '/delivery/hubs',
   heatmap: '/delivery/heatmap',
   incentives: '/delivery/incentives',
+  performance: '/delivery/performance',
   setup: '/delivery/setup',
 } as const;
 
@@ -36,7 +37,8 @@ export type DeliveryTabKey =
   | 'shifts'
   | 'hubs'
   | 'heatmap'
-  | 'incentives';
+  | 'incentives'
+  | 'performance';
 
 export type DeliveryTabItem = {
   key: DeliveryTabKey;
@@ -60,6 +62,7 @@ export const DELIVERY_HOME_SHORTCUTS: DeliveryTabItem[] = [
   { key: 'hubs', label: 'Hubs', href: DELIVERY_ROUTES.hubs },
   { key: 'heatmap', label: 'Demand', href: DELIVERY_ROUTES.heatmap },
   { key: 'incentives', label: 'Incentives', href: DELIVERY_ROUTES.incentives },
+  { key: 'performance', label: 'Performance', href: DELIVERY_ROUTES.performance },
   { key: 'support', label: 'Support', href: DELIVERY_ROUTES.support },
 ];
 
