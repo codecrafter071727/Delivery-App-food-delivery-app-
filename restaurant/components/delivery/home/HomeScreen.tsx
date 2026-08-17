@@ -28,6 +28,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DutyControlCard } from '@/components/delivery/home/DutyControlCard';
+import { TripDetailSheet } from '@/components/delivery/orders/TripDetailSheet';
 import {
   LocationMapPicker,
   type MapPickResult,
@@ -46,6 +47,7 @@ import {
 import {
   deliveryPartnerApi,
   deliveryStatusLabel,
+  normalizeDeliveryStatus,
 } from '@/lib/delivery-partner/api';
 import {
   formatDutyError,
@@ -79,8 +81,11 @@ import {
   useDeliveryHistory,
   useDeliveryOrderMutations,
   useDeliveryPartnerMe,
+  useDeliveryTimeline,
 } from '@/lib/delivery-partner/hooks';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
+import { formatTripError } from '@/lib/delivery-partner/rider-ack';
+import type { PartnerDelivery } from '@/lib/delivery-partner/types';
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/errors';
 
 const LIVE_LOCATION_STORAGE_KEY = '@tokajo/partner-live-location';
@@ -159,6 +164,9 @@ export function DeliveryHomeScreen() {
   const [liveLocation, setLiveLocation] = useState<SavedLiveLocation | null>(
     null
   );
+  const [detailDelivery, setDetailDelivery] = useState<PartnerDelivery | null>(
+    null
+  );
 
   const me = useDeliveryPartnerMe();
   const duty = usePartnerDutyStatus();
@@ -194,6 +202,16 @@ export function DeliveryHomeScreen() {
     startBreak.isPending || endBreak.isPending || extendBreak.isPending;
   const delivery = active.data ?? actives.data?.[0] ?? null;
   const activeCount = actives.data?.length ?? (delivery ? 1 : 0);
+  const tripTimeline = useDeliveryTimeline(delivery?.id, {
+    enabled: Boolean(delivery?.id),
+    live: true,
+  });
+  const tripProgress = (() => {
+    const steps = tripTimeline.data?.steps ?? [];
+    if (!steps.length) return 12;
+    const done = steps.filter((step) => step.completed).length;
+    return Math.max(8, Math.round((done / steps.length) * 100));
+  })();
   const goOnlineBlocker = getGoOnlineBlocker(me.data);
 
   const todayEarnings = earnings.data?.totalEarnings ?? 0;
@@ -610,7 +628,7 @@ export function DeliveryHomeScreen() {
               {activeCount > 1 ? `Active trips (${activeCount})` : 'Active trip'}
             </Text>
             <Pressable
-              onPress={() => router.push(DELIVERY_ROUTES.orders)}
+              onPress={() => setDetailDelivery(delivery)}
               style={styles.activeCard}
             >
               <View style={styles.activeTop}>
@@ -628,7 +646,7 @@ export function DeliveryHomeScreen() {
               </View>
 
               <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: '55%' }]} />
+                <View style={[styles.progressFill, { width: `${tripProgress}%` }]} />
               </View>
 
               <View style={styles.activeBottom}>
@@ -652,6 +670,27 @@ export function DeliveryHomeScreen() {
                       : 'Open map'}
                   </Text>
                 </View>
+              </View>
+            </Pressable>
+          </View>
+        ) : (active.isError || actives.isError) && !delivery ? (
+          <View style={styles.section}>
+            <Pressable
+              onPress={() => {
+                void active.refetch();
+                void actives.refetch();
+              }}
+              style={styles.demandCta}
+            >
+              <Package color={authTheme.brand} size={18} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.demandCtaTitle}>Couldn’t load active trip</Text>
+                <Text style={styles.demandCtaHint}>
+                  {formatTripError(
+                    active.error ?? actives.error,
+                    'Tap to retry.'
+                  )}
+                </Text>
               </View>
             </Pressable>
           </View>
@@ -738,19 +777,29 @@ export function DeliveryHomeScreen() {
               <View style={[styles.orderCard, { justifyContent: 'center' }]}>
                 <ActivityIndicator color={authTheme.brand} />
               </View>
+            ) : history.isError && !recent.length ? (
+              <Pressable
+                onPress={() => void history.refetch()}
+                style={[styles.orderCard, { flexDirection: 'column' }]}
+              >
+                <Text style={styles.emptyText}>
+                  {formatTripError(history.error, 'Could not load history. Retry')}
+                </Text>
+              </Pressable>
             ) : recent.length ? (
               recent.map((item) => (
                 <Pressable
                   key={item.id}
-                  onPress={() => router.push(DELIVERY_ROUTES.orders)}
+                  onPress={() => setDetailDelivery(item)}
                   style={styles.orderCard}
                 >
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.listLabel} numberOfLines={1}>
-                      Order #{item.orderNumber || '7620937'}
+                      Order #{item.orderNumber || item.orderId || item.id.slice(-6)}
                     </Text>
                     <Text style={styles.listTitle} numberOfLines={1}>
-                      From {item.restaurantName || 'Paris'} to {item.customerName || 'Berlin'}
+                      From {item.restaurantName || 'Restaurant'}
+                      {item.customerName ? ` to ${item.customerName}` : ''}
                     </Text>
                   </View>
                   <View style={styles.orderStatusPill}>
@@ -812,6 +861,18 @@ export function DeliveryHomeScreen() {
         onConfirm={(result) => {
           void onConfirmLiveLocation(result);
         }}
+      />
+      <TripDetailSheet
+        visible={Boolean(detailDelivery)}
+        deliveryId={detailDelivery?.id ?? null}
+        fallback={detailDelivery}
+        live={Boolean(
+          detailDelivery &&
+            ['assigned', 'accepted', 'arrived', 'picked_up', 'out_for_delivery', 'at_customer'].includes(
+              normalizeDeliveryStatus(detailDelivery.status)
+            )
+        )}
+        onClose={() => setDetailDelivery(null)}
       />
     </View>
   );

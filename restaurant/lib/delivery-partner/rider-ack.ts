@@ -77,6 +77,8 @@ export function socketErrorCopy(code?: string): string | undefined {
       return 'Pickup must come before drop for every order in the stack.';
     case 'BATCH_NOT_FOUND':
       return 'This stacked assignment is no longer available.';
+    case 'INVALID_STATUS':
+      return 'That history filter is not valid. Try All, Delivered, or Cancelled.';
     case 'VALIDATION_ERROR':
       return 'Please check the details and try again.';
     default:

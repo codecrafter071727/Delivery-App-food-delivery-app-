@@ -25,8 +25,8 @@ export const deliveryPartnerKeys = {
   me: () => [...deliveryPartnerKeys.all, 'me'] as const,
   active: () => [...deliveryPartnerKeys.all, 'active-delivery'] as const,
   actives: () => [...deliveryPartnerKeys.all, 'active-deliveries'] as const,
-  history: (limit: number) =>
-    [...deliveryPartnerKeys.all, 'deliveries', limit] as const,
+  history: (limit: number, status?: string) =>
+    [...deliveryPartnerKeys.all, 'deliveries', limit, status ?? 'default'] as const,
   delivery: (id: string) => [...deliveryPartnerKeys.all, 'delivery', id] as const,
   timeline: (id: string) => [...deliveryPartnerKeys.all, 'timeline', id] as const,
   events: (id: string) => [...deliveryPartnerKeys.all, 'events', id] as const,
@@ -206,15 +206,23 @@ export function useDeliveryBatch(
   });
 }
 
-export function useDeliveryHistory(limit = 20, enabled = true) {
+export function useDeliveryHistory(
+  limit = 20,
+  enabled = true,
+  status?: string
+) {
   const isActive = useAppIsActive();
 
   return useInfiniteQuery({
-    queryKey: deliveryPartnerKeys.history(limit),
+    queryKey: deliveryPartnerKeys.history(limit, status),
     enabled,
     initialPageParam: 1,
     queryFn: ({ pageParam }) =>
-      deliveryPartnerApi.getDeliveries({ page: pageParam, limit }),
+      deliveryPartnerApi.getDeliveries({
+        page: pageParam,
+        limit,
+        status: status || undefined,
+      }),
     getNextPageParam: (last) => (last.hasNext ? last.page + 1 : undefined),
     staleTime: LIVE_INTERVALS.deliveryHistory / 2,
     gcTime: 5 * 60_000,

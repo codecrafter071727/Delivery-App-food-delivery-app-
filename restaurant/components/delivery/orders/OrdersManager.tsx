@@ -54,6 +54,7 @@ import {
   useDeliveryHistory,
   useDeliveryOrderMutations,
   useDeliveryPartnerMe,
+  useDeliveryTimeline,
 } from '@/lib/delivery-partner/hooks';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import { formatLocationError } from '@/lib/delivery-partner/tracking-api';
@@ -68,9 +69,9 @@ import {
 import type { OrderTracking } from '@/lib/delivery-partner/tracking-types';
 import { formatTripError } from '@/lib/delivery-partner/rider-ack';
 import type { PartnerDelivery } from '@/lib/delivery-partner/types';
-import { getApiErrorMessage } from '@/lib/errors';
 
 type TabKey = 'active' | 'history';
+type HistoryFilter = '' | 'delivered' | 'cancelled' | 'reassigned';
 
 import { REJECT_REASON_CODES, toRejectReasonCode } from '@/lib/delivery-partner/rider-gateway-types';
 
@@ -154,7 +155,27 @@ function isLiveDelivery(status: string) {
 
 function isPastDelivery(status: string) {
   const s = normalizeDeliveryStatus(status);
-  return s === 'delivered' || s === 'rejected' || s === 'cancelled';
+  return (
+    s === 'delivered' ||
+    s === 'rejected' ||
+    s === 'cancelled' ||
+    s === 'reassigned'
+  );
+}
+
+function remainingOfferSeconds(delivery: PartnerDelivery) {
+  if (delivery.offerExpiresAt) {
+    const ms = Date.parse(delivery.offerExpiresAt) - Date.now();
+    if (Number.isFinite(ms)) return Math.max(0, Math.ceil(ms / 1000));
+  }
+  if (delivery.timeoutSeconds && (delivery.assignedAt || delivery.createdAt)) {
+    const start = Date.parse(delivery.assignedAt || delivery.createdAt || '');
+    if (Number.isFinite(start)) {
+      const elapsed = (Date.now() - start) / 1000;
+      return Math.max(0, Math.ceil(delivery.timeoutSeconds - elapsed));
+    }
+  }
+  return delivery.timeoutSeconds ?? null;
 }
 
 export function PartnerOrdersManager() {
@@ -174,6 +195,7 @@ export function PartnerOrdersManager() {
   const [sequenceDismissedId, setSequenceDismissedId] = useState<string | null>(
     null
   );
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('');
   const [otp, setOtp] = useState('');
   const [proofUri, setProofUri] = useState<string | null>(null);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
@@ -191,7 +213,7 @@ export function PartnerOrdersManager() {
   const docProgress = getDocumentProgress(me.data);
   const active = useActiveDelivery(true, { fast: isOnline });
   const actives = useActiveDeliveries(true, { fast: isOnline });
-  const history = useDeliveryHistory(20, true);
+  const history = useDeliveryHistory(20, true, historyFilter || undefined);
   const mutations = useDeliveryOrderMutations();
 
   const historyRows = useMemo(
@@ -657,6 +679,18 @@ export function PartnerOrdersManager() {
                       .join(' · ')}
                   </Text>
                 </Pressable>
+              ) : pendingBatch.isError && pendingBatchId ? (
+                <Pressable
+                  onPress={() => void pendingBatch.refetch()}
+                  style={styles.sequenceBanner}
+                >
+                  <Text style={styles.sequenceBannerTitle}>
+                    Couldn’t load stacked route
+                  </Text>
+                  <Text style={styles.sequenceBannerSub}>
+                    {formatTripError(pendingBatch.error, 'Tap to retry.')}
+                  </Text>
+                </Pressable>
               ) : null}
               <Text style={styles.sectionTitle}>
                 {liveOrders.some((d) => isAssignableStatus(d.status))
@@ -709,8 +743,8 @@ export function PartnerOrdersManager() {
           <View style={styles.cardPad}>
             <Text style={styles.sectionTitle}>Couldn’t load history</Text>
             <Text style={[styles.muted, { marginTop: 6 }]}>
-              {getApiErrorMessage(history.error, 'Pull to retry.')}
-            </Text>
+                {formatTripError(history.error, 'Pull to retry.')}
+              </Text>
             <Pressable
               onPress={() => void history.refetch()}
               style={styles.retryBtn}
@@ -729,6 +763,37 @@ export function PartnerOrdersManager() {
         ) : (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Past deliveries</Text>
+            <View style={styles.historyFilters}>
+              {(
+                [
+                  { key: '', label: 'All' },
+                  { key: 'delivered', label: 'Delivered' },
+                  { key: 'cancelled', label: 'Cancelled' },
+                  { key: 'reassigned', label: 'Declined' },
+                ] as const
+              ).map((item) => {
+                const selected = historyFilter === item.key;
+                return (
+                  <Pressable
+                    key={item.label}
+                    onPress={() => setHistoryFilter(item.key)}
+                    style={[
+                      styles.historyChip,
+                      selected && styles.historyChipActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.historyChipText,
+                        selected && styles.historyChipTextActive,
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
             <View style={styles.card}>
               {pastOrders.map((row, index) => (
                 <HistoryRow
@@ -1060,6 +1125,23 @@ function DeliveryCard({
     void historyQuery.refetch();
   };
 
+  const [offerLeft, setOfferLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isNew) {
+      setOfferLeft(null);
+      return;
+    }
+    const tick = () => setOfferLeft(remainingOfferSeconds(delivery));
+    tick();
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [isNew, delivery]);
+  const allowDecline = delivery.canReject !== false;
+  const offerUrgent = offerLeft != null && offerLeft <= 10;
+  const offerTotal = Math.max(1, delivery.timeoutSeconds ?? 30);
+  const offerProgress =
+    offerLeft == null ? 1 : Math.min(1, Math.max(0, offerLeft / offerTotal));
+
   return (
     <View style={styles.jobCard}>
       <View style={styles.jobTop}>
@@ -1092,6 +1174,29 @@ function DeliveryCard({
           ) : null}
         </View>
       )}
+
+      {isNew && offerLeft != null ? (
+        <View style={styles.offerTimerRow}>
+          <View style={styles.offerTimerTrack}>
+            <View
+              style={[
+                styles.offerTimerFill,
+                {
+                  width: `${Math.round(offerProgress * 100)}%`,
+                  backgroundColor: offerUrgent ? '#EF4444' : '#16A34A',
+                },
+              ]}
+            />
+          </View>
+          <Text
+            style={[styles.offerTimerText, offerUrgent && styles.offerTimerUrgent]}
+          >
+            {offerLeft > 0 ? `${offerLeft}s` : 'Expired'}
+          </Text>
+        </View>
+      ) : null}
+
+      <ApiTimelineStrip deliveryId={delivery.id} live={live || isNew} />
 
       {live && trackingBusy ? (
         <View style={styles.trackBanner}>
@@ -1205,13 +1310,15 @@ function DeliveryCard({
       {isNew ? (
         <View style={{ gap: 8 }}>
           <View style={styles.actionRow}>
-            <Pressable
-              onPress={onDecline}
-              disabled={busy}
-              style={styles.declineBtn}
-            >
-              <Text style={styles.declineBtnText}>Decline</Text>
-            </Pressable>
+            {allowDecline ? (
+              <Pressable
+                onPress={onDecline}
+                disabled={busy}
+                style={styles.declineBtn}
+              >
+                <Text style={styles.declineBtnText}>Decline</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={onAccept}
               disabled={busy}
@@ -1255,6 +1362,61 @@ function DeliveryCard({
           </Pressable>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+function ApiTimelineStrip({
+  deliveryId,
+  live,
+}: {
+  deliveryId: string;
+  live: boolean;
+}) {
+  const timeline = useDeliveryTimeline(deliveryId, {
+    enabled: Boolean(deliveryId),
+    live,
+  });
+  if (timeline.isLoading && !timeline.data) {
+    return (
+      <View style={styles.trackBanner}>
+        <ActivityIndicator color="#EA4B14" size="small" />
+        <Text style={styles.trackBannerText}>Loading trip timeline…</Text>
+      </View>
+    );
+  }
+  if (timeline.isError) {
+    return (
+      <Pressable
+        onPress={() => void timeline.refetch()}
+        style={styles.trackBanner}
+      >
+        <Text style={styles.trackBannerText}>
+          {formatTripError(timeline.error, 'Could not load timeline. Retry')}
+        </Text>
+      </Pressable>
+    );
+  }
+  const steps = timeline.data?.steps ?? [];
+  if (!steps.length) return null;
+  return (
+    <View style={styles.apiSteps}>
+      {steps.map((step) => (
+        <View key={`${step.key}-${step.label}`} style={styles.apiStep}>
+          <View
+            style={[styles.apiStepDot, step.completed && styles.apiStepDotDone]}
+          />
+          <Text
+            style={[
+              styles.apiStepLabel,
+              !step.completed && styles.apiStepPending,
+            ]}
+            numberOfLines={1}
+          >
+            {step.label}
+          </Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -1562,6 +1724,81 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: 13,
     color: '#EA4B14',
+  },
+  offerTimerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  offerTimerTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 99,
+    backgroundColor: '#E5E7EB',
+    overflow: 'hidden',
+  },
+  offerTimerFill: {
+    height: 6,
+    borderRadius: 99,
+  },
+  offerTimerText: {
+    fontFamily: fonts.extraBold,
+    fontSize: 13,
+    color: '#111827',
+    width: 52,
+    textAlign: 'right',
+  },
+  offerTimerUrgent: {
+    color: '#EF4444',
+  },
+  apiSteps: {
+    gap: 8,
+  },
+  apiStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  apiStepDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#D1D5DB',
+  },
+  apiStepDotDone: {
+    backgroundColor: '#16A34A',
+  },
+  apiStepLabel: {
+    flex: 1,
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: '#111827',
+  },
+  apiStepPending: {
+    color: '#9CA3AF',
+  },
+  historyFilters: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  historyChip: {
+    borderRadius: 999,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  historyChipActive: {
+    backgroundColor: '#111827',
+  },
+  historyChipText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: '#4B5563',
+  },
+  historyChipTextActive: {
+    color: '#FFFFFF',
   },
   orderNo: {
     fontFamily: fonts.medium,

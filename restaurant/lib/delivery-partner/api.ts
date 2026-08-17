@@ -729,7 +729,8 @@ export function normalizeDeliveryStatus(status: string): string {
     reached_customer: 'at_customer',
     at_customer: 'at_customer',
     at_drop: 'at_customer',
-    reassigned: 'cancelled',
+    reassigned: 'reassigned',
+    declined: 'reassigned',
     pickedup: 'picked_up',
     picked_up: 'picked_up',
     pickup: 'picked_up',
@@ -1900,7 +1901,8 @@ export function deliveryStatusLabel(status: string): string {
     out_for_delivery: 'Out for delivery',
     at_customer: 'At customer',
     delivered: 'Delivered',
-    rejected: 'Rejected',
+    rejected: 'Declined',
+    reassigned: 'Declined',
     cancelled: 'Cancelled',
   };
   return map[key] ?? key.replace(/_/g, ' ');
