@@ -69,6 +69,14 @@ export function appendRiderChat(message: RiderChatMessage) {
   notify(message.deliveryId);
 }
 
+export function setRiderChatThread(
+  deliveryId: string,
+  messages: RiderChatMessage[]
+) {
+  messagesByDelivery.set(deliveryId, messages);
+  notify(deliveryId);
+}
+
 export function getRiderChat(deliveryId: string): RiderChatMessage[] {
   return messagesByDelivery.get(deliveryId) ?? [];
 }

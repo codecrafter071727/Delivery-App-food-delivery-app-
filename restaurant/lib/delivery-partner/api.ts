@@ -21,12 +21,18 @@ import { normalizeDutyStatus } from '@/lib/delivery-partner/availability-types';
 import type {
   CancelDeliveryPayload,
   ConfirmBatchSequencePayload,
+  CustomerUnreachablePayload,
   DeliverOrderPayload,
+  DeliveryChatMessage,
+  DeliveryChatThread,
+  DeliveryChatTo,
   DeliveryEventsResult,
   DeliveryHistoryResult,
   DeliveryPartnerProfile,
   DeliveryPartnerRegisterPayload,
   DeliveryTimeline,
+  FailDeliveryPayload,
+  MaskedCallResult,
   PartnerBatch,
   PartnerBatchMember,
   PartnerBatchStop,
@@ -40,6 +46,9 @@ import type {
   PickupVerifyPayload,
   RejectDeliveryPayload,
   ReportIssuePayload,
+  ReturnToRestaurantPayload,
+  TripNavRoute,
+  TripNavStep,
   UpdatePartnerProfilePayload,
   UploadPartnerDocumentPayload,
   PartnerGpsCoords,
@@ -444,6 +453,17 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
       'timeoutAt',
     ]),
     timeoutSeconds: pickNumber(source, ['timeoutSeconds', 'timeout']),
+    contactAttemptCount: pickNumber(source, [
+      'contactAttemptCount',
+      'unreachableCount',
+    ]),
+    rtoTimerEndsAt: pickString(source, ['rtoTimerEndsAt']),
+    rtoRemainingSeconds: pickNumber(source, ['rtoRemainingSeconds']),
+    canReturnToRestaurant: pickBool(source, ['canReturnToRestaurant']),
+    canFail: pickBool(source, ['canFail']),
+    failedAt: pickString(source, ['failedAt']),
+    failReasonCode: pickString(source, ['failReasonCode']),
+    failReason: pickString(source, ['failReason']),
     raw: source,
   };
 }
@@ -745,6 +765,13 @@ export function normalizeDeliveryStatus(status: string): string {
     reached_customer: 'at_customer',
     at_customer: 'at_customer',
     at_drop: 'at_customer',
+    returning_to_restaurant: 'returning_to_restaurant',
+    returning: 'returning_to_restaurant',
+    rto: 'returning_to_restaurant',
+    returned: 'returned',
+    returned_to_restaurant: 'returned',
+    failed: 'failed',
+    failure: 'failed',
     reassigned: 'reassigned',
     declined: 'reassigned',
     pickedup: 'picked_up',
@@ -776,7 +803,8 @@ function isLiveStatus(status: string) {
     s === 'arrived' ||
     s === 'picked_up' ||
     s === 'out_for_delivery' ||
-    s === 'at_customer'
+    s === 'at_customer' ||
+    s === 'returning_to_restaurant'
   );
 }
 
@@ -792,6 +820,7 @@ export type TripWorkflowAction =
   | 'on_the_way'
   | 'reached_customer'
   | 'deliver'
+  | 'return_store'
   | null;
 
 export function nextDeliveryAction(status: string): TripWorkflowAction {
@@ -802,6 +831,7 @@ export function nextDeliveryAction(status: string): TripWorkflowAction {
   if (s === 'picked_up') return 'on_the_way';
   if (s === 'out_for_delivery') return 'reached_customer';
   if (s === 'at_customer') return 'deliver';
+  if (s === 'returning_to_restaurant') return 'return_store';
   return null;
 }
 
@@ -819,6 +849,8 @@ export function resolveTripStep(delivery: PartnerDelivery): TripWorkflowAction {
       return 'reached_customer';
     case 'deliver':
       return 'deliver';
+    case 'return_store':
+      return 'return_store';
     default:
       return nextDeliveryAction(delivery.status);
   }
@@ -1202,6 +1234,136 @@ function mapInviteValidation(
     expiresAt: pickString(source, ['expiresAt', 'expiry', 'validUntil']),
     message,
     raw: source,
+  };
+}
+
+function mapTripNavStep(raw: unknown): TripNavStep | null {
+  const record = asRecord(raw);
+  const instruction = pickString(record, [
+    'instruction',
+    'html_instructions',
+    'text',
+  ]);
+  if (!instruction) return null;
+  return {
+    instruction: instruction.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    distanceMeters: pickNumber(record, ['distanceMeters', 'distance']),
+    durationSeconds: pickNumber(record, ['durationSeconds', 'duration']),
+    maneuver: pickString(record, ['maneuver']),
+  };
+}
+
+function mapTripNavRoute(raw: unknown): TripNavRoute {
+  const record = asRecord(raw);
+  const dest = asRecord(record.destination);
+  const origin = asRecord(record.origin);
+  const points = extractList(record.points)
+    .map((row) => {
+      const point = asRecord(row);
+      const latitude = pickNumber(point, ['latitude', 'lat']);
+      const longitude = pickNumber(point, ['longitude', 'lng', 'lon']);
+      if (latitude == null || longitude == null) return null;
+      return { latitude, longitude };
+    })
+    .filter((row): row is { latitude: number; longitude: number } => Boolean(row));
+  const steps = extractList(record.steps)
+    .map(mapTripNavStep)
+    .filter((row): row is TripNavStep => Boolean(row));
+  const destLat = pickNumber(dest, ['latitude', 'lat']);
+  const destLng = pickNumber(dest, ['longitude', 'lng', 'lon']);
+  const originLat = pickNumber(origin, ['latitude', 'lat']);
+  const originLng = pickNumber(origin, ['longitude', 'lng', 'lon']);
+  return {
+    deliveryId: pickString(record, ['deliveryId']) ?? '',
+    orderId: pickString(record, ['orderId']),
+    status: pickString(record, ['status']),
+    leg: pickString(record, ['leg']) ?? 'drop',
+    destination:
+      destLat != null && destLng != null
+        ? {
+            latitude: destLat,
+            longitude: destLng,
+            kind: pickString(dest, ['kind']),
+          }
+        : undefined,
+    origin:
+      originLat != null && originLng != null
+        ? { latitude: originLat, longitude: originLng }
+        : undefined,
+    polyline: pickString(record, ['polyline']),
+    points,
+    steps,
+    nextInstruction:
+      pickString(record, ['nextInstruction']) || steps[0]?.instruction,
+    distanceMeters: pickNumber(record, ['distanceMeters', 'distance']),
+    etaSeconds: pickNumber(record, ['etaSeconds']),
+    etaAt: pickString(record, ['etaAt']),
+    provider: pickString(record, ['provider']),
+    durationInTraffic: pickBool(record, ['durationInTraffic']),
+    trafficFactor: pickNumber(record, ['trafficFactor']),
+  };
+}
+
+function mapDeliveryChatMessage(
+  raw: unknown,
+  fallbackDeliveryId?: string
+): DeliveryChatMessage | null {
+  const record = asRecord(raw);
+  const nested = asRecord(record.data ?? record);
+  const source = Object.keys(nested).length ? nested : record;
+  const deliveryId =
+    pickString(source, ['deliveryId', 'delivery_id']) ?? fallbackDeliveryId;
+  const text = pickString(source, ['text', 'message', 'body']);
+  if (!deliveryId || !text) return null;
+  return {
+    id:
+      pickString(source, ['id', '_id']) ??
+      `${deliveryId}-${pickString(source, ['createdAt']) ?? Date.now()}`,
+    deliveryId,
+    orderId: pickString(source, ['orderId']),
+    senderRole: pickString(source, ['senderRole', 'fromRole', 'role']),
+    senderUserId: pickString(source, ['senderUserId', 'userId']),
+    to: pickString(source, ['to']),
+    text,
+    createdAt: pickString(source, ['createdAt']) ?? new Date().toISOString(),
+  };
+}
+
+function mapDeliveryChatThread(
+  raw: unknown,
+  deliveryId: string
+): DeliveryChatThread {
+  const record = asRecord(raw);
+  const messages = extractList(
+    record.messages ?? record.items ?? record.data
+  )
+    .map((row) => mapDeliveryChatMessage(row, deliveryId))
+    .filter((row): row is DeliveryChatMessage => Boolean(row));
+  return {
+    deliveryId: pickString(record, ['deliveryId']) ?? deliveryId,
+    orderId: pickString(record, ['orderId']),
+    status: pickString(record, ['status']),
+    count: pickNumber(record, ['count']) ?? messages.length,
+    messages,
+  };
+}
+
+function mapMaskedCall(raw: unknown, target: string): MaskedCallResult {
+  const record = asRecord(raw);
+  return {
+    callId:
+      pickString(record, ['callId', 'id', '_id']) ?? `${target}-${Date.now()}`,
+    deliveryId: pickString(record, ['deliveryId']) ?? '',
+    orderId: pickString(record, ['orderId']),
+    target: pickString(record, ['target']) ?? target,
+    status: pickString(record, ['status']) ?? 'initiated',
+    toMasked: pickString(record, ['toMasked', 'destinationMasked']),
+    virtualNumberMasked: pickString(record, [
+      'virtualNumberMasked',
+      'fromMasked',
+    ]),
+    provider: pickString(record, ['provider']),
+    createdAt: pickString(record, ['createdAt']),
   };
 }
 
@@ -2024,6 +2186,148 @@ export const deliveryPartnerApi = {
     return mapPartnerDelivery(uploaded);
   },
 
+  /** PUT /partners/me/deliveries/:id/customer-unreachable — not the POST alias. */
+  markCustomerUnreachable: async (
+    deliveryId: string,
+    payload: CustomerUnreachablePayload = {}
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/customer-unreachable`,
+      {
+        method: 'PUT',
+        body: {
+          channel: payload.channel ?? 'call',
+          note: payload.note?.trim() || undefined,
+        },
+      }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** POST /partners/me/deliveries/:id/return-to-restaurant — not return-order. */
+  returnToRestaurant: async (
+    deliveryId: string,
+    payload: ReturnToRestaurantPayload
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/return-to-restaurant`,
+      {
+        method: 'POST',
+        body: {
+          reasonCode: payload.reasonCode,
+          reason: payload.reason?.trim() || undefined,
+        },
+      }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** POST /partners/me/deliveries/:id/failed */
+  markFailed: async (
+    deliveryId: string,
+    payload: FailDeliveryPayload
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    if (payload.reasonCode === 'other' && !payload.reason?.trim()) {
+      throw new PartnerApiError(
+        'Add a short note when the reason is Other.',
+        'VALIDATION_ERROR'
+      );
+    }
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/failed`,
+      {
+        method: 'POST',
+        body: {
+          reasonCode: payload.reasonCode,
+          reason: payload.reason?.trim() || undefined,
+        },
+      }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** GET /partners/me/deliveries/:id/route — current-leg turn-by-turn. */
+  getTripRoute: async (deliveryId: string): Promise<TripNavRoute> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/route`
+    );
+    const mapped = mapTripNavRoute(res.data ?? res);
+    return { ...mapped, deliveryId: mapped.deliveryId || id };
+  },
+
+  /** GET /partners/me/deliveries/:id/chat */
+  getTripChat: async (
+    deliveryId: string,
+    limit = 50
+  ): Promise<DeliveryChatThread> => {
+    const id = deliveryId.trim();
+    try {
+      const res = await request<unknown>(
+        `${ME_BASE}/deliveries/${encodeURIComponent(id)}/chat`,
+        { params: { limit: Math.min(100, Math.max(1, limit)) } }
+      );
+      return mapDeliveryChatThread(res.data ?? res, id);
+    } catch (error) {
+      const code = getApiErrorCode(error);
+      if (code === 'CHAT_CLOSED') {
+        return { deliveryId: id, count: 0, closed: true, messages: [] };
+      }
+      throw error;
+    }
+  },
+
+  /** POST /partners/me/deliveries/:id/chat */
+  sendTripChat: async (
+    deliveryId: string,
+    payload: { to: DeliveryChatTo; text: string }
+  ): Promise<DeliveryChatMessage> => {
+    const id = deliveryId.trim();
+    const text = payload.text.trim();
+    if (!text) {
+      throw new PartnerApiError('Type a message first.', 'INVALID_CHAT');
+    }
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/chat`,
+      { method: 'POST', body: { to: payload.to, text } }
+    );
+    const mapped = mapDeliveryChatMessage(res.data ?? res, id);
+    if (!mapped) {
+      return {
+        id: `${id}-${Date.now()}`,
+        deliveryId: id,
+        to: payload.to,
+        senderRole: 'partner',
+        text,
+        createdAt: new Date().toISOString(),
+      };
+    }
+    return mapped;
+  },
+
+  /** POST /partners/me/deliveries/:id/call/customer */
+  callCustomer: async (deliveryId: string): Promise<MaskedCallResult> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/call/customer`,
+      { method: 'POST', body: {} }
+    );
+    return mapMaskedCall(res.data ?? res, 'customer');
+  },
+
+  /** POST /partners/me/deliveries/:id/call/restaurant */
+  callRestaurant: async (deliveryId: string): Promise<MaskedCallResult> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/call/restaurant`,
+      { method: 'POST', body: {} }
+    );
+    return mapMaskedCall(res.data ?? res, 'restaurant');
+  },
+
   /**
    * Gallery images are converted to JPEG first (HEIC/content:// crash servers).
    */
@@ -2127,6 +2431,9 @@ export function deliveryStatusLabel(status: string): string {
     picked_up: 'Picked up — deliver now',
     out_for_delivery: 'Out for delivery',
     at_customer: 'At customer',
+    returning_to_restaurant: 'Returning to restaurant',
+    returned: 'Returned to store',
+    failed: 'Delivery failed',
     delivered: 'Delivered',
     rejected: 'Declined',
     reassigned: 'Declined',

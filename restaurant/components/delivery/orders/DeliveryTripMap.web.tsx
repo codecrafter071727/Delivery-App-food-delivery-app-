@@ -11,7 +11,7 @@ import {
   type PartnerLiveLocation,
   type TrackingEta,
 } from '@/lib/delivery-partner/tracking-types';
-import type { PartnerDelivery } from '@/lib/delivery-partner/types';
+import type { PartnerDelivery, TripNavRoute } from '@/lib/delivery-partner/types';
 
 type LatLng = { latitude: number; longitude: number };
 
@@ -26,6 +26,7 @@ export function DeliveryTripMap({
   tracking,
   eta,
   liveLocation,
+  navRoute,
 }: {
   delivery: PartnerDelivery;
   tracking?: OrderTracking | null;
@@ -35,10 +36,12 @@ export function DeliveryTripMap({
   routePoints?: LatLng[];
   historyPolyline?: string | null;
   historyPoints?: LatLng[];
+  navRoute?: TripNavRoute | null;
   onTrackingPatch?: (patch: Partial<OrderTracking>) => void;
 }) {
-  const etaSeconds = eta?.etaSeconds ?? tracking?.etaSeconds;
-  const distanceMeters = eta?.distanceMeters ?? tracking?.distanceMeters;
+  const etaSeconds = navRoute?.etaSeconds ?? eta?.etaSeconds ?? tracking?.etaSeconds;
+  const distanceMeters =
+    navRoute?.distanceMeters ?? eta?.distanceMeters ?? tracking?.distanceMeters;
   const geo = tracking?.geofence;
   const drop = tracking?.drop;
   const pickup = tracking?.pickup;
@@ -53,7 +56,7 @@ export function DeliveryTripMap({
   return (
     <View style={styles.container}>
       <Text style={styles.title}>
-        {tracking?.dutyHint || 'Live trip tracking'}
+        {navRoute?.nextInstruction || tracking?.dutyHint || 'Live trip tracking'}
       </Text>
       <Text style={styles.eta}>
         {formatEtaSeconds(etaSeconds)}
@@ -61,9 +64,11 @@ export function DeliveryTripMap({
       </Text>
       <Text style={styles.meta}>
         {etaLabel({
-          provider: eta?.provider ?? tracking?.provider,
+          provider: navRoute?.provider ?? eta?.provider ?? tracking?.provider,
           durationInTraffic:
-            eta?.durationInTraffic ?? tracking?.durationInTraffic,
+            navRoute?.durationInTraffic ??
+            eta?.durationInTraffic ??
+            tracking?.durationInTraffic,
         })}
         {rider ? ' · GPS sharing' : ''}
       </Text>

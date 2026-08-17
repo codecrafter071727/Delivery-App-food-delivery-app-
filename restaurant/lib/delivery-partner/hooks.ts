@@ -9,14 +9,19 @@ import { deliveryPartnerApi } from '@/lib/delivery-partner/api';
 import type {
   CancelDeliveryPayload,
   ConfirmBatchSequencePayload,
+  CustomerUnreachablePayload,
   DeliverOrderPayload,
+  DeliveryChatTo,
   DeliveryPartnerProfile,
+  FailDeliveryPayload,
   PartnerDelivery,
   PickupVerifyPayload,
   ReportIssuePayload,
+  ReturnToRestaurantPayload,
   UpdatePartnerProfilePayload,
   UploadPartnerDocumentPayload,
 } from '@/lib/delivery-partner/types';
+import { getApiErrorCode } from '@/lib/errors';
 import {
   LIVE_INTERVALS,
   liveRefetchInterval,
@@ -34,6 +39,8 @@ export const deliveryPartnerKeys = {
   timeline: (id: string) => [...deliveryPartnerKeys.all, 'timeline', id] as const,
   events: (id: string) => [...deliveryPartnerKeys.all, 'events', id] as const,
   batch: (id: string) => [...deliveryPartnerKeys.all, 'batch', id] as const,
+  chat: (id: string) => [...deliveryPartnerKeys.all, 'chat', id] as const,
+  tripRoute: (id: string) => [...deliveryPartnerKeys.all, 'trip-route', id] as const,
 };
 
 const keepRetrying = (failureCount: number, error: unknown) => {
@@ -209,6 +216,89 @@ export function useDeliveryBatch(
   });
 }
 
+export function useTripChat(deliveryId?: string, enabled = true) {
+  const isActive = useAppIsActive();
+  const id = deliveryId?.trim() ?? '';
+
+  return useQuery({
+    queryKey: deliveryPartnerKeys.chat(id),
+    queryFn: () => deliveryPartnerApi.getTripChat(id),
+    enabled: enabled && Boolean(id),
+    staleTime: 4_000,
+    gcTime: 5 * 60_000,
+    refetchInterval: liveRefetchInterval(8_000, isActive),
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useSendTripChat() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      deliveryId,
+      to,
+      text,
+    }: {
+      deliveryId: string;
+      to: DeliveryChatTo;
+      text: string;
+    }) => deliveryPartnerApi.sendTripChat(deliveryId, { to, text }),
+    onSuccess: (message) => {
+      queryClient.setQueryData(
+        deliveryPartnerKeys.chat(message.deliveryId),
+        (current) => {
+          if (!current || typeof current !== 'object') return current;
+          const thread = current as {
+            messages?: typeof message[];
+            count?: number;
+          };
+          const existing = thread.messages ?? [];
+          if (existing.some((row) => row.id === message.id)) return current;
+          return {
+            ...thread,
+            count: (thread.count ?? existing.length) + 1,
+            messages: [...existing, message],
+          };
+        }
+      );
+    },
+  });
+}
+
+export function useTripNavRoute(deliveryId?: string, enabled = true) {
+  const isActive = useAppIsActive();
+  const id = deliveryId?.trim() ?? '';
+
+  return useQuery({
+    queryKey: deliveryPartnerKeys.tripRoute(id),
+    queryFn: async () => {
+      try {
+        return await deliveryPartnerApi.getTripRoute(id);
+      } catch (error) {
+        const code = getApiErrorCode(error);
+        if (code === 'LOCATION_REQUIRED' || code === 'TRACKING_COMPLETE') {
+          return null;
+        }
+        throw error;
+      }
+    },
+    enabled: enabled && Boolean(id),
+    staleTime: LIVE_INTERVALS.deliveryTracking / 2,
+    gcTime: 5 * 60_000,
+    refetchInterval: liveRefetchInterval(
+      LIVE_INTERVALS.deliveryTracking,
+      isActive
+    ),
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
 export function useDeliveryHistory(
   limit = 20,
   enabled = true,
@@ -271,6 +361,12 @@ export function useDeliveryOrderMutations() {
       }),
       queryClient.invalidateQueries({
         queryKey: [...deliveryPartnerKeys.all, 'batch'],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: [...deliveryPartnerKeys.all, 'chat'],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: [...deliveryPartnerKeys.all, 'trip-route'],
       }),
       queryClient.invalidateQueries({ queryKey: deliveryPartnerKeys.me() }),
       queryClient.invalidateQueries({
@@ -648,6 +744,59 @@ export function useDeliveryOrderMutations() {
     },
   });
 
+  const customerUnreachable = useMutation({
+    mutationFn: ({
+      deliveryId,
+      payload,
+    }: {
+      deliveryId: string;
+      payload?: CustomerUnreachablePayload;
+    }) =>
+      deliveryPartnerApi.markCustomerUnreachable(deliveryId, payload ?? {}),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  const returnToRestaurant = useMutation({
+    mutationFn: ({
+      deliveryId,
+      payload,
+    }: {
+      deliveryId: string;
+      payload: ReturnToRestaurantPayload;
+    }) => deliveryPartnerApi.returnToRestaurant(deliveryId, payload),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  const failTrip = useMutation({
+    mutationFn: ({
+      deliveryId,
+      payload,
+    }: {
+      deliveryId: string;
+      payload: FailDeliveryPayload;
+    }) => deliveryPartnerApi.markFailed(deliveryId, payload),
+    onSuccess: async () => {
+      queryClient.setQueryData(deliveryPartnerKeys.active(), null);
+      await invalidateAll();
+    },
+  });
+
+  const callCustomer = useMutation({
+    mutationFn: (deliveryId: string) =>
+      deliveryPartnerApi.callCustomer(deliveryId),
+  });
+
+  const callRestaurant = useMutation({
+    mutationFn: (deliveryId: string) =>
+      deliveryPartnerApi.callRestaurant(deliveryId),
+  });
+
   return {
     setOnline,
     accept,
@@ -668,6 +817,11 @@ export function useDeliveryOrderMutations() {
     reportIssue,
     captureSignature,
     uploadPod,
+    customerUnreachable,
+    returnToRestaurant,
+    failTrip,
+    callCustomer,
+    callRestaurant,
     invalidateAll,
   };
 }

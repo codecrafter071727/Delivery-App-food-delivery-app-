@@ -876,7 +876,7 @@ export function DeliveryHomeScreen() {
         fallback={detailDelivery}
         live={Boolean(
           detailDelivery &&
-            ['assigned', 'accepted', 'arrived', 'picked_up', 'out_for_delivery', 'at_customer'].includes(
+            ['assigned', 'accepted', 'arrived', 'picked_up', 'out_for_delivery', 'at_customer', 'returning_to_restaurant'].includes(
               normalizeDeliveryStatus(detailDelivery.status)
             )
         )}

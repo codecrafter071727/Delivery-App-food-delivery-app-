@@ -19,11 +19,21 @@ import {
   getRiderChat,
   isRiderPeerTyping,
   mapRiderChatMessage,
+  setRiderChatThread,
   subscribeRiderChat,
   type RiderChatMessage,
 } from '@/lib/delivery-partner/chat-store';
+import {
+  useSendTripChat,
+  useTripChat,
+} from '@/lib/delivery-partner/hooks';
 import { emitRiderEvent, isRiderSocketConnected } from '@/lib/delivery-partner/rider-gateway';
-import { getApiErrorMessage } from '@/lib/errors';
+import { formatTripError } from '@/lib/delivery-partner/rider-ack';
+
+const QUICK_REPLIES: Record<'customer' | 'restaurant', string[]> = {
+  customer: ['I am at the gate', 'Please share the OTP', 'Coming in 2 mins'],
+  restaurant: ["I've arrived for pickup", 'Is the order ready?', 'On my way'],
+};
 
 type Props = {
   visible: boolean;
@@ -33,7 +43,7 @@ type Props = {
 };
 
 /**
- * In-trip chat with customer / restaurant. Socket `chat:new-message` + `typing`.
+ * In-trip chat: GET/POST /partners/me/deliveries/:id/chat + live socket.
  */
 export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) {
   const insets = useSafeAreaInsets();
@@ -44,6 +54,23 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const typingOnRef = useRef(false);
+  const thread = useTripChat(deliveryId, visible && Boolean(deliveryId));
+  const sendChat = useSendTripChat();
+  const closed = Boolean(thread.data?.closed);
+
+  useEffect(() => {
+    if (!visible) return;
+    const rows = (thread.data?.messages ?? []).map((row) => ({
+      id: row.id,
+      deliveryId: row.deliveryId,
+      orderId: row.orderId,
+      text: row.text,
+      fromRole: row.senderRole,
+      to: row.to,
+      createdAt: row.createdAt,
+    }));
+    if (thread.data) setRiderChatThread(deliveryId, rows);
+  }, [visible, deliveryId, thread.data]);
 
   useEffect(() => {
     if (!visible) return;
@@ -55,7 +82,7 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
     return subscribeRiderChat((id) => {
       if (id === deliveryId) sync();
     });
-  }, [visible, deliveryId]);
+  }, [visible, deliveryId, thread.dataUpdatedAt]);
 
   const emitTyping = (isTyping: boolean) => {
     if (!isRiderSocketConnected()) return;
@@ -69,28 +96,22 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
     }).catch(() => undefined);
   };
 
-  const send = async () => {
-    const trimmed = text.trim();
+  const send = async (preset?: string) => {
+    const trimmed = (preset ?? text).trim();
     if (!trimmed) return;
     setSending(true);
     setError(null);
     emitTyping(false);
     try {
-      const ack = await emitRiderEvent('chat:new-message', {
-        deliveryId,
-        orderId,
-        to,
-        text: trimmed,
-      });
-      const mapped =
-        mapRiderChatMessage({
-          ...(typeof ack === 'object' && ack ? ack : {}),
+      let mapped = mapRiderChatMessage(
+        await sendChat.mutateAsync({
           deliveryId,
-          orderId,
-          text: trimmed,
-          senderRole: 'partner',
           to,
-        }) ?? {
+          text: trimmed,
+        })
+      );
+      if (!mapped) {
+        mapped = {
           id: `${deliveryId}-${Date.now()}`,
           deliveryId,
           orderId,
@@ -99,14 +120,51 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
           to,
           createdAt: new Date().toISOString(),
         };
+      }
       appendRiderChat(mapped);
       setText('');
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Could not send. Check your connection.'));
+      if (isRiderSocketConnected()) {
+        try {
+          const ack = await emitRiderEvent('chat:new-message', {
+            deliveryId,
+            orderId,
+            to,
+            text: trimmed,
+          });
+          const mapped =
+            mapRiderChatMessage({
+              ...(typeof ack === 'object' && ack ? ack : {}),
+              deliveryId,
+              orderId,
+              text: trimmed,
+              senderRole: 'partner',
+              to,
+            }) ?? {
+              id: `${deliveryId}-${Date.now()}`,
+              deliveryId,
+              orderId,
+              text: trimmed,
+              fromRole: 'partner',
+              to,
+              createdAt: new Date().toISOString(),
+            };
+          appendRiderChat(mapped);
+          setText('');
+          return;
+        } catch {
+          // fall through to REST error copy
+        }
+      }
+      setError(formatTripError(err, 'Could not send. Check your connection.'));
     } finally {
       setSending(false);
     }
   };
+
+  const visibleMessages = messages.filter(
+    (row) => !row.to || row.to === to || row.to === 'all' || row.fromRole === 'system'
+  );
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -137,18 +195,41 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
             ))}
           </View>
           <ScrollView style={styles.thread} contentContainerStyle={styles.threadInner}>
-            {messages.length === 0 ? (
+            {thread.isLoading && !visibleMessages.length ? (
+              <View style={styles.center}>
+                <ActivityIndicator color="#EA4B14" />
+                <Text style={styles.empty}>Loading chat…</Text>
+              </View>
+            ) : thread.isError && !visibleMessages.length ? (
+              <Pressable onPress={() => void thread.refetch()}>
+                <Text style={styles.error}>
+                  {formatTripError(thread.error, 'Could not load chat. Tap to retry.')}
+                </Text>
+              </Pressable>
+            ) : visibleMessages.length === 0 ? (
               <Text style={styles.empty}>
-                Messages stay on this trip. Customer and kitchen see them live.
+                {closed
+                  ? 'Chat is closed for this trip.'
+                  : 'Messages stay on this trip. Customer and kitchen see them live.'}
               </Text>
             ) : (
-              messages.map((row) => {
+              visibleMessages.map((row) => {
                 const mine = row.fromRole === 'partner';
+                const system = row.fromRole === 'system';
                 return (
                   <View
                     key={row.id}
-                    style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}
+                    style={[
+                      styles.bubble,
+                      mine ? styles.bubbleMine : styles.bubbleTheirs,
+                      system && styles.bubbleSystem,
+                    ]}
                   >
+                    {!mine ? (
+                      <Text style={styles.bubbleMeta}>
+                        {system ? 'Update' : row.fromRole === 'restaurant' ? 'Kitchen' : 'Customer'}
+                      </Text>
+                    ) : null}
                     <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>
                       {row.text}
                     </Text>
@@ -159,6 +240,20 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
             {peerTyping ? <Text style={styles.typing}>Typing…</Text> : null}
           </ScrollView>
           {error ? <Text style={styles.error}>{error}</Text> : null}
+          {!closed ? (
+            <View style={styles.quickRow}>
+              {QUICK_REPLIES[to].map((line) => (
+                <Pressable
+                  key={line}
+                  onPress={() => void send(line)}
+                  disabled={sending}
+                  style={styles.quick}
+                >
+                  <Text style={styles.quickText}>{line}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
           <View style={styles.composer}>
             <TextInput
               value={text}
@@ -167,14 +262,15 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
                 emitTyping(value.trim().length > 0);
               }}
               onBlur={() => emitTyping(false)}
-              placeholder={`Message ${to}…`}
+              placeholder={closed ? 'Chat closed' : `Message ${to}…`}
               placeholderTextColor="#9CA3AF"
               style={styles.input}
-              editable={!sending}
+              editable={!sending && !closed}
+              maxLength={500}
             />
             <Pressable
               onPress={() => void send()}
-              disabled={sending || !text.trim()}
+              disabled={sending || closed || !text.trim()}
               style={styles.send}
             >
               {sending ? (
@@ -244,10 +340,26 @@ const styles = StyleSheet.create({
   },
   bubbleMine: { alignSelf: 'flex-end', backgroundColor: '#EA4B14' },
   bubbleTheirs: { alignSelf: 'flex-start', backgroundColor: '#F3F4F6' },
+  bubbleSystem: { alignSelf: 'center', backgroundColor: '#EEF2FF' },
+  bubbleMeta: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    color: '#6B7280',
+    marginBottom: 2,
+  },
   bubbleText: { fontFamily: fonts.medium, fontSize: 14, color: '#111827' },
   bubbleTextMine: { color: '#FFFFFF' },
   typing: { fontFamily: fonts.medium, fontSize: 12, color: '#6B7280' },
   error: { fontFamily: fonts.medium, fontSize: 12, color: '#EF4444', marginBottom: 6 },
+  center: { alignItems: 'center', paddingVertical: 20, gap: 8 },
+  quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  quick: {
+    borderRadius: 999,
+    backgroundColor: '#FFF7ED',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  quickText: { fontFamily: fonts.semiBold, fontSize: 11, color: '#C2410C' },
   composer: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   input: {
     flex: 1,

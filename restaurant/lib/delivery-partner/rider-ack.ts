@@ -64,16 +64,34 @@ export function socketErrorCopy(code?: string): string | undefined {
       return 'That OTP is incorrect. Ask the customer to share it again.';
     case 'PROOF_REQUIRED':
       return 'Add the delivery OTP or a proof photo to complete.';
+    case 'RTO_ATTEMPTS_MAX':
+      return 'Contact attempts used up. Return the order or mark it failed.';
+    case 'RTO_ATTEMPTS_REQUIRED':
+      return 'Log two “customer not answering” attempts first.';
+    case 'RTO_TIMER_REQUIRED':
+      return 'Start the 5-minute wait after the second attempt.';
+    case 'RTO_TIMER_ACTIVE':
+      return 'Wait for the 5-minute timer to finish, then return the order.';
+    case 'MASKED_CALL_UNAVAILABLE':
+      return 'Masked calling is not set up. Use in-trip chat instead.';
+    case 'MASKED_CALL_FAILED':
+      return 'The call did not connect. Try again or send a chat.';
+    case 'PHONE_UNAVAILABLE':
+      return 'No phone on this order. Use chat.';
+    case 'PARTNER_PHONE_MISSING':
+      return 'Add your phone on Profile so masked calls can connect.';
+    case 'CALL_RATE_LIMITED':
+      return 'Too many calls this hour. Wait and try again, or use chat.';
+    case 'CHAT_RATE_LIMITED':
+      return 'Too many messages. Wait a moment.';
+    case 'CHAT_CLOSED':
+      return 'Chat is closed for this trip.';
     case 'COD_LIMIT_EXCEEDED':
       return 'COD limit reached. Remit cash before accepting more COD orders.';
     case 'DELIVERY_CAPACITY_FULL':
       return 'You already have a full batch. Finish a trip first.';
     case 'ILLEGAL_TRANSITION':
       return 'This step is not available for the current trip status.';
-    case 'CHAT_RATE_LIMITED':
-      return 'Too many messages. Wait a moment.';
-    case 'CHAT_CLOSED':
-      return 'Chat is closed for this trip.';
     case 'DELIVERY_NOT_FOUND':
       return 'This trip is no longer available.';
     case 'BATCH_EXPIRED':

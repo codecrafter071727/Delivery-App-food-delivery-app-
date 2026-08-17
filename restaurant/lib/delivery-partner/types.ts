@@ -213,6 +213,14 @@ export type PartnerDelivery = {
   signatureUrl?: string;
   signatureCapturedAt?: string;
   proofPhotoUrl?: string;
+  contactAttemptCount?: number;
+  rtoTimerEndsAt?: string;
+  rtoRemainingSeconds?: number;
+  canReturnToRestaurant?: boolean;
+  canFail?: boolean;
+  failedAt?: string;
+  failReasonCode?: string;
+  failReason?: string;
   offerExpiresAt?: string;
   timeoutSeconds?: number;
   raw?: Record<string, unknown>;
@@ -345,6 +353,107 @@ export type CancelDeliveryPayload = {
 export type ReportIssuePayload = {
   issueCode: TripIssueCode;
   note?: string;
+};
+
+export type UnreachableChannel = 'call' | 'chat';
+
+export type CustomerUnreachablePayload = {
+  channel?: UnreachableChannel;
+  note?: string;
+};
+
+export const RETURN_REASON_CODES = [
+  { code: 'customer_unreachable', label: 'No one at the drop' },
+  { code: 'customer_refused', label: 'Customer refused' },
+  { code: 'wrong_address', label: 'Wrong address' },
+  { code: 'item_damaged', label: 'Item damaged' },
+  { code: 'payment_issue', label: 'Payment issue' },
+  { code: 'other', label: 'Other' },
+] as const;
+
+export type ReturnReasonCode = (typeof RETURN_REASON_CODES)[number]['code'];
+
+export type ReturnToRestaurantPayload = {
+  reasonCode: ReturnReasonCode;
+  reason?: string;
+};
+
+export const FAIL_REASON_CODES = [
+  { code: 'customer_unreachable', label: 'No one at the drop' },
+  { code: 'customer_refused', label: 'Customer refused' },
+  { code: 'wrong_address', label: 'Wrong address' },
+  { code: 'item_damaged', label: 'Item damaged' },
+  { code: 'payment_issue', label: 'Payment issue' },
+  { code: 'restaurant_closed', label: 'Restaurant closed on return' },
+  { code: 'unsafe', label: 'Felt unsafe' },
+  { code: 'other', label: 'Other' },
+] as const;
+
+export type FailReasonCode = (typeof FAIL_REASON_CODES)[number]['code'];
+
+export type FailDeliveryPayload = {
+  reasonCode: FailReasonCode;
+  reason?: string;
+};
+
+export type DeliveryChatTo = 'customer' | 'restaurant';
+
+export type DeliveryChatMessage = {
+  id: string;
+  deliveryId: string;
+  orderId?: string;
+  senderRole?: string;
+  senderUserId?: string;
+  to?: string;
+  text: string;
+  createdAt: string;
+};
+
+export type DeliveryChatThread = {
+  deliveryId: string;
+  orderId?: string;
+  status?: string;
+  count: number;
+  closed?: boolean;
+  messages: DeliveryChatMessage[];
+};
+
+export type MaskedCallResult = {
+  callId: string;
+  deliveryId: string;
+  orderId?: string;
+  target: string;
+  status?: string;
+  toMasked?: string;
+  virtualNumberMasked?: string;
+  provider?: string;
+  createdAt?: string;
+};
+
+export type TripNavStep = {
+  instruction: string;
+  distanceMeters?: number;
+  durationSeconds?: number;
+  maneuver?: string;
+};
+
+export type TripNavRoute = {
+  deliveryId: string;
+  orderId?: string;
+  status?: string;
+  leg: 'pickup' | 'drop' | 'return' | string;
+  destination?: { latitude: number; longitude: number; kind?: string };
+  origin?: { latitude: number; longitude: number };
+  polyline?: string;
+  points: { latitude: number; longitude: number }[];
+  steps: TripNavStep[];
+  nextInstruction?: string;
+  distanceMeters?: number | null;
+  etaSeconds?: number | null;
+  etaAt?: string;
+  provider?: string;
+  durationInTraffic?: boolean;
+  trafficFactor?: number;
 };
 
 export type VerifyDropOtpPayload = {

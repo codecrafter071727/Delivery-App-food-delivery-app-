@@ -51,6 +51,7 @@ import {
   useDeliveryOrderMutations,
   useDeliveryPartnerMe,
   useDeliveryTimeline,
+  useTripNavRoute,
 } from '@/lib/delivery-partner/hooks';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import { formatLocationError } from '@/lib/delivery-partner/tracking-api';
@@ -78,6 +79,7 @@ const LIVE_STATUSES = new Set([
   'picked_up',
   'out_for_delivery',
   'at_customer',
+  'returning_to_restaurant',
 ]);
 
 function money(amount?: number, currency = 'INR') {
@@ -105,13 +107,6 @@ function formatWhen(iso?: string) {
   });
 }
 
-function callPhone(phone?: string) {
-  if (!phone) return;
-  const digits = phone.replace(/[^\d+]/g, '');
-  if (!digits) return;
-  void Linking.openURL(`tel:${digits}`);
-}
-
 function openMaps(lat?: number, lng?: number, label?: string) {
   if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
     void Linking.openURL(
@@ -136,7 +131,9 @@ function isPastDelivery(status: string) {
     s === 'delivered' ||
     s === 'rejected' ||
     s === 'cancelled' ||
-    s === 'reassigned'
+    s === 'reassigned' ||
+    s === 'failed' ||
+    s === 'returned'
   );
 }
 
@@ -800,12 +797,14 @@ function DeliveryCard({
   });
   const statusQuery = useTrackingStatus(delivery.id, live && Boolean(delivery.id));
   const routeQuery = useTrackingRoute(delivery.orderId, live && Boolean(delivery.orderId));
+  const tripRouteQuery = useTripNavRoute(delivery.id, live && Boolean(delivery.id));
   const etaQuery = useTrackingEta(delivery.orderId, live && Boolean(delivery.orderId));
   const liveLocationQuery = useLiveLocation(
     delivery.orderId,
     live && Boolean(delivery.orderId)
   );
   const historyQuery = useLocationHistory(delivery.id, live);
+  const orderMutations = useDeliveryOrderMutations();
   const [trackingPatch, setTrackingPatch] = useState<Partial<OrderTracking> | null>(
     null
   );
@@ -850,7 +849,11 @@ function DeliveryCard({
   const dropLabel = formatDeliveryAddress(delivery.deliveryAddress);
   const amount = money(delivery.amount, delivery.currency);
   const earning = money(delivery.earning, delivery.currency);
-  const routePoints = (routeQuery.data?.points ?? []).map((p) => ({
+  const routePoints = (
+    tripRouteQuery.data?.points ??
+    routeQuery.data?.points ??
+    []
+  ).map((p) => ({
     latitude: p.latitude,
     longitude: p.longitude,
   }));
@@ -861,21 +864,46 @@ function DeliveryCard({
   const trackingBusy =
     live &&
     ((trackingQuery.isLoading && !trackingQuery.data) ||
-      (routeQuery.isLoading && !routeQuery.data) ||
+      (tripRouteQuery.isLoading && !tripRouteQuery.data && !routeQuery.data) ||
       (etaQuery.isLoading && !etaQuery.data));
   const trackingError =
     trackingQuery.error ??
     statusQuery.error ??
+    tripRouteQuery.error ??
     routeQuery.error ??
     etaQuery.error ??
     liveLocationQuery.error;
   const onRetryTracking = () => {
     void trackingQuery.refetch();
     void statusQuery.refetch();
+    void tripRouteQuery.refetch();
+    void routeQuery.refetch();
     void routeQuery.refetch();
     void etaQuery.refetch();
     void liveLocationQuery.refetch();
     void historyQuery.refetch();
+  };
+
+  const placeCall = async (target: 'customer' | 'restaurant') => {
+    try {
+      const result =
+        target === 'customer'
+          ? await orderMutations.callCustomer.mutateAsync(delivery.id)
+          : await orderMutations.callRestaurant.mutateAsync(delivery.id);
+      const dest = result.toMasked ? ` ${result.toMasked}` : '';
+      const via = result.virtualNumberMasked
+        ? ` via ${result.virtualNumberMasked}`
+        : '';
+      Alert.alert(
+        `Calling ${target}`,
+        `Masked number${dest}${via}. Your phone should ring — numbers stay hidden.`
+      );
+    } catch (error) {
+      Alert.alert(
+        'Could not call',
+        formatTripError(error, 'Use in-trip chat instead.')
+      );
+    }
   };
 
   const [offerLeft, setOfferLeft] = useState<number | null>(null);
@@ -969,10 +997,11 @@ function DeliveryCard({
         tracking={tracking}
         eta={etaQuery.data}
         liveLocation={liveLocationQuery.data}
-        routePolyline={routeQuery.data?.polyline}
+        routePolyline={tripRouteQuery.data?.polyline ?? routeQuery.data?.polyline}
         routePoints={routePoints}
         historyPolyline={historyQuery.data?.polyline}
         historyPoints={historyPoints}
+        navRoute={tripRouteQuery.data}
         onTrackingPatch={(patch) =>
           setTrackingPatch((prev) => ({ ...prev, ...patch }))
         }
@@ -994,9 +1023,9 @@ function DeliveryCard({
               </Text>
             ) : null}
             <View style={styles.stopActions}>
-              {delivery.restaurantPhone ? (
+              {live ? (
                 <Pressable
-                  onPress={() => callPhone(delivery.restaurantPhone)}
+                  onPress={() => void placeCall('restaurant')}
                   style={styles.miniBtn}
                 >
                   <Phone color={'#000000'} size={14} />
@@ -1033,9 +1062,9 @@ function DeliveryCard({
               </Text>
             ) : null}
             <View style={styles.stopActions}>
-              {delivery.customerPhone ? (
+              {live ? (
                 <Pressable
-                  onPress={() => callPhone(delivery.customerPhone)}
+                  onPress={() => void placeCall('customer')}
                   style={styles.miniBtn}
                 >
                   <Phone color={'#000000'} size={14} />

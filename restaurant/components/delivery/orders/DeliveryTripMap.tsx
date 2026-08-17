@@ -27,7 +27,7 @@ import {
   type PartnerLiveLocation,
   type TrackingEta,
 } from '@/lib/delivery-partner/tracking-types';
-import type { PartnerDelivery } from '@/lib/delivery-partner/types';
+import type { PartnerDelivery, TripNavRoute } from '@/lib/delivery-partner/types';
 import { useAuthStore } from '@/store/auth-store';
 
 type LatLng = { latitude: number; longitude: number };
@@ -58,6 +58,7 @@ type Props = {
   routePoints?: LatLng[];
   historyPolyline?: string | null;
   historyPoints?: LatLng[];
+  navRoute?: TripNavRoute | null;
   onTrackingPatch?: (patch: Partial<OrderTracking>) => void;
 };
 
@@ -73,6 +74,7 @@ export function DeliveryTripMap({
   routePoints,
   historyPolyline,
   historyPoints,
+  navRoute,
   onTrackingPatch,
 }: Props) {
   const mapRef = useRef<MapView | null>(null);
@@ -153,6 +155,7 @@ export function DeliveryTripMap({
   ]);
 
   const encoded =
+    navRoute?.polyline ||
     socketEta?.polyline ||
     tracking?.polyline ||
     routePolyline ||
@@ -162,11 +165,13 @@ export function DeliveryTripMap({
   const polylineCoords =
     decoded.length >= 2
       ? decoded
-      : routePoints && routePoints.length >= 2
-        ? routePoints
-        : historyPoints && historyPoints.length >= 2
-          ? historyPoints
-          : [];
+      : navRoute?.points && navRoute.points.length >= 2
+        ? navRoute.points
+        : routePoints && routePoints.length >= 2
+          ? routePoints
+          : historyPoints && historyPoints.length >= 2
+            ? historyPoints
+            : [];
 
   const riderFromApi = liveLocation ?? tracking?.riderLocation;
   const displayRider = useMemo<LatLng | null>(() => {
@@ -181,7 +186,23 @@ export function DeliveryTripMap({
   }, [rider, riderFromApi?.latitude, riderFromApi?.longitude]);
 
   const navTarget = useMemo(() => {
-    if (status === 'accepted' || status === 'arrived') {
+    if (navRoute?.destination) {
+      const kind = navRoute.leg === 'return' || navRoute.leg === 'pickup'
+        ? pickupLabel
+        : dropLabel;
+      return {
+        point: {
+          latitude: navRoute.destination.latitude,
+          longitude: navRoute.destination.longitude,
+        },
+        label: kind,
+      };
+    }
+    if (
+      status === 'accepted' ||
+      status === 'arrived' ||
+      status === 'returning_to_restaurant'
+    ) {
       return pickup ? { point: pickup, label: pickupLabel } : null;
     }
     if (status === 'picked_up' || status === 'out_for_delivery') {
@@ -192,16 +213,29 @@ export function DeliveryTripMap({
       : pickup
         ? { point: pickup, label: pickupLabel }
         : null;
-  }, [status, pickup, drop, pickupLabel, dropLabel]);
+  }, [status, pickup, drop, pickupLabel, dropLabel, navRoute]);
 
-  const etaSeconds = socketEta?.etaSeconds ?? eta?.etaSeconds ?? tracking?.etaSeconds;
+  const etaSeconds =
+    navRoute?.etaSeconds ??
+    socketEta?.etaSeconds ??
+    eta?.etaSeconds ??
+    tracking?.etaSeconds;
   const distanceMeters =
-    socketEta?.distanceMeters ?? eta?.distanceMeters ?? tracking?.distanceMeters;
-  const provider = socketEta?.provider ?? eta?.provider ?? tracking?.provider;
+    navRoute?.distanceMeters ??
+    socketEta?.distanceMeters ??
+    eta?.distanceMeters ??
+    tracking?.distanceMeters;
+  const provider =
+    navRoute?.provider ??
+    socketEta?.provider ??
+    eta?.provider ??
+    tracking?.provider;
   const durationInTraffic =
+    navRoute?.durationInTraffic ??
     socketEta?.durationInTraffic ??
     eta?.durationInTraffic ??
     tracking?.durationInTraffic;
+  const nextInstruction = navRoute?.nextInstruction;
   const hint = tracking?.dutyHint;
   const geo = tracking?.geofence;
   const historyCoords =
@@ -383,11 +417,20 @@ export function DeliveryTripMap({
       </MapView>
 
       <View style={styles.etaChip}>
+        {nextInstruction ? (
+          <Text style={styles.turnText} numberOfLines={2}>
+            {nextInstruction}
+          </Text>
+        ) : null}
         <Text style={styles.etaHint} numberOfLines={1}>
           {hint ||
-            (status === 'picked_up' || status === 'out_for_delivery'
-              ? 'Navigate to customer'
-              : 'Navigate to restaurant')}
+            (navRoute?.leg === 'return'
+              ? 'Return to restaurant'
+              : navRoute?.leg === 'drop' ||
+                  status === 'picked_up' ||
+                  status === 'out_for_delivery'
+                ? 'Navigate to customer'
+                : 'Navigate to restaurant')}
         </Text>
         <Text style={styles.etaValue}>
           {formatEtaSeconds(etaSeconds)}
@@ -408,11 +451,15 @@ export function DeliveryTripMap({
           <Navigation color="#fff" size={14} />
           <Text style={styles.navBtnText}>
             Navigate to{' '}
-            {status === 'picked_up' || status === 'out_for_delivery'
-              ? 'customer'
-              : status === 'accepted' || status === 'arrived'
-                ? 'restaurant'
-                : 'destination'}
+            {navRoute?.leg === 'return' || status === 'returning_to_restaurant'
+              ? 'restaurant'
+              : status === 'picked_up' ||
+                  status === 'out_for_delivery' ||
+                  status === 'at_customer'
+                ? 'customer'
+                : status === 'accepted' || status === 'arrived'
+                  ? 'restaurant'
+                  : 'destination'}
           </Text>
         </Pressable>
       ) : null}
@@ -445,6 +492,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 11,
     color: '#9CA3AF',
+  },
+  turnText: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: '#FFFFFF',
+    marginBottom: 4,
   },
   etaValue: {
     marginTop: 2,
