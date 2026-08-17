@@ -48,17 +48,19 @@ const STATUS_RANK: Record<string, number> = {
   rejected: -1,
 };
 
-export function statusRank(status: string) {
-  return STATUS_RANK[status] ?? 0;
+export function statusRank(status?: string | null) {
+  return STATUS_RANK[status ?? ''] ?? 0;
 }
 
-export function displayStatus(status: string) {
-  return status
+export function displayStatus(status?: string | null) {
+  const raw = String(status ?? '').trim();
+  if (!raw) return 'Unknown';
+  return raw
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-export function statusTone(status: string) {
+export function statusTone(status?: string | null) {
   if (status === 'cancelled' || status === 'rejected') {
     return { backgroundColor: '#FEF2F2', color: '#DC2626', border: '#FECACA' };
   }
