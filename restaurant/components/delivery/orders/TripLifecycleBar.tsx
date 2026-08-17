@@ -268,7 +268,14 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
   const onArrived = () =>
     void run('Marking arrived…', () =>
       mutations.arrived.mutateAsync(delivery.id)
-    ).catch(() => undefined);
+    )
+      .then(() => {
+        setOtp('');
+        setChecklistOk(true);
+        setPickupPhotoUri(null);
+        setSheet('pickup');
+      })
+      .catch(() => undefined);
 
   const onNotReady = () =>
     void run('Flagging kitchen wait…', () =>
@@ -293,7 +300,12 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
   const onReached = () =>
     void run('Marking arrived at customer…', () =>
       mutations.reachedCustomer.mutateAsync(delivery.id)
-    ).catch(() => undefined);
+    )
+      .then(() => {
+        setOtp('');
+        setSheet('otp');
+      })
+      .catch(() => undefined);
 
   const submitPickup = async () => {
     const code = otp.trim();
@@ -495,7 +507,7 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
       setNote('');
       Alert.alert(
         'Returning to restaurant',
-        'Navigate back to the store. The customer drop is closed.'
+        'Navigate back to the store. This trip will not pay a delivery earning until the order is handed back.'
       );
     } catch {
       // alerted
@@ -519,7 +531,10 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
       );
       setSheet(null);
       setNote('');
-      Alert.alert('Trip failed', 'This delivery is closed. Duty is restored.');
+      Alert.alert(
+        'Trip failed',
+        'This delivery is closed and will not pay a trip earning. Duty is restored.'
+      );
     } catch {
       // alerted
     }
@@ -925,6 +940,7 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
               keyboardType="number-pad"
               style={styles.input}
               maxLength={8}
+              autoFocus
             />
             <Pressable
               onPress={() => setChecklistOk((v) => !v)}
@@ -997,6 +1013,7 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
               keyboardType="number-pad"
               style={styles.input}
               maxLength={8}
+              autoFocus={sheet === 'otp'}
             />
             {sheet === 'deliver' ? (
               <>

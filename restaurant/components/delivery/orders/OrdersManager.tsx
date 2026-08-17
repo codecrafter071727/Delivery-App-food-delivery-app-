@@ -41,6 +41,7 @@ import {
   deliveryStatusLabel,
   formatDeliveryAddress,
   isAssignableStatus,
+  isUnpaidTripStatus,
   normalizeDeliveryStatus,
 } from '@/lib/delivery-partner/api';
 import {
@@ -944,7 +945,12 @@ function DeliveryCard({
       {(amount || earning || delivery.distanceKm != null) && (
         <View style={styles.metaRow}>
           {amount ? <Text style={styles.metaStrong}>{amount}</Text> : null}
-          {earning ? <Text style={styles.metaEarn}>Earn {earning}</Text> : null}
+          {earning && !isUnpaidTripStatus(status) ? (
+            <Text style={styles.metaEarn}>
+              {isAssignableStatus(status) ? 'Est. ' : 'Earn '}
+              {earning}
+            </Text>
+          ) : null}
           {delivery.distanceKm != null ? (
             <Text style={styles.metaMuted}>
               {delivery.distanceKm.toFixed(1)} km
@@ -1209,6 +1215,7 @@ function HistoryRow({
 }) {
   const amount = money(delivery.amount, delivery.currency);
   const earning = money(delivery.earning, delivery.currency);
+  const unpaid = isUnpaidTripStatus(delivery.status);
   const when =
     formatWhen(delivery.deliveredAt) ||
     formatWhen(delivery.updatedAt) ||
@@ -1233,7 +1240,9 @@ function HistoryRow({
           {deliveryStatusLabel(delivery.status)}
         </Text>
       </View>
-      <Text style={styles.historyAmount}>{earning || amount || '—'}</Text>
+      <Text style={styles.historyAmount}>
+        {unpaid ? earning || '₹0' : earning || amount || '—'}
+      </Text>
     </Pressable>
   );
 }

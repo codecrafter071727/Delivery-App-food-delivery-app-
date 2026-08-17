@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X } from 'lucide-react-native';
 
 import { fonts } from '@/constants/typography';
-import { deliveryStatusLabel } from '@/lib/delivery-partner/api';
+import { deliveryStatusLabel, isUnpaidTripStatus, tripCreditsEarnings } from '@/lib/delivery-partner/api';
 import {
   useDeliveryDetail,
   useDeliveryEvents,
@@ -72,7 +72,12 @@ export function TripDetailSheet({
     enabled,
     live,
   });
-  const tripEarn = useTripEarnings(deliveryId ?? undefined, enabled);
+  const tripEarn = useTripEarnings(
+    deliveryId ?? undefined,
+    enabled &&
+      Boolean(deliveryId) &&
+      tripCreditsEarnings((detail.data ?? fallback)?.status)
+  );
 
   const delivery = detail.data ?? fallback ?? null;
   const loading = detail.isLoading && !delivery;
@@ -134,9 +139,14 @@ export function TripDetailSheet({
                   <Text style={styles.orderNo}>
                     #{delivery.orderNumber || delivery.orderId || delivery.id.slice(-6)}
                   </Text>
-                  {money(delivery.earning, delivery.currency) ? (
+                  {isUnpaidTripStatus(delivery.status) ? (
+                    <Text style={styles.muted}>
+                      No payout — customer did not receive this order
+                    </Text>
+                  ) : money(delivery.earning, delivery.currency) ? (
                     <Text style={styles.earn}>
-                      Earn {money(delivery.earning, delivery.currency)}
+                      {tripCreditsEarnings(delivery.status) ? 'Earned' : 'Est.'}{' '}
+                      {money(delivery.earning, delivery.currency)}
                     </Text>
                   ) : null}
                 </View>

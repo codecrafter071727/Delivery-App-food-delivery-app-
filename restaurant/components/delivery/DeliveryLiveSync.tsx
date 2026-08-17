@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { IncomingOfferOverlay } from '@/components/delivery/orders/IncomingOfferOverlay';
+import { ActiveTripSession } from '@/components/delivery/orders/ActiveTripSession';
 import { RiderLiveToasts } from '@/components/delivery/shared/RiderLiveToasts';
 import { refreshCsrfToken } from '@/lib/api';
 import { useRiderGatewaySocket } from '@/lib/delivery-partner/use-rider-gateway';
@@ -22,6 +23,7 @@ export function DeliveryLiveSync({ enabled }: { enabled: boolean }) {
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      <ActiveTripSession />
       <IncomingOfferOverlay />
       <RiderLiveToasts />
     </View>

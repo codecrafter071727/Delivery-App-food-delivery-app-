@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { authTheme } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
@@ -60,6 +61,8 @@ type Props = {
   historyPoints?: LatLng[];
   navRoute?: TripNavRoute | null;
   onTrackingPatch?: (patch: Partial<OrderTracking>) => void;
+  /** Full-bleed map for the live trip session (Swiggy-style). */
+  fill?: boolean;
 };
 
 /**
@@ -76,7 +79,9 @@ export function DeliveryTripMap({
   historyPoints,
   navRoute,
   onTrackingPatch,
+  fill = false,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView | null>(null);
   const userId = useAuthStore((s) => s.user?.id);
   const [rider, setRider] = useState<LatLng | null>(() => {
@@ -298,7 +303,9 @@ export function DeliveryTripMap({
       return;
     }
     mapRef.current.fitToCoordinates(points, {
-      edgePadding: { top: 56, right: 40, bottom: 56, left: 40 },
+      edgePadding: fill
+        ? { top: 88, right: 40, bottom: 88, left: 40 }
+        : { top: 56, right: 40, bottom: 56, left: 40 },
       animated: true,
     });
   }, [
@@ -307,11 +314,12 @@ export function DeliveryTripMap({
     displayRider?.longitude,
     pickup,
     drop,
+    fill,
   ]);
 
   if (Platform.OS === 'web') {
     return (
-      <View style={styles.fallback}>
+      <View style={[styles.fallback, fill && styles.fillWrap]}>
         <Text style={styles.fallbackText}>
           Live trip map is available on the mobile app.
         </Text>
@@ -330,7 +338,7 @@ export function DeliveryTripMap({
 
   if (!pickup && !drop && !displayRider && polylineCoords.length < 2) {
     return (
-      <View style={styles.fallback}>
+      <View style={[styles.fallback, fill && styles.fillWrap]}>
         <Text style={styles.fallbackText}>
           Waiting for trip pins and GPS…
         </Text>
@@ -341,10 +349,10 @@ export function DeliveryTripMap({
   const initial = displayRider ?? pickup ?? drop ?? polylineCoords[0];
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, fill && styles.fillWrap]}>
       <MapView
         ref={mapRef}
-        style={styles.map}
+        style={fill ? styles.fillMap : styles.map}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
         initialRegion={
           initial
@@ -416,7 +424,13 @@ export function DeliveryTripMap({
         ) : null}
       </MapView>
 
-      <View style={styles.etaChip}>
+      <View
+        style={[
+          styles.etaChip,
+          fill && styles.etaChipFill,
+          fill && { top: Math.max(insets.top, 12) + 8 },
+        ]}
+      >
         {nextInstruction ? (
           <Text style={styles.turnText} numberOfLines={2}>
             {nextInstruction}
@@ -446,7 +460,7 @@ export function DeliveryTripMap({
       {navTarget ? (
         <Pressable
           onPress={() => openExternalNav(navTarget.point, navTarget.label)}
-          style={styles.navBtn}
+          style={[styles.navBtn, fill && styles.navBtnFill]}
         >
           <Navigation color="#fff" size={14} />
           <Text style={styles.navBtnText}>
@@ -475,9 +489,17 @@ const styles = StyleSheet.create({
     borderColor: authTheme.cardBorder,
     backgroundColor: '#F1F5F9',
   },
+  fillWrap: {
+    flex: 1,
+    borderRadius: 0,
+    borderWidth: 0,
+  },
   map: {
     width: '100%',
     height: 300,
+  },
+  fillMap: {
+    ...StyleSheet.absoluteFillObject,
   },
   etaChip: {
     marginHorizontal: 10,
@@ -487,6 +509,28 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 10,
+  },
+  etaChipFill: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    marginHorizontal: 0,
+    marginTop: 0,
+    marginBottom: 0,
+  },
+  navBtnFill: {
+    position: 'absolute',
+    right: 12,
+    bottom: 16,
+    margin: 0,
+    minWidth: 168,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
   etaHint: {
     fontFamily: fonts.medium,

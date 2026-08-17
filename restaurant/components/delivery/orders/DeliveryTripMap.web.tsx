@@ -38,6 +38,7 @@ export function DeliveryTripMap({
   historyPoints?: LatLng[];
   navRoute?: TripNavRoute | null;
   onTrackingPatch?: (patch: Partial<OrderTracking>) => void;
+  fill?: boolean;
 }) {
   const etaSeconds = navRoute?.etaSeconds ?? eta?.etaSeconds ?? tracking?.etaSeconds;
   const distanceMeters =

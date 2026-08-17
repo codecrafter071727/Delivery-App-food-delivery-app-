@@ -3,12 +3,14 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { fonts } from '@/constants/typography';
@@ -126,6 +128,22 @@ export function IncomingOfferOverlay() {
 
   const fee = money(stackFee ?? offer.deliveryFee);
   const urgent = seconds <= 10;
+  const pickup =
+    offer.restaurantLat != null &&
+    offer.restaurantLng != null &&
+    Number.isFinite(offer.restaurantLat) &&
+    Number.isFinite(offer.restaurantLng)
+      ? { latitude: offer.restaurantLat, longitude: offer.restaurantLng }
+      : null;
+  const drop =
+    offer.dropLat != null &&
+    offer.dropLng != null &&
+    Number.isFinite(offer.dropLat) &&
+    Number.isFinite(offer.dropLng)
+      ? { latitude: offer.dropLat, longitude: offer.dropLng }
+      : null;
+  const mapCenter = pickup ?? drop;
+  const showMap = Platform.OS !== 'web' && Boolean(mapCenter);
 
   const accept = async () => {
     setBusy('accept');
@@ -170,8 +188,41 @@ export function IncomingOfferOverlay() {
 
   return (
     <Modal visible animationType="fade" transparent statusBarTranslucent>
-      <View style={[styles.backdrop, { paddingTop: insets.top + 12 }]}>
-        <View style={styles.card}>
+      <View style={styles.screen}>
+        {showMap && mapCenter ? (
+          <MapView
+            style={StyleSheet.absoluteFill}
+            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+            initialRegion={{
+              ...mapCenter,
+              latitudeDelta: 0.04,
+              longitudeDelta: 0.04,
+            }}
+            pointerEvents="none"
+            toolbarEnabled={false}
+          >
+            {pickup ? (
+              <Marker
+                coordinate={pickup}
+                title="Pickup"
+                description={offer.restaurantName || offer.pickupLabel}
+                pinColor="#EA4B14"
+              />
+            ) : null}
+            {drop ? (
+              <Marker
+                coordinate={drop}
+                title="Drop"
+                description={offer.dropLabel}
+                pinColor="#2563EB"
+              />
+            ) : null}
+          </MapView>
+        ) : (
+          <View style={styles.fallbackBg} />
+        )}
+        <View style={styles.scrim} />
+        <View style={[styles.card, { marginBottom: Math.max(insets.bottom, 12) }]}>
           <View style={styles.timerRow}>
             <View style={styles.timerTrack}>
               <View
@@ -346,11 +397,18 @@ export function IncomingOfferOverlay() {
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  screen: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.72)',
     justifyContent: 'flex-end',
-    padding: 16,
+    paddingHorizontal: 16,
+  },
+  fallbackBg: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#0F172A',
+  },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.28)',
   },
   card: {
     backgroundColor: '#FFFFFF',

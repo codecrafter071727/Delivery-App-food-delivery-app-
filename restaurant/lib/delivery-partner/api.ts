@@ -417,13 +417,27 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
     cashCollected: pickBool(source, ['cashCollected', 'codCollected', 'codCashCollected']),
     distanceKm: pickNumber(source, ['distanceKm', 'distance', 'tripDistance']),
     etaMinutes: pickNumber(source, ['etaMinutes', 'eta', 'estimatedMinutes']),
-    earning: pickNumber(source, [
-      'earning',
-      'earnings',
-      'partnerEarning',
-      'deliveryFee',
-      'incentive',
-    ]),
+    earning: (() => {
+      const status = normalizeDeliveryStatus(
+        pickString(source, ['status', 'deliveryStatus', 'state']) ?? 'assigned'
+      );
+      const quoted = pickNumber(source, [
+        'earning',
+        'earnings',
+        'partnerEarning',
+        'deliveryFee',
+        'incentive',
+      ]);
+      const credited = pickNumber(source, [
+        'earningsCreditedAmount',
+        'creditedAmount',
+        'partnerEarnings',
+      ]);
+      if (isUnpaidTripStatus(status)) {
+        return credited && credited > 0 ? credited : undefined;
+      }
+      return credited ?? quoted;
+    })(),
     notes: pickString(source, ['notes', 'specialInstructions', 'instruction']),
     assignedAt: pickString(source, ['assignedAt']),
     acceptedAt: pickString(source, ['acceptedAt']),
@@ -813,6 +827,22 @@ function isLiveStatus(status: string) {
 export function isAssignableStatus(status: string) {
   const s = normalizeDeliveryStatus(status);
   return s === 'assigned';
+}
+
+/** Wallet credit only happens on delivered. Failed / returned / cancelled pay ₹0. */
+export function tripCreditsEarnings(status?: string) {
+  return normalizeDeliveryStatus(status ?? '') === 'delivered';
+}
+
+export function isUnpaidTripStatus(status?: string) {
+  const s = normalizeDeliveryStatus(status ?? '');
+  return (
+    s === 'failed' ||
+    s === 'returned' ||
+    s === 'cancelled' ||
+    s === 'rejected' ||
+    s === 'reassigned'
+  );
 }
 
 export type TripWorkflowAction =
