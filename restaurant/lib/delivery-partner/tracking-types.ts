@@ -229,6 +229,15 @@ export function mpsToKmh(speedMps?: number | null): number | undefined {
   return Math.min(200, Math.max(0, speedMps * 3.6));
 }
 
+/** Compass degrees 0–360. Expo uses -1 when heading is unavailable. */
+export function clampHeading(heading?: number | null): number | undefined {
+  if (heading == null || !Number.isFinite(heading) || heading < 0) {
+    return undefined;
+  }
+  const normalized = ((heading % 360) + 360) % 360;
+  return Number(normalized.toFixed(1));
+}
+
 export function formatLocationAge(updatedAt?: string, ageSeconds?: number) {
   const seconds =
     ageSeconds ??
