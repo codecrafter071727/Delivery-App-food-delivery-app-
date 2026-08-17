@@ -62,6 +62,7 @@ import {
   kitchenTimeline,
   money,
   nextKitchenAction,
+  kitchenHandoverCopy,
   orderPlacedLabel,
   rejectBlockedReason,
   resolveOrderTotal,
@@ -195,6 +196,19 @@ export function OrderDetailScreen({ orderId }: Props) {
         Alert.alert('Collected', 'Takeaway handed to the customer.');
       } catch (error) {
         Alert.alert('Could not complete takeaway', getApiErrorMessage(error));
+      }
+      return;
+    }
+    if (action.kind === 'handover') {
+      try {
+        const result = await ticket.handToRider.mutateAsync(order.id);
+        const copy = kitchenHandoverCopy(
+          result.outcome,
+          result.handover.message
+        );
+        Alert.alert(copy.title, copy.body);
+      } catch (error) {
+        Alert.alert('Could not hand to rider', getApiErrorMessage(error));
       }
       return;
     }

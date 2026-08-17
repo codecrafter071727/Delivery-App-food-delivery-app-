@@ -825,6 +825,25 @@ export function useKitchenTicketMutations(restaurantId?: string) {
     },
   });
 
+  const handToRider = useMutation({
+    mutationFn: (orderId: string) =>
+      restaurantOrderApi.tryKitchenHandover(requireId(), orderId),
+    onSuccess: (result, orderId) => {
+      if (!restaurantId) return;
+      queryClient.setQueryData(
+        restaurantOrderKeys.handover(restaurantId, orderId),
+        result.handover
+      );
+      void queryClient.invalidateQueries({
+        queryKey: restaurantOrderKeys.detail(restaurantId, orderId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: restaurantOrderKeys.restaurant(restaurantId),
+        refetchType: 'active',
+      });
+    },
+  });
+
   const callCustomer = useMutation({
     mutationFn: (orderId: string) =>
       restaurantOrderApi.callCustomer(requireId(), orderId),
@@ -873,6 +892,7 @@ export function useKitchenTicketMutations(restaurantId?: string) {
     pickupReady,
     completeTakeaway,
     confirmHandover,
+    handToRider,
     callCustomer,
     ratePartner,
     manualAssign,
@@ -884,7 +904,8 @@ export function useKitchenTicketMutations(restaurantId?: string) {
       printKot.isPending ||
       pickupReady.isPending ||
       completeTakeaway.isPending ||
-      confirmHandover.isPending,
+      confirmHandover.isPending ||
+      handToRider.isPending,
   };
 }
 

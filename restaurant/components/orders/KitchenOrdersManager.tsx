@@ -54,6 +54,7 @@ import {
   displayStatus,
   money,
   nextKitchenAction,
+  kitchenHandoverCopy,
   rejectBlockedReason,
   resolveOrderTotal,
   shortOrderId,
@@ -290,6 +291,24 @@ export function KitchenOrdersManager() {
         await ticket.completeTakeaway.mutateAsync(order.id);
       } catch (error) {
         Alert.alert('Could not complete takeaway', getApiErrorMessage(error));
+      }
+      return;
+    }
+    if (action.kind === 'handover') {
+      try {
+        const result = await ticket.handToRider.mutateAsync(order.id);
+        const copy = kitchenHandoverCopy(
+          result.outcome,
+          result.handover.message
+        );
+        if (result.outcome === 'need_otp' || result.outcome === 'waiting') {
+          Alert.alert(copy.title, copy.body);
+          router.push(`/order/${encodeURIComponent(order.id)}`);
+          return;
+        }
+        Alert.alert(copy.title, copy.body);
+      } catch (error) {
+        Alert.alert('Could not hand to rider', getApiErrorMessage(error));
       }
       return;
     }

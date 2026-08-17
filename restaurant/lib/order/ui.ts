@@ -194,6 +194,11 @@ export type KitchenTicketAction =
       kind: 'complete-takeaway';
       label: string;
       Icon: LucideIcon;
+    }
+  | {
+      kind: 'handover';
+      label: string;
+      Icon: LucideIcon;
     };
 
 export function nextKitchenAction(order: OwnerOrder): KitchenTicketAction | null {
@@ -235,8 +240,7 @@ export function nextKitchenAction(order: OwnerOrder): KitchenTicketAction | null
   }
   if (order.status === 'ready' && order.fulfillmentTone === 'delivery') {
     return {
-      kind: 'status',
-      action: 'out-for-delivery',
+      kind: 'handover',
       label: 'Hand to rider',
       Icon: Truck,
     };
@@ -244,7 +248,35 @@ export function nextKitchenAction(order: OwnerOrder): KitchenTicketAction | null
   return null;
 }
 
-export function canReject(order: OwnerOrder) {
+export function kitchenHandoverCopy(
+  outcome: 'confirmed' | 'already' | 'need_otp' | 'waiting',
+  message?: string
+): { title: string; body: string } {
+  if (outcome === 'confirmed') {
+    return {
+      title: 'Handed to rider',
+      body: 'The bag is with the rider. They mark Out for delivery in the rider app after pickup.',
+    };
+  }
+  if (outcome === 'already') {
+    return {
+      title: 'Already handed over',
+      body: 'This order is already with the rider. Out for delivery is set in the rider app, not kitchen.',
+    };
+  }
+  if (outcome === 'need_otp') {
+    return {
+      title: 'Enter pickup OTP',
+      body: 'The rider is at the counter. Open the ticket and enter the 4-digit OTP to confirm handover.',
+    };
+  }
+  return {
+    title: 'Wait for the rider',
+    body:
+      message ||
+      'The rider must tap Arrived at restaurant first. Then you can hand over the bag.',
+  };
+}
   // Backend only allows reject from kitchen-pending states.
   // pending_payment → rejected is invalid ("Invalid status transition").
   return order.status === 'pending' || order.status === 'placed';

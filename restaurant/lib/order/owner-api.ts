@@ -71,6 +71,11 @@ export type KitchenHandover = {
   message?: string;
 };
 
+export type KitchenHandoverTryResult = {
+  outcome: 'confirmed' | 'already' | 'need_otp' | 'waiting';
+  handover: KitchenHandover;
+};
+
 export type KitchenRider = {
   assigned: boolean;
   orderId: string;
@@ -1368,6 +1373,30 @@ export const restaurantOrderApi = {
     } catch (error) {
       throw errorMessage(error, 'Unable to confirm handover');
     }
+  },
+
+  /**
+   * Kitchen bag handoff — PUT /handover (tap/OTP). Never PUT /out-for-delivery
+   * for platform delivery; rider pickup sets OFD.
+   */
+  tryKitchenHandover: async (
+    restaurantId: string,
+    orderId: string
+  ): Promise<KitchenHandoverTryResult> => {
+    const handover = await restaurantOrderApi.getHandover(restaurantId, orderId);
+    if (handover.confirmed) {
+      return { outcome: 'already', handover };
+    }
+    if (handover.available && handover.methods.includes('tap')) {
+      const next = await restaurantOrderApi.confirmHandover(restaurantId, orderId, {
+        method: 'tap',
+      });
+      return { outcome: 'confirmed', handover: next };
+    }
+    if (handover.available && (handover.methods.includes('otp') || handover.otp)) {
+      return { outcome: 'need_otp', handover };
+    }
+    return { outcome: 'waiting', handover };
   },
 
   /** GET /restaurants/:id/orders/:orderId/rider — never invents a rider */
