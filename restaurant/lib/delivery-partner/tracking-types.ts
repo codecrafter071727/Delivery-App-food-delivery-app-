@@ -229,8 +229,16 @@ export function mpsToKmh(speedMps?: number | null): number | undefined {
   return Math.min(200, Math.max(0, speedMps * 3.6));
 }
 
-export function clampHeading(heading?: number | null): number | undefined {
-  if (heading == null || !Number.isFinite(heading) || heading < 0) return undefined;
-  const wrapped = heading % 360;
-  return wrapped < 0 ? wrapped + 360 : wrapped;
+export function formatLocationAge(updatedAt?: string, ageSeconds?: number) {
+  const seconds =
+    ageSeconds ??
+    (updatedAt
+      ? Math.max(0, Math.round((Date.now() - Date.parse(updatedAt)) / 1000))
+      : null);
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
+  if (seconds < 15) return 'Live';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.floor(minutes / 60)}h ago`;
 }

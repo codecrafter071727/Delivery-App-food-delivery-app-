@@ -61,8 +61,14 @@ import {
 import { pushLiveToast } from '@/lib/delivery-partner/live-toast-store';
 import { useLocationSyncSnapshot } from '@/lib/delivery-partner/use-partner-location-sync';
 import { formatLocationError } from '@/lib/delivery-partner/tracking-api';
-import { useSaveHomeLocation } from '@/lib/delivery-partner/tracking-hooks';
-import { LOCATION_ERROR_COPY } from '@/lib/delivery-partner/tracking-types';
+import {
+  useLastLocation,
+  useSaveHomeLocation,
+} from '@/lib/delivery-partner/tracking-hooks';
+import {
+  formatLocationAge,
+  LOCATION_ERROR_COPY,
+} from '@/lib/delivery-partner/tracking-types';
 import {
   formatGoOnlineError,
   getGoOnlineBlocker,
@@ -161,6 +167,7 @@ export function DeliveryHomeScreen() {
     usePartnerDutyMutations();
   const gpsSnap = useLocationSyncSnapshot();
   const saveHome = useSaveHomeLocation();
+  const lastLocation = useLastLocation(true);
   const authUser = useAuthStore((s) => s.user);
   const displayName =
     [me.data?.firstName, me.data?.lastName].filter(Boolean).join(' ') ||
@@ -235,6 +242,7 @@ export function DeliveryHomeScreen() {
         history.refetch(),
         performance.refetch(),
         earnings.refetch(),
+        lastLocation.refetch(),
       ]);
     } finally {
       setPullRefreshing(false);
@@ -435,6 +443,16 @@ export function DeliveryHomeScreen() {
     }
   };
 
+  const gpsAge = formatLocationAge(
+    lastLocation.data?.updatedAt,
+    lastLocation.data?.ageSeconds
+  );
+  const locationChip =
+    liveLocation?.label ??
+    (gpsSnap?.coords || lastLocation.data
+      ? `Sharing GPS${gpsAge ? ` · ${gpsAge}` : ''}`
+      : LIVE_LOCATION_FALLBACK);
+
   const gpsBanner = (() => {
     if (!isOnline || !gpsSnap) return null;
     if (gpsSnap.mockBlocked) {
@@ -508,7 +526,7 @@ export function DeliveryHomeScreen() {
               <View style={styles.dhLocRow}>
                 <MapPin color="#EA4B14" size={16} />
                 <Text style={styles.dhLocText} numberOfLines={1}>
-                  {liveLocation?.label ?? LIVE_LOCATION_FALLBACK}
+                  {locationChip}
                 </Text>
               </View>
             </Pressable>

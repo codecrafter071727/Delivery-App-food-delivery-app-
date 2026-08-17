@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
 import { authTheme } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
@@ -24,6 +24,8 @@ import {
   formatDistanceMeters,
   formatEtaSeconds,
   type OrderTracking,
+  type PartnerLiveLocation,
+  type TrackingEta,
 } from '@/lib/delivery-partner/tracking-types';
 import type { PartnerDelivery } from '@/lib/delivery-partner/types';
 import { useAuthStore } from '@/store/auth-store';
@@ -50,6 +52,8 @@ function openExternalNav(point: LatLng, label?: string) {
 type Props = {
   delivery: PartnerDelivery;
   tracking?: OrderTracking | null;
+  eta?: TrackingEta | null;
+  liveLocation?: PartnerLiveLocation | null;
   routePolyline?: string | null;
   routePoints?: LatLng[];
   historyPolyline?: string | null;
@@ -63,6 +67,8 @@ type Props = {
 export function DeliveryTripMap({
   delivery,
   tracking,
+  eta,
+  liveLocation,
   routePolyline,
   routePoints,
   historyPolyline,
@@ -162,7 +168,7 @@ export function DeliveryTripMap({
           ? historyPoints
           : [];
 
-  const riderFromApi = tracking?.riderLocation;
+  const riderFromApi = liveLocation ?? tracking?.riderLocation;
   const displayRider = useMemo<LatLng | null>(() => {
     if (rider) return rider;
     if (isValidPoint(riderFromApi?.latitude, riderFromApi?.longitude)) {
@@ -188,12 +194,18 @@ export function DeliveryTripMap({
         : null;
   }, [status, pickup, drop, pickupLabel, dropLabel]);
 
-  const etaSeconds = socketEta?.etaSeconds ?? tracking?.etaSeconds;
-  const distanceMeters = socketEta?.distanceMeters ?? tracking?.distanceMeters;
-  const provider = socketEta?.provider ?? tracking?.provider;
+  const etaSeconds = socketEta?.etaSeconds ?? eta?.etaSeconds ?? tracking?.etaSeconds;
+  const distanceMeters =
+    socketEta?.distanceMeters ?? eta?.distanceMeters ?? tracking?.distanceMeters;
+  const provider = socketEta?.provider ?? eta?.provider ?? tracking?.provider;
   const durationInTraffic =
-    socketEta?.durationInTraffic ?? tracking?.durationInTraffic;
+    socketEta?.durationInTraffic ??
+    eta?.durationInTraffic ??
+    tracking?.durationInTraffic;
   const hint = tracking?.dutyHint;
+  const geo = tracking?.geofence;
+  const historyCoords =
+    historyPoints && historyPoints.length >= 2 ? historyPoints : [];
 
   useOrderTrackingSocket(
     delivery.orderId,
@@ -319,6 +331,15 @@ export function DeliveryTripMap({
             pinColor={authTheme.brand}
           />
         ) : null}
+        {pickup && geo ? (
+          <Circle
+            center={pickup}
+            radius={geo.pickupMeters || 150}
+            fillColor={geo.atPickup ? '#22C55E22' : '#EA4B1422'}
+            strokeColor={geo.atPickup ? '#16A34A' : authTheme.brand}
+            strokeWidth={1}
+          />
+        ) : null}
         {drop ? (
           <Marker
             coordinate={drop}
@@ -327,12 +348,29 @@ export function DeliveryTripMap({
             pinColor="#EA580C"
           />
         ) : null}
+        {drop && geo ? (
+          <Circle
+            center={drop}
+            radius={geo.dropMeters || 100}
+            fillColor={geo.atDrop ? '#22C55E22' : '#0EA5E922'}
+            strokeColor={geo.atDrop ? '#16A34A' : '#0284C7'}
+            strokeWidth={1}
+          />
+        ) : null}
         {displayRider ? (
           <Marker
             coordinate={displayRider}
             title="You"
             description="Live location"
             pinColor="#2563EB"
+          />
+        ) : null}
+        {historyCoords.length >= 2 ? (
+          <Polyline
+            coordinates={historyCoords}
+            strokeColor="#94A3B8"
+            strokeWidth={3}
+            lineDashPattern={[8, 6]}
           />
         ) : null}
         {polylineCoords.length >= 2 ? (

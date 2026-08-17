@@ -53,9 +53,12 @@ import {
 } from '@/lib/delivery-partner/hooks';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import {
+  useLiveLocation,
   useLocationHistory,
   useOrderTracking,
+  useTrackingEta,
   useTrackingRoute,
+  useTrackingStatus,
 } from '@/lib/delivery-partner/tracking-hooks';
 import type { OrderTracking } from '@/lib/delivery-partner/tracking-types';
 import type { PartnerDelivery } from '@/lib/delivery-partner/types';
@@ -828,21 +831,49 @@ function DeliveryCard({
     deliveryId: delivery.id,
     enabled: live,
   });
+  const statusQuery = useTrackingStatus(delivery.id, live && Boolean(delivery.id));
   const routeQuery = useTrackingRoute(delivery.orderId, live && Boolean(delivery.orderId));
+  const etaQuery = useTrackingEta(delivery.orderId, live && Boolean(delivery.orderId));
+  const liveLocationQuery = useLiveLocation(
+    delivery.orderId,
+    live && Boolean(delivery.orderId)
+  );
   const historyQuery = useLocationHistory(delivery.id, live);
   const [trackingPatch, setTrackingPatch] = useState<Partial<OrderTracking> | null>(
     null
   );
-  const tracking: OrderTracking | null = trackingQuery.data
-    ? { ...trackingQuery.data, ...trackingPatch }
-    : trackingPatch
-      ? ({
-          orderId: delivery.orderId ?? '',
-          deliveryId: delivery.id,
-          status: delivery.status,
-          ...trackingPatch,
-        } as OrderTracking)
-      : null;
+  const tracking: OrderTracking | null = (() => {
+    const base = trackingQuery.data ?? statusQuery.data;
+    if (!base && !trackingPatch) return null;
+    return {
+      orderId: delivery.orderId ?? '',
+      deliveryId: delivery.id,
+      status: delivery.status,
+      ...statusQuery.data,
+      ...base,
+      ...trackingPatch,
+      etaSeconds:
+        trackingPatch?.etaSeconds ??
+        etaQuery.data?.etaSeconds ??
+        base?.etaSeconds,
+      distanceMeters:
+        trackingPatch?.distanceMeters ??
+        etaQuery.data?.distanceMeters ??
+        base?.distanceMeters,
+      riderLocation:
+        trackingPatch?.riderLocation ??
+        liveLocationQuery.data ??
+        base?.riderLocation,
+      provider:
+        trackingPatch?.provider ??
+        etaQuery.data?.provider ??
+        base?.provider,
+      durationInTraffic:
+        trackingPatch?.durationInTraffic ??
+        etaQuery.data?.durationInTraffic ??
+        base?.durationInTraffic,
+    } as OrderTracking;
+  })();
 
   const action = nextDeliveryAction(status);
   const geo = tracking?.geofence;
@@ -904,6 +935,8 @@ function DeliveryCard({
       <DeliveryTripMap
         delivery={delivery}
         tracking={tracking}
+        eta={etaQuery.data}
+        liveLocation={liveLocationQuery.data}
         routePolyline={routeQuery.data?.polyline}
         routePoints={routePoints}
         historyPolyline={historyQuery.data?.polyline}

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { deliveryPartnerKeys } from '@/lib/delivery-partner/hooks';
 import { partnerTrackingApi } from '@/lib/delivery-partner/tracking-api';
+import { getApiErrorCode } from '@/lib/errors';
 import {
   LIVE_INTERVALS,
   liveRefetchInterval,
@@ -120,7 +121,17 @@ export function useTrackingEta(orderId?: string, enabled = true) {
 
   return useQuery({
     queryKey: partnerTrackingKeys.eta(id),
-    queryFn: () => partnerTrackingApi.getEta(id!),
+    queryFn: async () => {
+      try {
+        return await partnerTrackingApi.getEta(id!);
+      } catch (error) {
+        const code = getApiErrorCode(error);
+        if (code === 'LOCATION_REQUIRED' || code === 'LOCATION_NOT_FOUND') {
+          return null;
+        }
+        throw error;
+      }
+    },
     enabled: enabled && Boolean(id),
     staleTime: LIVE_INTERVALS.deliveryTracking / 2,
     gcTime: 5 * 60_000,
@@ -156,6 +167,89 @@ export function useLocationHistory(deliveryId?: string, enabled = true) {
   });
 }
 
+export function useLastLocation(enabled = true) {
+  const isActive = useAppIsActive();
+
+  return useQuery({
+    queryKey: partnerTrackingKeys.lastLocation(),
+    queryFn: async () => {
+      try {
+        return await partnerTrackingApi.getLastLocation();
+      } catch (error) {
+        const code = getApiErrorCode(error);
+        if (code === 'LOCATION_NOT_FOUND' || code === 'LOCATION_REQUIRED') {
+          return null;
+        }
+        throw error;
+      }
+    },
+    enabled,
+    staleTime: LIVE_INTERVALS.deliveryTracking,
+    gcTime: 5 * 60_000,
+    refetchInterval: liveRefetchInterval(
+      LIVE_INTERVALS.deliveryStatus,
+      isActive
+    ),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useLiveLocation(orderId?: string, enabled = true) {
+  const isActive = useAppIsActive();
+  const id = orderId?.trim();
+
+  return useQuery({
+    queryKey: partnerTrackingKeys.live(id),
+    queryFn: async () => {
+      try {
+        return await partnerTrackingApi.getLiveLocation(id!);
+      } catch (error) {
+        const code = getApiErrorCode(error);
+        if (code === 'LOCATION_NOT_FOUND' || code === 'LOCATION_REQUIRED') {
+          return null;
+        }
+        throw error;
+      }
+    },
+    enabled: enabled && Boolean(id),
+    staleTime: LIVE_INTERVALS.deliveryTracking / 2,
+    gcTime: 5 * 60_000,
+    refetchInterval: liveRefetchInterval(
+      LIVE_INTERVALS.deliveryTracking,
+      isActive
+    ),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useTrackingStatus(deliveryId?: string, enabled = true) {
+  const isActive = useAppIsActive();
+  const id = deliveryId?.trim();
+
+  return useQuery({
+    queryKey: [...partnerTrackingKeys.all, 'status', id ?? ''] as const,
+    queryFn: () => partnerTrackingApi.getTrackingStatus(id!),
+    enabled: enabled && Boolean(id),
+    staleTime: LIVE_INTERVALS.deliveryTracking / 2,
+    gcTime: 5 * 60_000,
+    refetchInterval: liveRefetchInterval(
+      LIVE_INTERVALS.deliveryTracking,
+      isActive
+    ),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
 export function useSaveHomeLocation() {
   const queryClient = useQueryClient();
 
@@ -173,6 +267,9 @@ export function useSaveHomeLocation() {
         }),
         queryClient.invalidateQueries({
           queryKey: partnerTrackingKeys.homeLocation(),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: partnerTrackingKeys.lastLocation(),
         }),
       ]);
     },

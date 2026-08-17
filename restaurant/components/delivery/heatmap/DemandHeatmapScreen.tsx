@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
-import { Flame, MapPin, Zap } from 'lucide-react-native';
+import { Flame, MapPin, Navigation, Zap } from 'lucide-react-native';
 import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -27,10 +28,12 @@ import { useDeliveryPartnerMe } from '@/lib/delivery-partner/hooks';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import { formatLocationError } from '@/lib/delivery-partner/tracking-api';
 import {
+  useLastLocation,
   useNearbyHeatmap,
   useSaveHomeLocation,
 } from '@/lib/delivery-partner/tracking-hooks';
 import {
+  formatLocationAge,
   intensityColor,
   type HeatmapZone,
 } from '@/lib/delivery-partner/tracking-types';
@@ -56,9 +59,16 @@ export function DemandHeatmapScreen() {
     Boolean(me.data?.isOnline ?? me.data?.isAvailable ?? duty.data?.isOnline)
   );
   const heatmap = useNearbyHeatmap(true);
+  const lastLocation = useLastLocation(true);
   const saveHome = useSaveHomeLocation();
 
-  const origin = heatmap.data?.origin;
+  const origin = heatmap.data?.origin ??
+    (lastLocation.data
+      ? {
+          latitude: lastLocation.data.latitude,
+          longitude: lastLocation.data.longitude,
+        }
+      : null);
   const errorCode = getApiErrorCode(heatmap.error);
   const errorMessage = heatmap.isError
     ? formatLocationError(heatmap.error, 'Could not load demand map.')
@@ -77,7 +87,7 @@ export function DemandHeatmapScreen() {
   const onRefresh = async () => {
     setPullRefreshing(true);
     try {
-      await heatmap.refetch();
+      await Promise.all([heatmap.refetch(), lastLocation.refetch()]);
     } finally {
       setPullRefreshing(false);
     }
@@ -128,6 +138,9 @@ export function DemandHeatmapScreen() {
             <Text style={styles.introTitle}>Where to wait</Text>
             <Text style={styles.introHint}>
               Hot zones near you. Go online and stay in a high-demand area.
+              {lastLocation.data
+                ? ` GPS ${formatLocationAge(lastLocation.data.updatedAt, lastLocation.data.ageSeconds) ?? 'on'}.`
+                : ''}
             </Text>
           </View>
         </View>
@@ -166,8 +179,10 @@ export function DemandHeatmapScreen() {
           <>
             {Platform.OS === 'web' ? (
               <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Demand near you</Text>
                 <Text style={styles.muted}>
-                  Demand map is available on the mobile app.
+                  Open the mobile app for the map. Hot zones are listed below —
+                  same live heatmap API.
                 </Text>
               </View>
             ) : origin && initialRegion ? (
@@ -286,6 +301,17 @@ export function DemandHeatmapScreen() {
                       </Text>
                     </View>
                   ) : null}
+                  <Pressable
+                    onPress={() => {
+                      void Linking.openURL(
+                        `https://www.google.com/maps/dir/?api=1&destination=${zone.latitude},${zone.longitude}&travelmode=driving`
+                      );
+                    }}
+                    style={styles.zoneNav}
+                  >
+                    <Navigation color={authTheme.brand} size={14} />
+                    <Text style={styles.secondaryBtnText}>Navigate to wait here</Text>
+                  </Pressable>
                 </Pressable>
               );
             })}
@@ -469,5 +495,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: 12,
     color: '#B45309',
+  },
+  zoneNav: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
 });
