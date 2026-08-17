@@ -277,6 +277,8 @@ export function kitchenHandoverCopy(
       'The rider must tap Arrived at restaurant first. Then you can hand over the bag.',
   };
 }
+
+export function canReject(order: OwnerOrder) {
   // Backend only allows reject from kitchen-pending states.
   // pending_payment → rejected is invalid ("Invalid status transition").
   return order.status === 'pending' || order.status === 'placed';
