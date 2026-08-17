@@ -11,8 +11,7 @@ import {
 export const partnerAnalyticsKeys = {
   all: [...deliveryPartnerKeys.all, 'analytics'] as const,
   performance: () => [...partnerAnalyticsKeys.all, 'performance'] as const,
-  earnings: (days: number) =>
-    [...partnerAnalyticsKeys.all, 'earnings', days] as const,
+  earnings: () => [...partnerAnalyticsKeys.all, 'earnings'] as const,
   dailyEarnings: (days: number) =>
     [...partnerAnalyticsKeys.all, 'daily-earnings', days] as const,
   incentives: () => [...partnerAnalyticsKeys.all, 'incentives'] as const,
@@ -38,13 +37,13 @@ export function usePartnerPerformance(enabled = true) {
   });
 }
 
-/** GET /partners/me/earnings?days= */
-export function usePartnerEarnings(days = 7, enabled = true) {
+/** GET /partners/me/earnings */
+export function usePartnerEarnings(enabled = true) {
   const isActive = useAppIsActive();
 
   return useQuery({
-    queryKey: partnerAnalyticsKeys.earnings(days),
-    queryFn: () => partnerAnalyticsApi.getEarnings(days),
+    queryKey: partnerAnalyticsKeys.earnings(),
+    queryFn: () => partnerAnalyticsApi.getEarnings(),
     enabled,
     staleTime: LIVE_INTERVALS.deliveryEarnings / 2,
     refetchInterval: liveRefetchInterval(

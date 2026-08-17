@@ -47,15 +47,27 @@ export type PartnerPayoutAccount = {
   bankName?: string;
 };
 
-export type PartnerEarningsSummary = {
-  days: number;
-  onlineHours: number;
+/** GET /partners/me/earnings — IST today / ISO week / calendar month. */
+export type EarningsPeriodKey = 'today' | 'week' | 'month' | 'lifetime';
+
+export type EarningsPeriod = {
+  from?: string;
+  to?: string;
   totalEarnings: number;
-  totalDeliveries: number;
   baseEarnings: number;
   incentives: number;
   tips: number;
   deductions: number;
+  totalDeliveries: number;
+  onlineHours: number;
+};
+
+export type PartnerEarningsSummary = {
+  timezone?: string;
+  today: EarningsPeriod;
+  week: EarningsPeriod;
+  month: EarningsPeriod;
+  lifetime: { totalEarnings: number; totalDeliveries: number };
   currency: string;
   payout?: PartnerPayoutAccount;
   raw?: Record<string, unknown>;

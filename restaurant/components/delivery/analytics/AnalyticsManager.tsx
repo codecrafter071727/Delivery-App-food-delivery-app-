@@ -36,6 +36,7 @@ import {
   formatRating,
   formatCurrency,
   lastNDays,
+  selectEarningsPeriod,
 } from '@/lib/delivery-partner/analytics-api';
 import {
   usePartnerDailyEarnings,
@@ -202,12 +203,13 @@ export function PartnerAnalyticsManager() {
   const [pullRefreshing, setPullRefreshing] = useState(false);
 
   const performance = usePartnerPerformance();
-  const earnings = usePartnerEarnings(days);
+  const earnings = usePartnerEarnings();
   const daily = usePartnerDailyEarnings(days);
   const incentives = usePartnerIncentives();
 
   const perf = performance.data;
   const summary = earnings.data;
+  const period = selectEarningsPeriod(summary, days === 7 ? 'week' : 'month');
   const currency = summary?.currency ?? 'INR';
   const incentiveRows = incentives.data?.incentives ?? [];
   const last7 = useMemo(
@@ -250,10 +252,10 @@ export function PartnerAnalyticsManager() {
   };
 
   // Derive Donut Chart Data
-  const totalEarn = summary?.totalEarnings ?? 0;
-  const baseEarn = summary?.baseEarnings ?? 0;
-  const tipsEarn = summary?.tips ?? 0;
-  const incEarn = summary?.incentives ?? 0;
+  const totalEarn = period.totalEarnings;
+  const baseEarn = period.baseEarnings;
+  const tipsEarn = period.tips;
+  const incEarn = period.incentives;
 
   const donutSlices = [
     {
@@ -319,7 +321,7 @@ export function PartnerAnalyticsManager() {
       id: 'hours',
       title: 'Online Hours',
       category: 'Availability',
-      value: formatHours(summary?.onlineHours ?? 0),
+      value: formatHours(period.onlineHours),
       icon: Clock3,
     },
   ];

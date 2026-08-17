@@ -87,6 +87,15 @@ export function CodRemitSheet({ visible, onClose }: Props) {
 
           {pending.isLoading && !data ? (
             <ActivityIndicator color="#EA4B14" />
+          ) : pending.isError && !data ? (
+            <View style={styles.block}>
+              <Text style={styles.error}>
+                {formatFinanceError(pending.error, 'Could not load COD cash.')}
+              </Text>
+              <Pressable onPress={() => void pending.refetch()} style={styles.primary}>
+                <Text style={styles.primaryText}>Retry</Text>
+              </Pressable>
+            </View>
           ) : done ? (
             <View style={styles.block}>
               <Text style={styles.ok}>Remittance recorded</Text>

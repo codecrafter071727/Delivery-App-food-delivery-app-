@@ -17,6 +17,7 @@ import { formatFinanceError } from '@/lib/delivery-partner/finance-api';
 import {
   useFinanceMutations,
   useInstantPayoutEligibility,
+  usePartnerPayout,
 } from '@/lib/delivery-partner/finance-hooks';
 import {
   eligibilityReasonCopy,
@@ -54,10 +55,21 @@ export function InstantPayoutSheet({ visible, onClose }: Props) {
     }
   }, [visible, data?.maxAmount]);
 
+  const live = usePartnerPayout(result?.payoutId, Boolean(result?.payoutId));
+  const payout = live.data ?? result;
   const parsed = Number(amount);
   const omitAmount = !amount.trim();
+  const amountForFee = omitAmount
+    ? (data?.maxAmount ?? 0)
+    : Number.isFinite(parsed)
+      ? parsed
+      : 0;
+  const estimatedFee = data
+    ? Math.max(data.feeMin, (amountForFee * data.feePercent) / 100)
+    : 0;
+  const estimatedNet = Math.max(0, amountForFee - estimatedFee);
   const canSubmit =
-    Boolean(data?.eligible) &&
+    Boolean(data?.eligible && data.bankVerified) &&
     (omitAmount ||
       (Number.isFinite(parsed) &&
         parsed >= (data?.minAmount ?? 200) &&
@@ -67,17 +79,17 @@ export function InstantPayoutSheet({ visible, onClose }: Props) {
   const onSubmit = async () => {
     setError(null);
     try {
-      const payout = await instantPayout.mutateAsync(
+      const created = await instantPayout.mutateAsync(
         omitAmount || !Number.isFinite(parsed) ? undefined : parsed
       );
-      setResult(payout);
+      setResult(created);
     } catch (err) {
       setError(formatFinanceError(err, 'Could not request instant payout.'));
     }
   };
 
-  const statusKey = (result?.status ?? '').toLowerCase();
-  const paid = statusKey === 'paid' && Boolean(result?.paidAt);
+  const statusKey = (payout?.status ?? '').toLowerCase();
+  const paid = statusKey === 'paid' && Boolean(payout?.paidAt);
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -92,29 +104,34 @@ export function InstantPayoutSheet({ visible, onClose }: Props) {
 
           {eligibility.isLoading && !data ? (
             <ActivityIndicator color="#EA4B14" />
-          ) : eligibility.isError ? (
-            <Text style={styles.error}>
-              {formatFinanceError(eligibility.error, 'Could not check eligibility.')}
-            </Text>
-          ) : result ? (
+          ) : eligibility.isError && !data ? (
+            <View style={styles.block}>
+              <Text style={styles.error}>
+                {formatFinanceError(eligibility.error, 'Could not check eligibility.')}
+              </Text>
+              <Pressable onPress={() => void eligibility.refetch()} style={styles.primary}>
+                <Text style={styles.primaryText}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : payout ? (
             <View style={styles.block}>
               <Text style={[styles.status, paid ? styles.paid : styles.pending]}>
-                {paid ? 'Paid' : payoutStatusLabel(result.status)}
+                {paid ? 'Paid' : payoutStatusLabel(payout.status)}
               </Text>
               <Text style={styles.amount}>
-                {formatCurrency(result.netAmount, 'INR')} to {result.bankAccountMasked ?? 'bank'}
+                {formatCurrency(payout.netAmount, 'INR')} to {payout.bankAccountMasked ?? 'bank'}
               </Text>
               <Text style={styles.meta}>
-                Gross {formatCurrency(result.grossAmount)} · fee{' '}
-                {formatCurrency(result.feeAmount)}
-                {result.tdsAmount ? ` · TDS ${formatCurrency(result.tdsAmount)}` : ''}
+                Gross {formatCurrency(payout.grossAmount)} · fee{' '}
+                {formatCurrency(payout.feeAmount)}
+                {payout.tdsAmount ? ` · TDS ${formatCurrency(payout.tdsAmount)}` : ''}
               </Text>
               {!paid ? (
                 <Text style={styles.hint}>
                   {statusKey === 'processing'
                     ? 'Sent to the payout gateway. This stays Processing until the bank confirms — we never mark Paid locally.'
-                    : result.failureReason ||
-                      'Gateway is pending. Same request is safe to retry; Paid appears only after payment-service confirms.'}
+                    : payout.failureReason ||
+                      'Gateway is pending. Paid appears only after payment-service confirms.'}
                 </Text>
               ) : null}
               <Pressable onPress={onClose} style={styles.primary}>
@@ -149,8 +166,8 @@ export function InstantPayoutSheet({ visible, onClose }: Props) {
                 style={styles.input}
               />
               <Text style={styles.meta}>
-                Est. fee {formatCurrency(data?.estimatedFee ?? 0)} · you receive{' '}
-                {formatCurrency(data?.estimatedNet ?? 0)}
+                Est. fee {formatCurrency(estimatedFee)} · you receive{' '}
+                {formatCurrency(estimatedNet)}
               </Text>
               {data?.dailyRemainingCount != null ? (
                 <Text style={styles.meta}>

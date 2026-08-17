@@ -188,7 +188,7 @@ export function DeliveryHomeScreen() {
   const actives = useActiveDeliveries();
   const history = useDeliveryHistory(5);
   const performance = usePartnerPerformance();
-  const earnings = usePartnerEarnings(1);
+  const earnings = usePartnerEarnings();
   const { setOnline } = useDeliveryOrderMutations();
 
   const dutyStatus =
@@ -215,7 +215,7 @@ export function DeliveryHomeScreen() {
   })();
   const goOnlineBlocker = getGoOnlineBlocker(me.data);
 
-  const todayEarnings = earnings.data?.totalEarnings ?? 0;
+  const todayEarnings = earnings.data?.today.totalEarnings ?? 0;
   const currency = earnings.data?.currency ?? 'INR';
 
   const totalDeliveries = performance.data?.totalDeliveries ?? 0;

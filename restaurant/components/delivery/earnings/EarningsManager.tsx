@@ -34,6 +34,7 @@ import {
   formatCurrency,
   formatIncentiveAmount,
   lastNDays,
+  selectEarningsPeriod,
 } from '@/lib/delivery-partner/analytics-api';
 import {
   usePartnerDailyEarnings,
@@ -42,6 +43,7 @@ import {
 } from '@/lib/delivery-partner/analytics-hooks';
 import type {
   EarningsPeriodDays,
+  EarningsPeriodKey,
   PartnerDailyEarning,
   PartnerIncentive,
 } from '@/lib/delivery-partner/analytics-types';
@@ -64,11 +66,15 @@ import {
 } from '@/lib/delivery-partner/finance-types';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 
-const PERIODS: { label: string; days: EarningsPeriodDays }[] = [
-  { label: 'Today', days: 1 },
-  { label: '7D', days: 7 },
-  { label: '30D', days: 30 },
-  { label: '90D', days: 90 },
+const PERIODS: {
+  key: EarningsPeriodKey;
+  label: string;
+  chartDays: EarningsPeriodDays;
+}[] = [
+  { key: 'today', label: 'Today', chartDays: 7 },
+  { key: 'week', label: 'Week', chartDays: 7 },
+  { key: 'month', label: 'Month', chartDays: 30 },
+  { key: 'lifetime', label: 'All', chartDays: 90 },
 ];
 
 const TABS = [
@@ -162,37 +168,35 @@ export function PartnerEarningsManager() {
   const { width: windowWidth } = useWindowDimensions();
   const chartWidth = Math.max(windowWidth - 72, 240);
 
-  const [days, setDays] = useState<EarningsPeriodDays>(7);
+  const [period, setPeriod] = useState<EarningsPeriodKey>('today');
   const [tab, setTab] = useState<TabKey>('wallet');
   const [txnType, setTxnType] = useState('');
-  const [txnPage, setTxnPage] = useState(1);
-  const [payoutPage, setPayoutPage] = useState(1);
-  const [remitPage, setRemitPage] = useState(1);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [showInstant, setShowInstant] = useState(false);
   const [showRemit, setShowRemit] = useState(false);
   const [payoutId, setPayoutId] = useState<string | null>(null);
 
-  const earnings = usePartnerEarnings(days);
-  const daily = usePartnerDailyEarnings(days);
+  const chartDays =
+    PERIODS.find((p) => p.key === period)?.chartDays ?? 7;
+  const earnings = usePartnerEarnings();
+  const daily = usePartnerDailyEarnings(chartDays);
   const incentivesQuery = usePartnerIncentives();
   const wallet = usePartnerWallet(true);
   const eligibility = useInstantPayoutEligibility(true);
   const schedule = usePayoutSchedule(true);
   const codPending = useCodPending(true);
-  const remittances = useCodRemittanceHistory(remitPage, tab === 'cod');
-  const payouts = usePartnerPayouts(payoutPage, tab === 'payouts');
-  const ledger = useWalletTransactions(txnPage, txnType || undefined, tab === 'ledger');
+  const remittances = useCodRemittanceHistory(tab === 'cod');
+  const payouts = usePartnerPayouts(tab === 'payouts');
+  const ledger = useWalletTransactions(txnType || undefined, tab === 'ledger');
   const bankQuery = usePartnerBank(true);
 
   const summary = earnings.data;
+  const selected = selectEarningsPeriod(summary, period);
   const currency = wallet.data?.currency ?? summary?.currency ?? 'INR';
   const chartPoints = useMemo(() => {
     const points = daily.data?.points ?? [];
-    return days <= 7
-      ? lastNDays(points, days)
-      : lastNDays(points, Math.min(days, 14));
-  }, [daily.data?.points, days]);
+    return lastNDays(points, Math.min(chartDays, 14));
+  }, [daily.data?.points, chartDays]);
 
   const hasChartData = chartPoints.some((p) => p.earnings > 0 || p.orders > 0);
   const incentiveRows = incentivesQuery.data?.incentives ?? [];
@@ -201,10 +205,13 @@ export function PartnerEarningsManager() {
   const hasPayout = Boolean(bank?.hasAccount || payout?.bankAccountNo || payout?.ifscCode);
   const cashDue = wallet.data?.cashInHand ?? codPending.data?.cashInHand ?? 0;
   const payable = wallet.data?.earningsBalance ?? 0;
+  const remittanceRows = remittances.data?.pages.flatMap((page) => page.items) ?? [];
+  const payoutRows = payouts.data?.pages.flatMap((page) => page.items) ?? [];
+  const ledgerRows = ledger.data?.pages.flatMap((page) => page.items) ?? [];
 
-  const loading = (earnings.isLoading && !summary) || (wallet.isLoading && !wallet.data);
+  const loading = wallet.isLoading && !wallet.data;
   const error =
-    earnings.error && !summary && wallet.error && !wallet.data
+    wallet.error && !wallet.data
       ? formatFinanceError(wallet.error, 'Could not load wallet.')
       : null;
 
@@ -233,30 +240,30 @@ export function PartnerEarningsManager() {
     {
       key: 'base',
       label: 'Base pay',
-      value: formatCurrency(summary?.baseEarnings ?? 0, currency),
+      value: formatCurrency(selected.baseEarnings, currency),
       icon: Wallet,
     },
     {
       key: 'incentives',
       label: 'Incentives',
-      value: formatCurrency(summary?.incentives ?? 0, currency),
+      value: formatCurrency(selected.incentives, currency),
       icon: Zap,
     },
     {
       key: 'tips',
       label: 'Tips',
-      value: formatCurrency(summary?.tips ?? 0, currency),
+      value: formatCurrency(selected.tips, currency),
       icon: Gift,
     },
     {
       key: 'deductions',
       label: 'Deductions',
       value:
-        (summary?.deductions ?? 0) > 0
-          ? `−${formatCurrency(summary?.deductions ?? 0, currency)}`
+        selected.deductions > 0
+          ? `−${formatCurrency(selected.deductions, currency)}`
           : formatCurrency(0, currency),
       icon: TrendingDown,
-      negative: (summary?.deductions ?? 0) > 0,
+      negative: selected.deductions > 0,
     },
   ] as const;
 
@@ -405,6 +412,25 @@ export function PartnerEarningsManager() {
                   </View>
                 ) : null}
 
+                {earnings.isError && !summary ? (
+                  <View style={styles.warningBanner}>
+                    <Text style={styles.warningText}>
+                      {formatFinanceError(earnings.error, 'Could not load IST earnings.')}
+                    </Text>
+                    <Pressable onPress={() => void earnings.refetch()}>
+                      <Text style={styles.payoutCta}>Retry</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Text style={styles.mutedText}>
+                    {period === 'lifetime' ? 'Lifetime' : period} ·{' '}
+                    {formatCurrency(selected.totalEarnings, currency)} ·{' '}
+                    {selected.totalDeliveries} trips
+                    {selected.from ? ` · ${selected.from}` : ''}
+                    {selected.to && selected.to !== selected.from ? `–${selected.to}` : ''}
+                  </Text>
+                )}
+
                 <View style={styles.breakdownGrid}>
                   {breakdown.map((item) => {
                     const Icon = item.icon;
@@ -437,11 +463,11 @@ export function PartnerEarningsManager() {
                     <Text style={styles.chartTitle}>Statistic report</Text>
                     <View style={styles.chartTabs}>
                       {PERIODS.map((p) => {
-                        const active = days === p.days;
+                        const active = period === p.key;
                         return (
                           <Pressable
-                            key={p.days}
-                            onPress={() => setDays(p.days)}
+                            key={p.key}
+                            onPress={() => setPeriod(p.key)}
                             style={[styles.chartTab, active && styles.chartTabActive]}
                           >
                             <Text
@@ -467,7 +493,17 @@ export function PartnerEarningsManager() {
                   )}
                 </View>
 
-                {schedule.data ? (
+                {schedule.isError && !schedule.data ? (
+                  <Pressable
+                    onPress={() => void schedule.refetch()}
+                    style={styles.transactionsContainer}
+                  >
+                    <Text style={styles.txTitle}>Weekly payout</Text>
+                    <Text style={styles.payoutMeta}>
+                      {formatFinanceError(schedule.error, 'Could not load schedule. Retry')}
+                    </Text>
+                  </Pressable>
+                ) : schedule.data ? (
                   <View style={styles.transactionsContainer}>
                     <View style={styles.txHeader}>
                       <Text style={styles.txTitle}>Weekly payout</Text>
@@ -592,9 +628,11 @@ export function PartnerEarningsManager() {
                   </Pressable>
                 </View>
                 {codPending.isError && !codPending.data ? (
-                  <Text style={styles.payoutMeta}>
-                    {formatFinanceError(codPending.error, 'Could not load COD pending.')}
-                  </Text>
+                  <Pressable onPress={() => void codPending.refetch()}>
+                    <Text style={styles.payoutMeta}>
+                      {formatFinanceError(codPending.error, 'Could not load COD pending. Retry')}
+                    </Text>
+                  </Pressable>
                 ) : (
                   <>
                     <Text style={styles.walletCardAmount}>
@@ -620,14 +658,16 @@ export function PartnerEarningsManager() {
                 <Text style={[styles.txTitle, { marginTop: 20 }]}>Remittance history</Text>
                 {remittances.isLoading && !remittances.data ? (
                   <ActivityIndicator color="#EA4B14" style={{ marginTop: 12 }} />
-                ) : remittances.isError ? (
-                  <Text style={styles.payoutMeta}>
-                    {formatFinanceError(remittances.error, 'Could not load remittances.')}
-                  </Text>
-                ) : !remittances.data?.items.length ? (
+                ) : remittances.isError && !remittanceRows.length ? (
+                  <Pressable onPress={() => void remittances.refetch()}>
+                    <Text style={styles.payoutMeta}>
+                      {formatFinanceError(remittances.error, 'Could not load remittances. Retry')}
+                    </Text>
+                  </Pressable>
+                ) : !remittanceRows.length ? (
                   <Text style={[styles.emptyText, { marginTop: 12 }]}>No remittances yet.</Text>
                 ) : (
-                  remittances.data.items.map((row) => (
+                  remittanceRows.map((row) => (
                     <View key={row.remittanceId} style={[styles.programRow, styles.rowBorder]}>
                       <View style={styles.programTop}>
                         <Text style={styles.programTitle}>
@@ -643,12 +683,15 @@ export function PartnerEarningsManager() {
                     </View>
                   ))
                 )}
-                {remittances.data?.hasNext ? (
+                {remittances.hasNextPage ? (
                   <Pressable
-                    onPress={() => setRemitPage((p) => p + 1)}
+                    onPress={() => void remittances.fetchNextPage()}
                     style={styles.retryBtn}
+                    disabled={remittances.isFetchingNextPage}
                   >
-                    <Text style={styles.retryText}>Load more</Text>
+                    <Text style={styles.retryText}>
+                      {remittances.isFetchingNextPage ? 'Loading…' : 'Load more'}
+                    </Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -664,9 +707,11 @@ export function PartnerEarningsManager() {
                     </Pressable>
                   </View>
                   {eligibility.isError && !eligibility.data ? (
-                    <Text style={styles.payoutMeta}>
-                      {formatFinanceError(eligibility.error, 'Could not check eligibility.')}
-                    </Text>
+                    <Pressable onPress={() => void eligibility.refetch()}>
+                      <Text style={styles.payoutMeta}>
+                        {formatFinanceError(eligibility.error, 'Could not check eligibility. Retry')}
+                      </Text>
+                    </Pressable>
                   ) : (
                     <>
                       <Text style={styles.payoutMeta}>
@@ -689,14 +734,16 @@ export function PartnerEarningsManager() {
                   </View>
                   {payouts.isLoading && !payouts.data ? (
                     <ActivityIndicator color="#EA4B14" />
-                  ) : payouts.isError ? (
-                    <Text style={styles.payoutMeta}>
-                      {formatFinanceError(payouts.error, 'Could not load payouts.')}
-                    </Text>
-                  ) : !payouts.data?.items.length ? (
+                  ) : payouts.isError && !payoutRows.length ? (
+                    <Pressable onPress={() => void payouts.refetch()}>
+                      <Text style={styles.payoutMeta}>
+                        {formatFinanceError(payouts.error, 'Could not load payouts. Retry')}
+                      </Text>
+                    </Pressable>
+                  ) : !payoutRows.length ? (
                     <Text style={styles.emptyText}>No payouts yet.</Text>
                   ) : (
-                    payouts.data.items.map((row) => {
+                    payoutRows.map((row) => {
                       const paid = row.status.toLowerCase() === 'paid' && Boolean(row.paidAt);
                       return (
                         <Pressable
@@ -722,12 +769,15 @@ export function PartnerEarningsManager() {
                       );
                     })
                   )}
-                  {payouts.data?.hasNext ? (
+                  {payouts.hasNextPage ? (
                     <Pressable
-                      onPress={() => setPayoutPage((p) => p + 1)}
+                      onPress={() => void payouts.fetchNextPage()}
                       style={styles.retryBtn}
+                      disabled={payouts.isFetchingNextPage}
                     >
-                      <Text style={styles.retryText}>Load more</Text>
+                      <Text style={styles.retryText}>
+                        {payouts.isFetchingNextPage ? 'Loading…' : 'Load more'}
+                      </Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -747,7 +797,6 @@ export function PartnerEarningsManager() {
                         key={item.key || 'all'}
                         onPress={() => {
                           setTxnType(item.key);
-                          setTxnPage(1);
                         }}
                         style={[styles.chartTab, active && styles.chartTabActive]}
                       >
@@ -762,14 +811,16 @@ export function PartnerEarningsManager() {
                 </View>
                 {ledger.isLoading && !ledger.data ? (
                   <ActivityIndicator color="#EA4B14" style={{ marginTop: 16 }} />
-                ) : ledger.isError ? (
-                  <Text style={[styles.payoutMeta, { marginTop: 12 }]}>
-                    {formatFinanceError(ledger.error, 'Could not load ledger.')}
-                  </Text>
-                ) : !ledger.data?.items.length ? (
+                ) : ledger.isError && !ledgerRows.length ? (
+                  <Pressable onPress={() => void ledger.refetch()}>
+                    <Text style={[styles.payoutMeta, { marginTop: 12 }]}>
+                      {formatFinanceError(ledger.error, 'Could not load ledger. Retry')}
+                    </Text>
+                  </Pressable>
+                ) : !ledgerRows.length ? (
                   <Text style={[styles.emptyText, { marginTop: 16 }]}>No ledger rows.</Text>
                 ) : (
-                  ledger.data.items.map((row) => {
+                  ledgerRows.map((row) => {
                     const debit = (row.direction ?? '').toLowerCase() === 'debit';
                     return (
                       <View key={row.id} style={[styles.programRow, styles.rowBorder]}>
@@ -794,12 +845,15 @@ export function PartnerEarningsManager() {
                     );
                   })
                 )}
-                {ledger.data?.hasNext ? (
+                {ledger.hasNextPage ? (
                   <Pressable
-                    onPress={() => setTxnPage((p) => p + 1)}
+                    onPress={() => void ledger.fetchNextPage()}
                     style={styles.retryBtn}
+                    disabled={ledger.isFetchingNextPage}
                   >
-                    <Text style={styles.retryText}>Load more</Text>
+                    <Text style={styles.retryText}>
+                      {ledger.isFetchingNextPage ? 'Loading…' : 'Load more'}
+                    </Text>
                   </Pressable>
                 ) : null}
               </View>

@@ -11,6 +11,16 @@ export function CodLimitBanner() {
   const router = useRouter();
   const query = useCodLimitStatus(true);
   const data = query.data;
+  if (query.isError && !data) {
+    return (
+      <View style={[styles.bar, styles.barWarn]}>
+        <Text style={styles.text}>Could not load COD limit.</Text>
+        <Pressable onPress={() => void query.refetch()} hitSlop={8} style={styles.cta}>
+          <Text style={styles.ctaText}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
   if (!data) return null;
   if (!data.blocked && !data.remitDueToday && data.usedPercent < 50) {
     return null;

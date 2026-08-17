@@ -138,7 +138,24 @@ export function CodUpiSheet({ visible, deliveryId, onClose }: Props) {
           {createUpiQr.isPending && !qr ? (
             <ActivityIndicator color="#EA4B14" />
           ) : loadError ? (
-            <Text style={styles.error}>{loadError}</Text>
+            <View style={styles.block}>
+              <Text style={styles.error}>{loadError}</Text>
+              <Pressable
+                onPress={() => {
+                  if (!deliveryId) return;
+                  setLoadError(null);
+                  createUpiQr
+                    .mutateAsync(deliveryId)
+                    .then(setQr)
+                    .catch((err) =>
+                      setLoadError(formatFinanceError(err, 'Could not create UPI QR.'))
+                    );
+                }}
+                style={styles.primary}
+              >
+                <Text style={styles.primaryText}>Retry QR</Text>
+              </Pressable>
+            </View>
           ) : marked ? (
             <View style={styles.block}>
               <Text style={styles.ok}>Marked paid via UPI</Text>

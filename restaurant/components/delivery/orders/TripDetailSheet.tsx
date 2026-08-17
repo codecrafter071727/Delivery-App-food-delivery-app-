@@ -142,7 +142,9 @@ export function TripDetailSheet({
                 </View>
               ) : null}
 
-              {tripEarn.data ? (
+              {tripEarn.isLoading && !tripEarn.data ? (
+                <ActivityIndicator color="#EA4B14" style={{ marginVertical: 8 }} />
+              ) : tripEarn.data ? (
                 <View style={styles.summary}>
                   <Text style={styles.sectionTitle}>Trip earnings</Text>
                   <Text style={styles.earn}>

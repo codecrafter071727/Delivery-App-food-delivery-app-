@@ -3,6 +3,8 @@ import axios from 'axios';
 import { api, assertApiBaseUrl } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/errors';
 import type {
+  EarningsPeriod,
+  EarningsPeriodKey,
   PartnerDailyEarning,
   PartnerDailyEarningsResult,
   PartnerEarningsSummary,
@@ -305,116 +307,105 @@ function extractDailyList(data: unknown): unknown[] {
   return [];
 }
 
-function mapEarningsSummary(
-  raw: unknown,
-  days: number
-): PartnerEarningsSummary {
-  const root = asRecord(unwrap(raw));
-  const source = asRecord(
-    root.earnings ?? root.summary ?? root.totals ?? root
-  );
-  const payoutSource = asRecord(
-    source.payout ??
-      source.payoutAccount ??
-      source.bankAccount ??
-      source.bank ??
-      source.account ??
-      root.payout ??
-      root.payoutAccount
-  );
-
-  const bankAccountNo = pickString(payoutSource, [
-    'bankAccountNo',
-    'accountNumber',
-    'accountNo',
-    'bankAccountNumber',
-    'account',
-  ]);
-  const ifscCode = pickString(payoutSource, [
-    'ifscCode',
-    'ifsc',
-    'IFSC',
-  ]);
-  const upiId = pickString(payoutSource, [
-    'upiId',
-    'upi',
-    'vpa',
-    'upiAddress',
-  ]);
-
-  const hasPayout = Boolean(bankAccountNo || ifscCode || upiId);
-
+function emptyPeriod(): EarningsPeriod {
   return {
-    days,
-    onlineHours:
-      pickNumber(source, [
-        'onlineHours',
-        'hoursOnline',
-        'totalOnlineHours',
-        'onlineTimeHours',
-        'activeHours',
-      ]) ?? 0,
+    totalEarnings: 0,
+    baseEarnings: 0,
+    incentives: 0,
+    tips: 0,
+    deductions: 0,
+    totalDeliveries: 0,
+    onlineHours: 0,
+  };
+}
+
+function mapPeriod(raw: unknown): EarningsPeriod {
+  const record = asRecord(raw);
+  if (!Object.keys(record).length) return emptyPeriod();
+  return {
+    from: pickString(record, ['from', 'start', 'dateFrom']),
+    to: pickString(record, ['to', 'end', 'dateTo']),
     totalEarnings:
-      pickNumber(source, [
-        'totalEarnings',
-        'earnings',
-        'amount',
-        'netEarnings',
-        'grandTotal',
-      ]) ?? 0,
+      pickNumber(record, ['totalEarnings', 'earnings', 'total', 'netEarnings']) ??
+      0,
+    baseEarnings:
+      pickNumber(record, ['baseEarnings', 'base', 'deliveryEarnings']) ?? 0,
+    incentives: pickNumber(record, ['incentives', 'bonuses', 'bonus']) ?? 0,
+    tips: pickNumber(record, ['tips', 'tip']) ?? 0,
+    deductions: pickNumber(record, ['deductions', 'penalties', 'charges']) ?? 0,
     totalDeliveries:
-      pickNumber(source, [
+      pickNumber(record, [
         'totalDeliveries',
         'deliveries',
         'orders',
         'totalOrders',
-        'completedDeliveries',
       ]) ?? 0,
-    baseEarnings:
-      pickNumber(source, [
-        'baseEarnings',
-        'base',
-        'deliveryEarnings',
-        'tripEarnings',
-      ]) ?? 0,
-    incentives:
-      pickNumber(source, [
-        'incentives',
-        'bonuses',
-        'bonus',
-        'incentiveEarnings',
-        'incentivesEarned',
-      ]) ?? 0,
-    tips:
-      pickNumber(source, [
-        'tips',
-        'tip',
-        'tipsReceived',
-        'customerEarnings',
-      ]) ?? 0,
-    deductions:
-      pickNumber(source, [
-        'deductions',
-        'penalties',
-        'charges',
-        'deduction',
-      ]) ?? 0,
-    currency: pickString(source, ['currency']) ?? 'INR',
-    payout: hasPayout
-      ? {
-          bankAccountNo,
-          ifscCode,
-          upiId,
-          accountHolderName: pickString(payoutSource, [
-            'accountHolderName',
-            'holderName',
-            'name',
-          ]),
-          bankName: pickString(payoutSource, ['bankName', 'bank']),
-        }
-      : undefined,
-    raw: source,
+    onlineHours:
+      pickNumber(record, ['onlineHours', 'hoursOnline', 'activeHours']) ?? 0,
   };
+}
+
+function mapEarningsSummary(raw: unknown): PartnerEarningsSummary {
+  const root = asRecord(unwrap(raw));
+  const payoutSource = asRecord(
+    root.payout ?? root.payoutAccount ?? root.bankAccount ?? root.bank
+  );
+  const bankAccountNo = pickString(payoutSource, [
+    'bankAccountNo',
+    'accountNumber',
+    'accountNo',
+  ]);
+  const ifscCode = pickString(payoutSource, ['ifscCode', 'ifsc', 'IFSC']);
+  const upiId = pickString(payoutSource, ['upiId', 'upi', 'vpa']);
+  const lifetimeRaw = asRecord(root.lifetime);
+  const hasPeriods = Boolean(root.today || root.week || root.month);
+  const flat = hasPeriods ? emptyPeriod() : mapPeriod(root);
+
+  return {
+    timezone: pickString(root, ['timezone']) ?? 'Asia/Kolkata',
+    today: hasPeriods ? mapPeriod(root.today) : flat,
+    week: hasPeriods ? mapPeriod(root.week) : flat,
+    month: hasPeriods ? mapPeriod(root.month) : flat,
+    lifetime: {
+      totalEarnings:
+        pickNumber(lifetimeRaw, ['totalEarnings', 'earnings', 'total']) ??
+        (hasPeriods ? 0 : flat.totalEarnings),
+      totalDeliveries:
+        pickNumber(lifetimeRaw, ['totalDeliveries', 'deliveries', 'orders']) ??
+        (hasPeriods ? 0 : flat.totalDeliveries),
+    },
+    currency: pickString(root, ['currency']) ?? 'INR',
+    payout:
+      bankAccountNo || ifscCode || upiId
+        ? {
+            bankAccountNo,
+            ifscCode,
+            upiId,
+            accountHolderName: pickString(payoutSource, [
+              'accountHolderName',
+              'holderName',
+              'name',
+            ]),
+            bankName: pickString(payoutSource, ['bankName', 'bank']),
+          }
+        : undefined,
+    raw: root,
+  };
+}
+
+export function selectEarningsPeriod(
+  summary: PartnerEarningsSummary | undefined,
+  key: EarningsPeriodKey
+): EarningsPeriod {
+  if (!summary) return emptyPeriod();
+  if (key === 'lifetime') {
+    return {
+      ...emptyPeriod(),
+      totalEarnings: summary.lifetime.totalEarnings,
+      totalDeliveries: summary.lifetime.totalDeliveries,
+    };
+  }
+  return summary[key] ?? emptyPeriod();
 }
 
 function formatMoney(amount?: number, currency = 'INR') {
@@ -536,10 +527,10 @@ export const partnerAnalyticsApi = {
     return mapPerformance(res.data ?? res);
   },
 
-  /** GET /partners/me/earnings?days= */
-  getEarnings: async (days = 7): Promise<PartnerEarningsSummary> => {
-    const res = await getJson<unknown>(`${ME_BASE}/earnings`, { days });
-    return mapEarningsSummary(res.data ?? res, days);
+  /** GET /partners/me/earnings — IST today / week / month / lifetime (no query). */
+  getEarnings: async (): Promise<PartnerEarningsSummary> => {
+    const res = await getJson<unknown>(`${ME_BASE}/earnings`);
+    return mapEarningsSummary(res.data ?? res);
   },
 
   /** GET /partners/me/earnings/daily?days= */

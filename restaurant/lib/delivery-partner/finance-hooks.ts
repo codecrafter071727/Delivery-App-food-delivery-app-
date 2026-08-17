@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { partnerFinanceApi } from '@/lib/delivery-partner/finance-api';
 import type { CodRemitPayload } from '@/lib/delivery-partner/finance-types';
@@ -12,20 +12,18 @@ import {
 export const partnerFinanceKeys = {
   all: [...deliveryPartnerKeys.all, 'finance'] as const,
   wallet: () => [...partnerFinanceKeys.all, 'wallet'] as const,
-  transactions: (page: number, type?: string) =>
-    [...partnerFinanceKeys.all, 'txns', page, type ?? 'all'] as const,
+  transactions: (type?: string) =>
+    [...partnerFinanceKeys.all, 'txns', type ?? 'all'] as const,
   tripEarnings: (deliveryId: string) =>
     [...partnerFinanceKeys.all, 'trip-earnings', deliveryId] as const,
-  payouts: (page: number) =>
-    [...partnerFinanceKeys.all, 'payouts', page] as const,
+  payouts: () => [...partnerFinanceKeys.all, 'payouts'] as const,
   payout: (payoutId: string) =>
     [...partnerFinanceKeys.all, 'payout', payoutId] as const,
   eligibility: () => [...partnerFinanceKeys.all, 'eligibility'] as const,
   schedule: () => [...partnerFinanceKeys.all, 'schedule'] as const,
   codPending: () => [...partnerFinanceKeys.all, 'cod-pending'] as const,
   codLimit: () => [...partnerFinanceKeys.all, 'cod-limit'] as const,
-  remittances: (page: number) =>
-    [...partnerFinanceKeys.all, 'remittances', page] as const,
+  remittances: () => [...partnerFinanceKeys.all, 'remittances'] as const,
 };
 
 function invalidateFinance(queryClient: ReturnType<typeof useQueryClient>) {
@@ -59,23 +57,20 @@ export function usePartnerWallet(enabled = true) {
   });
 }
 
-export function useWalletTransactions(
-  page = 1,
-  type?: string,
-  enabled = true
-) {
-  return useQuery({
-    queryKey: partnerFinanceKeys.transactions(page, type),
-    queryFn: () =>
+export function useWalletTransactions(type?: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: partnerFinanceKeys.transactions(type),
+    queryFn: ({ pageParam }) =>
       partnerFinanceApi.getWalletTransactions({
-        page,
+        page: pageParam,
         limit: 20,
         type: type || undefined,
       }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.hasNext ? last.page + 1 : undefined),
     enabled,
     staleTime: 20_000,
     refetchOnWindowFocus: true,
-    placeholderData: (previous) => previous,
   });
 }
 
@@ -89,14 +84,15 @@ export function useTripEarnings(deliveryId?: string, enabled = true) {
   });
 }
 
-export function usePartnerPayouts(page = 1, enabled = true) {
-  return useQuery({
-    queryKey: partnerFinanceKeys.payouts(page),
-    queryFn: () => partnerFinanceApi.getPayouts(page, 20),
+export function usePartnerPayouts(enabled = true) {
+  return useInfiniteQuery({
+    queryKey: partnerFinanceKeys.payouts(),
+    queryFn: ({ pageParam }) => partnerFinanceApi.getPayouts(pageParam, 20),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.hasNext ? last.page + 1 : undefined),
     enabled,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
-    placeholderData: (previous) => previous,
   });
 }
 
@@ -178,14 +174,16 @@ export function useCodLimitStatus(enabled = true) {
   });
 }
 
-export function useCodRemittanceHistory(page = 1, enabled = true) {
-  return useQuery({
-    queryKey: partnerFinanceKeys.remittances(page),
-    queryFn: () => partnerFinanceApi.getCodRemittanceHistory(page, 20),
+export function useCodRemittanceHistory(enabled = true) {
+  return useInfiniteQuery({
+    queryKey: partnerFinanceKeys.remittances(),
+    queryFn: ({ pageParam }) =>
+      partnerFinanceApi.getCodRemittanceHistory(pageParam, 20),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.hasNext ? last.page + 1 : undefined),
     enabled,
     staleTime: 20_000,
     refetchOnWindowFocus: true,
-    placeholderData: (previous) => previous,
   });
 }
 
