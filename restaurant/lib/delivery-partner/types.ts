@@ -198,6 +198,12 @@ export type PartnerDelivery = {
   deliveredAt?: string;
   createdAt?: string;
   updatedAt?: string;
+  batchId?: string;
+  nextAction?: string;
+  canReject?: boolean;
+  canCancel?: boolean;
+  offerExpiresAt?: string;
+  timeoutSeconds?: number;
   raw?: Record<string, unknown>;
 };
 
@@ -208,6 +214,87 @@ export type DeliveryHistoryResult = {
   total: number;
   hasNext: boolean;
 };
+
+export type DeliveryTimelineStep = {
+  key: string;
+  label: string;
+  at?: string | null;
+  completed: boolean;
+};
+
+export type DeliveryTimeline = {
+  deliveryId: string;
+  orderId?: string;
+  status?: string;
+  waitMinutes?: number | null;
+  steps: DeliveryTimelineStep[];
+};
+
+export type DeliveryEventKind = 'timeline' | 'issue' | 'contact' | 'dispatch';
+
+export type DeliveryEvent = {
+  kind: DeliveryEventKind;
+  key: string;
+  label: string;
+  at?: string | null;
+  actor?: string | null;
+  detail?: string | null;
+};
+
+export type DeliveryEventsResult = {
+  deliveryId?: string;
+  count: number;
+  events: DeliveryEvent[];
+};
+
+export type PartnerBatchStop = {
+  seq: number;
+  deliveryId: string;
+  orderId?: string;
+  restaurantId?: string;
+  leg: 'pickup' | 'drop';
+  label: string;
+  latitude?: number;
+  longitude?: number;
+  address?: string | null;
+  metersFromPrev?: number;
+};
+
+export type PartnerBatchMember = {
+  deliveryId: string;
+  orderId?: string;
+  restaurantId?: string;
+  restaurantName?: string;
+  status: string;
+  deliveryFee?: number;
+  partnerEarnings?: number;
+  deliveryAddress?: string;
+};
+
+export type PartnerBatch = {
+  batchId: string;
+  status: string;
+  partnerId?: string;
+  deliveryIds: string[];
+  deliveries: PartnerBatchMember[];
+  sequence: PartnerBatchStop[];
+  sequenceConfirmed: boolean;
+  sequenceConfirmedAt?: string | null;
+  suggested?: boolean;
+  estimatedDistanceKm?: number;
+  estimatedMinutes?: number;
+  offeredAt?: string;
+  acceptedAt?: string | null;
+  offerExpiresAt?: string;
+  timeoutSeconds?: number;
+  canAccept: boolean;
+  canConfirmSequence: boolean;
+  nextAction?: string;
+};
+
+export type ConfirmBatchSequencePayload =
+  | { confirm: boolean }
+  | { stops: { deliveryId: string; leg: 'pickup' | 'drop' }[] };
 
 export type RejectDeliveryPayload = {
   reason: string;

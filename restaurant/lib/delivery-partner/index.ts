@@ -27,6 +27,7 @@ export {
   normalizeDeliveryStatus,
   isAssignableStatus,
   nextDeliveryAction,
+  mapPartnerBatch,
 } from '@/lib/delivery-partner/api';
 export {
   partnerAnalyticsApi,
@@ -75,6 +76,11 @@ export {
   REJECT_REASON_CODES,
   toRejectReasonCode,
 } from '@/lib/delivery-partner/rider-gateway-types';
+export {
+  canFallbackToRest,
+  formatTripError,
+  socketErrorCopy,
+} from '@/lib/delivery-partner/rider-ack';
 export type {
   RiderGatewayEvent,
   RiderGatewayStatus,

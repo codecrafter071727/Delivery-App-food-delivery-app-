@@ -17,6 +17,8 @@ export type IncomingOffer = {
   secondsLeft?: number;
   pickupLabel?: string;
   dropLabel?: string;
+  batchId?: string;
+  nextAction?: string;
   receivedAt: number;
 };
 
@@ -65,7 +67,12 @@ export function parseIncomingOffer(payload: unknown): IncomingOffer | null {
   const timeoutSeconds =
     pickNumber(source, ['timeoutSeconds', 'timeout', 'offerTimeoutSeconds']) ??
     30;
-  const expiresAt = pickString(source, ['expiresAt', 'expiry', 'expires']);
+  const expiresAt = pickString(source, [
+    'offerExpiresAt',
+    'expiresAt',
+    'expiry',
+    'expires',
+  ]);
 
   return {
     deliveryId,
@@ -101,6 +108,9 @@ export function parseIncomingOffer(payload: unknown): IncomingOffer | null {
     secondsLeft: pickNumber(source, ['secondsLeft']),
     pickupLabel: pickString(source, ['pickupAddress', 'restaurantAddress']),
     dropLabel: pickString(source, ['dropAddress', 'deliveryAddress']),
+    batchId:
+      pickString(source, ['batchId']) || pickString(record, ['batchId']),
+    nextAction: pickString(source, ['nextAction']),
     receivedAt: Date.now(),
   };
 }

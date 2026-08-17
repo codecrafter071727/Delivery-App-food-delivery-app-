@@ -2,7 +2,7 @@ import axios from 'axios';
 
 import { API_BASE_URL, api, assertApiBaseUrl, refreshCsrfToken } from '@/lib/api';
 import { getToken } from '@/lib/auth/storage';
-import { getApiErrorMessage, PartnerApiError } from '@/lib/errors';
+import { getApiErrorCode, getApiErrorMessage, PartnerApiError } from '@/lib/errors';
 import {
   postMultipartWithFields,
   type UploadFilePart,
@@ -12,17 +12,24 @@ import {
   applyDutyStatusToProfile,
   partnerAvailabilityApi,
 } from '@/lib/delivery-partner/availability-api';
-import { canFallbackToRest } from '@/lib/delivery-partner/rider-ack';
+import { canFallbackToRest, socketErrorCopy } from '@/lib/delivery-partner/rider-ack';
 import { emitRiderEvent, isRiderSocketConnected } from '@/lib/delivery-partner/rider-gateway';
 import { toRejectReasonCode } from '@/lib/delivery-partner/rider-gateway-types';
 import { partnerTrackingApi } from '@/lib/delivery-partner/tracking-api';
 import type { LocationPingResult } from '@/lib/delivery-partner/tracking-types';
 import { normalizeDutyStatus } from '@/lib/delivery-partner/availability-types';
 import type {
+  ConfirmBatchSequencePayload,
   DeliverOrderPayload,
+  DeliveryEventsResult,
   DeliveryHistoryResult,
   DeliveryPartnerProfile,
   DeliveryPartnerRegisterPayload,
+  DeliveryTimeline,
+  PartnerBatch,
+  PartnerBatchMember,
+  PartnerBatchStop,
+  DeliveryEventKind,
   PartnerDelivery,
   PartnerDeliveryAddress,
   PartnerDocument,
@@ -172,6 +179,141 @@ function formatItemsSummary(raw: unknown): string | undefined {
     .join(', ');
 }
 
+function mapTimeline(raw: unknown): DeliveryTimeline {
+  const record = asRecord(raw);
+  const nested = asRecord(record.timeline ?? record.data ?? record);
+  const source = Object.keys(nested).length ? nested : record;
+  const stepsRaw = source.steps;
+  const steps = Array.isArray(stepsRaw)
+    ? stepsRaw.map((item) => {
+        const row = asRecord(item);
+        return {
+          key: pickString(row, ['key', 'id', 'status']) ?? '',
+          label: pickString(row, ['label', 'title', 'name']) ?? 'Step',
+          at: pickString(row, ['at', 'timestamp', 'time']) ?? null,
+          completed: pickBool(row, ['completed', 'done', 'isCompleted']) ?? false,
+        };
+      })
+    : [];
+  return {
+    deliveryId: pickString(source, ['deliveryId', 'id']) ?? '',
+    orderId: pickString(source, ['orderId']),
+    status: pickString(source, ['status']),
+    waitMinutes: pickNumber(source, ['waitMinutes', 'waitMins']),
+    steps,
+  };
+}
+
+function mapEvents(raw: unknown): DeliveryEventsResult {
+  const record = asRecord(raw);
+  const nested = asRecord(record.data ?? record);
+  const source = Object.keys(nested).length ? nested : record;
+  const list = extractList(source.events ?? source);
+  const events = list.map((item) => {
+    const row = asRecord(item);
+    const kindRaw = (pickString(row, ['kind', 'type']) ?? 'timeline').toLowerCase();
+    const kind: DeliveryEventKind =
+      kindRaw === 'issue' || kindRaw === 'contact' || kindRaw === 'dispatch'
+        ? kindRaw
+        : 'timeline';
+    return {
+      kind,
+      key: pickString(row, ['key', 'id', 'code']) ?? kind,
+      label: pickString(row, ['label', 'title', 'message']) ?? kind,
+      at: pickString(row, ['at', 'timestamp', 'createdAt']) ?? null,
+      actor: pickString(row, ['actor', 'by', 'role']) ?? null,
+      detail: pickString(row, ['detail', 'notes', 'description']) ?? null,
+    };
+  });
+  return {
+    deliveryId: pickString(source, ['deliveryId', 'id']),
+    count: pickNumber(source, ['count']) ?? events.length,
+    events,
+  };
+}
+
+function mapBatchStop(raw: unknown, index: number): PartnerBatchStop {
+  const row = asRecord(raw);
+  const loc = asRecord(row.location ?? row);
+  const legRaw = (pickString(row, ['leg', 'type', 'kind']) ?? 'pickup').toLowerCase();
+  const leg = legRaw === 'drop' || legRaw === 'delivery' ? 'drop' : 'pickup';
+  return {
+    seq: pickNumber(row, ['seq', 'sequence', 'index', 'order']) ?? index + 1,
+    deliveryId: pickString(row, ['deliveryId', 'id']) ?? '',
+    orderId: pickString(row, ['orderId']),
+    restaurantId: pickString(row, ['restaurantId']),
+    leg,
+    label:
+      pickString(row, ['label', 'title']) ?? (leg === 'drop' ? 'Drop' : 'Pickup'),
+    latitude: pickNumber(row, ['latitude', 'lat']) ?? pickNumber(loc, ['latitude', 'lat']),
+    longitude:
+      pickNumber(row, ['longitude', 'lng', 'lon']) ??
+      pickNumber(loc, ['longitude', 'lng', 'lon']),
+    address: pickString(row, ['address', 'deliveryAddress']) ?? null,
+    metersFromPrev: pickNumber(row, ['metersFromPrev', 'distanceMeters']),
+  };
+}
+
+function mapBatchMember(raw: unknown): PartnerBatchMember {
+  const row = asRecord(raw);
+  const addressRaw = row.deliveryAddress;
+  const deliveryAddress =
+    typeof addressRaw === 'string'
+      ? addressRaw
+      : pickString(asRecord(addressRaw), ['line1', 'address', 'fullAddress']);
+  return {
+    deliveryId: pickString(row, ['deliveryId', 'id', '_id']) ?? '',
+    orderId: pickString(row, ['orderId']),
+    restaurantId: pickString(row, ['restaurantId']),
+    restaurantName: pickString(row, ['restaurantName', 'outletName', 'storeName']),
+    status: pickString(row, ['status']) ?? 'assigned',
+    deliveryFee: pickNumber(row, ['deliveryFee', 'fee', 'amount']),
+    partnerEarnings: pickNumber(row, ['partnerEarnings', 'earning', 'earnings']),
+    deliveryAddress,
+  };
+}
+
+export function mapPartnerBatch(raw: unknown): PartnerBatch {
+  const record = asRecord(raw);
+  const nested = asRecord(record.batch ?? record.data ?? record);
+  const source = Object.keys(nested).length ? nested : record;
+  const deliveriesRaw = extractList(source.deliveries ?? source.items);
+  const sequenceRaw = Array.isArray(source.sequence) ? source.sequence : [];
+  const deliveryIdsRaw = Array.isArray(source.deliveryIds)
+    ? source.deliveryIds
+    : [];
+  const deliveryIds = deliveryIdsRaw
+    .map((id) => (typeof id === 'string' ? id : String(id)))
+    .filter((id) => id.trim());
+  const deliveries = deliveriesRaw.map(mapBatchMember).filter((row) => row.deliveryId);
+  return {
+    batchId: pickString(source, ['batchId', 'id', '_id']) ?? '',
+    status: pickString(source, ['status']) ?? 'offered',
+    partnerId: pickString(source, ['partnerId']),
+    deliveryIds: deliveryIds.length
+      ? deliveryIds
+      : deliveries.map((row) => row.deliveryId),
+    deliveries,
+    sequence: sequenceRaw.map((item, index) => mapBatchStop(item, index)),
+    sequenceConfirmed: pickBool(source, ['sequenceConfirmed', 'confirmed']) ?? false,
+    sequenceConfirmedAt: pickString(source, ['sequenceConfirmedAt']) ?? null,
+    suggested: pickBool(source, ['suggested']),
+    estimatedDistanceKm: pickNumber(source, [
+      'estimatedDistanceKm',
+      'distanceKm',
+      'distance',
+    ]),
+    estimatedMinutes: pickNumber(source, ['estimatedMinutes', 'etaMinutes', 'eta']),
+    offeredAt: pickString(source, ['offeredAt']),
+    acceptedAt: pickString(source, ['acceptedAt']) ?? null,
+    offerExpiresAt: pickString(source, ['offerExpiresAt', 'expiresAt']),
+    timeoutSeconds: pickNumber(source, ['timeoutSeconds', 'timeout']),
+    canAccept: pickBool(source, ['canAccept']) ?? false,
+    canConfirmSequence: pickBool(source, ['canConfirmSequence']) ?? false,
+    nextAction: pickString(source, ['nextAction']),
+  };
+}
+
 export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
   const record = asRecord(raw);
   const nested = asRecord(
@@ -276,6 +418,16 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
     deliveredAt: pickString(source, ['deliveredAt']),
     createdAt: pickString(source, ['createdAt']),
     updatedAt: pickString(source, ['updatedAt']),
+    batchId: pickString(source, ['batchId']),
+    nextAction: pickString(source, ['nextAction']),
+    canReject: pickBool(source, ['canReject']),
+    canCancel: pickBool(source, ['canCancel']),
+    offerExpiresAt: pickString(source, [
+      'offerExpiresAt',
+      'expiresAt',
+      'timeoutAt',
+    ]),
+    timeoutSeconds: pickNumber(source, ['timeoutSeconds', 'timeout']),
     raw: source,
   };
 }
@@ -656,11 +808,15 @@ async function request<T>(
     return { success: true, data: payload as T };
   } catch (error) {
     if (axios.isAxiosError(error) && !error.response) {
-      throw new Error(
+      throw new PartnerApiError(
         'Network request failed. Check your internet connection and try again.'
       );
     }
-    throw new Error(getApiErrorMessage(error, 'Request failed'));
+    const code = getApiErrorCode(error);
+    throw new PartnerApiError(
+      socketErrorCopy(code) || getApiErrorMessage(error, 'Request failed'),
+      code
+    );
   }
 }
 
@@ -1343,32 +1499,149 @@ export const deliveryPartnerApi = {
     }
   },
 
+  /** GET /partners/me/active-deliveries — stacked / multi-order assignments. */
+  getActiveDeliveries: async (): Promise<PartnerDelivery[]> => {
+    try {
+      const res = await request<unknown>(`${ME_BASE}/active-deliveries`);
+      const root = res.data ?? res;
+      if (root == null) return [];
+      if (Array.isArray(root)) {
+        return root.map(mapPartnerDelivery).filter((row) => row.id);
+      }
+      const record = asRecord(root);
+      const list = extractList(
+        record.deliveries ?? record.assignments ?? record.items ?? record
+      );
+      return list.map(mapPartnerDelivery).filter((row) => row.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      if (
+        message.includes('not found') ||
+        message.includes('no active') ||
+        message.includes('404')
+      ) {
+        return [];
+      }
+      throw error;
+    }
+  },
+
+  /** GET /partners/me/deliveries/:deliveryId */
+  getDelivery: async (deliveryId: string): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}`
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** GET /partners/me/deliveries/:deliveryId/timeline */
+  getDeliveryTimeline: async (deliveryId: string): Promise<DeliveryTimeline> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/timeline`
+    );
+    const mapped = mapTimeline(res.data ?? res);
+    return { ...mapped, deliveryId: mapped.deliveryId || id };
+  },
+
+  /** GET /partners/me/deliveries/:deliveryId/events */
+  getDeliveryEvents: async (
+    deliveryId: string
+  ): Promise<DeliveryEventsResult> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/events`
+    );
+    const mapped = mapEvents(res.data ?? res);
+    return { ...mapped, deliveryId: mapped.deliveryId || id };
+  },
+
+  /** GET /partners/me/deliveries/batch/:batchId */
+  getBatch: async (batchId: string): Promise<PartnerBatch> => {
+    const id = batchId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/batch/${encodeURIComponent(id)}`
+    );
+    const mapped = mapPartnerBatch(res.data ?? res);
+    return { ...mapped, batchId: mapped.batchId || id };
+  },
+
+  /** PUT /partners/me/deliveries/batch/:batchId/accept */
+  acceptBatch: async (batchId: string): Promise<PartnerBatch> => {
+    const id = batchId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/batch/${encodeURIComponent(id)}/accept`,
+      { method: 'PUT', body: {} }
+    );
+    return mapPartnerBatch(res.data ?? res);
+  },
+
+  /** PUT /partners/me/deliveries/batch/:batchId/sequence */
+  confirmBatchSequence: async (
+    batchId: string,
+    payload: ConfirmBatchSequencePayload = { confirm: true }
+  ): Promise<PartnerBatch> => {
+    const id = batchId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/batch/${encodeURIComponent(id)}/sequence`,
+      { method: 'PUT', body: payload }
+    );
+    return mapPartnerBatch(res.data ?? res);
+  },
+
   /** GET /partners/me/deliveries */
   getDeliveries: async (params?: {
     page?: number;
     limit?: number;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
   }): Promise<DeliveryHistoryResult> => {
     const page = params?.page ?? 1;
     const limit = params?.limit ?? 20;
     const res = await request<unknown>(`${ME_BASE}/deliveries`, {
-      params: { page, limit },
+      params: {
+        page,
+        limit,
+        status: params?.status,
+        dateFrom: params?.dateFrom,
+        dateTo: params?.dateTo,
+      },
     });
-    const list = extractList(res.data ?? res)
+    const payload = res.data ?? res;
+    const list = extractList(payload)
       .map(mapPartnerDelivery)
       .filter((row) => row.id);
-    const meta = asRecord(res.meta ?? asRecord(res.data).meta);
+    const root = asRecord(res);
+    const dataRecord = asRecord(payload);
+    const meta = asRecord(res.meta ?? dataRecord.meta);
     const total =
-      pickNumber(meta, ['total', 'totalCount', 'count']) ?? list.length;
+      pickNumber(root, ['total', 'totalCount']) ??
+      pickNumber(dataRecord, ['total', 'totalCount', 'count']) ??
+      pickNumber(meta, ['total', 'totalCount', 'count']) ??
+      list.length;
     const totalPages =
+      pickNumber(root, ['totalPages']) ??
+      pickNumber(dataRecord, ['totalPages', 'pages']) ??
       pickNumber(meta, ['totalPages', 'pages']) ??
       Math.max(1, Math.ceil(total / limit));
     const hasNext =
-      pickBool(meta, ['hasNext', 'hasMore']) ?? page < totalPages;
+      pickBool(meta, ['hasNext', 'hasMore']) ??
+      pickBool(dataRecord, ['hasNext', 'hasMore']) ??
+      page < totalPages;
 
     return {
       deliveries: list,
-      page: pickNumber(meta, ['page', 'currentPage']) ?? page,
-      limit: pickNumber(meta, ['limit', 'perPage']) ?? limit,
+      page:
+        pickNumber(root, ['page']) ??
+        pickNumber(dataRecord, ['page', 'currentPage']) ??
+        pickNumber(meta, ['page', 'currentPage']) ??
+        page,
+      limit:
+        pickNumber(dataRecord, ['limit', 'perPage']) ??
+        pickNumber(meta, ['limit', 'perPage']) ??
+        limit,
       total,
       hasNext: Boolean(hasNext),
     };

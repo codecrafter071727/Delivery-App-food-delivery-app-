@@ -1,4 +1,4 @@
-import { PartnerApiError, getApiErrorCode } from '@/lib/errors';
+import { PartnerApiError, getApiErrorCode, getApiErrorMessage } from '@/lib/errors';
 
 const FALLBACK_CODES = new Set([
   'SOCKET_OFFLINE',
@@ -67,9 +67,24 @@ export function socketErrorCopy(code?: string): string | undefined {
       return 'Chat is closed for this trip.';
     case 'DELIVERY_NOT_FOUND':
       return 'This trip is no longer available.';
+    case 'BATCH_EXPIRED':
+      return 'This stacked order timed out.';
+    case 'BATCH_INCOMPLETE':
+      return 'One order in the stack was reassigned. Wait for the next offer.';
+    case 'BATCH_NOT_ACCEPTED':
+      return 'Accept the stacked orders first, then confirm the route.';
+    case 'SEQUENCE_INVALID':
+      return 'Pickup must come before drop for every order in the stack.';
+    case 'BATCH_NOT_FOUND':
+      return 'This stacked assignment is no longer available.';
     case 'VALIDATION_ERROR':
       return 'Please check the details and try again.';
     default:
       return undefined;
   }
+}
+
+export function formatTripError(error: unknown, fallback: string): string {
+  const code = getApiErrorCode(error);
+  return socketErrorCopy(code) || getApiErrorMessage(error, fallback);
 }

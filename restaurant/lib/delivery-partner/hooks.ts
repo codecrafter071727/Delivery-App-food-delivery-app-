@@ -7,6 +7,7 @@ import {
 
 import { deliveryPartnerApi } from '@/lib/delivery-partner/api';
 import type {
+  ConfirmBatchSequencePayload,
   DeliverOrderPayload,
   DeliveryPartnerProfile,
   PartnerDelivery,
@@ -23,8 +24,13 @@ export const deliveryPartnerKeys = {
   all: ['delivery-partner'] as const,
   me: () => [...deliveryPartnerKeys.all, 'me'] as const,
   active: () => [...deliveryPartnerKeys.all, 'active-delivery'] as const,
+  actives: () => [...deliveryPartnerKeys.all, 'active-deliveries'] as const,
   history: (limit: number) =>
     [...deliveryPartnerKeys.all, 'deliveries', limit] as const,
+  delivery: (id: string) => [...deliveryPartnerKeys.all, 'delivery', id] as const,
+  timeline: (id: string) => [...deliveryPartnerKeys.all, 'timeline', id] as const,
+  events: (id: string) => [...deliveryPartnerKeys.all, 'events', id] as const,
+  batch: (id: string) => [...deliveryPartnerKeys.all, 'batch', id] as const,
 };
 
 const keepRetrying = (failureCount: number, error: unknown) => {
@@ -93,6 +99,113 @@ export function useActiveDelivery(
   });
 }
 
+export function useActiveDeliveries(
+  enabled = true,
+  options?: { fast?: boolean }
+) {
+  const isActive = useAppIsActive();
+  const intervalMs = options?.fast
+    ? Math.min(LIVE_INTERVALS.deliveryActive, 5_000)
+    : LIVE_INTERVALS.deliveryActive;
+
+  return useQuery<PartnerDelivery[]>({
+    queryKey: deliveryPartnerKeys.actives(),
+    queryFn: () => deliveryPartnerApi.getActiveDeliveries(),
+    enabled,
+    staleTime: intervalMs / 2,
+    gcTime: 5 * 60_000,
+    refetchInterval: liveRefetchInterval(intervalMs, isActive),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useDeliveryDetail(deliveryId?: string, enabled = true) {
+  const id = deliveryId?.trim() ?? '';
+  return useQuery({
+    queryKey: deliveryPartnerKeys.delivery(id),
+    queryFn: () => deliveryPartnerApi.getDelivery(id),
+    enabled: enabled && Boolean(id),
+    staleTime: 8_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useDeliveryTimeline(
+  deliveryId?: string,
+  options?: { enabled?: boolean; live?: boolean }
+) {
+  const id = deliveryId?.trim() ?? '';
+  const enabled = (options?.enabled ?? true) && Boolean(id);
+  const isActive = useAppIsActive();
+  return useQuery({
+    queryKey: deliveryPartnerKeys.timeline(id),
+    queryFn: () => deliveryPartnerApi.getDeliveryTimeline(id),
+    enabled,
+    staleTime: 6_000,
+    gcTime: 5 * 60_000,
+    refetchInterval: options?.live
+      ? liveRefetchInterval(12_000, isActive)
+      : false,
+    refetchOnWindowFocus: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useDeliveryEvents(
+  deliveryId?: string,
+  options?: { enabled?: boolean; live?: boolean }
+) {
+  const id = deliveryId?.trim() ?? '';
+  const enabled = (options?.enabled ?? true) && Boolean(id);
+  const isActive = useAppIsActive();
+  return useQuery({
+    queryKey: deliveryPartnerKeys.events(id),
+    queryFn: () => deliveryPartnerApi.getDeliveryEvents(id),
+    enabled,
+    staleTime: 8_000,
+    gcTime: 5 * 60_000,
+    refetchInterval: options?.live
+      ? liveRefetchInterval(15_000, isActive)
+      : false,
+    refetchOnWindowFocus: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useDeliveryBatch(
+  batchId?: string,
+  options?: { enabled?: boolean; live?: boolean }
+) {
+  const id = batchId?.trim() ?? '';
+  const enabled = (options?.enabled ?? true) && Boolean(id);
+  const isActive = useAppIsActive();
+  return useQuery({
+    queryKey: deliveryPartnerKeys.batch(id),
+    queryFn: () => deliveryPartnerApi.getBatch(id),
+    enabled,
+    staleTime: 4_000,
+    gcTime: 5 * 60_000,
+    refetchInterval: options?.live
+      ? liveRefetchInterval(5_000, isActive)
+      : false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: keepRetrying,
+    placeholderData: (previous) => previous,
+  });
+}
+
 export function useDeliveryHistory(limit = 20, enabled = true) {
   const isActive = useAppIsActive();
 
@@ -132,8 +245,21 @@ export function useDeliveryOrderMutations() {
   const invalidateAll = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: deliveryPartnerKeys.active() }),
+      queryClient.invalidateQueries({ queryKey: deliveryPartnerKeys.actives() }),
       queryClient.invalidateQueries({
         queryKey: [...deliveryPartnerKeys.all, 'deliveries'],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: [...deliveryPartnerKeys.all, 'delivery'],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: [...deliveryPartnerKeys.all, 'timeline'],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: [...deliveryPartnerKeys.all, 'events'],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: [...deliveryPartnerKeys.all, 'batch'],
       }),
       queryClient.invalidateQueries({ queryKey: deliveryPartnerKeys.me() }),
       queryClient.invalidateQueries({
@@ -257,6 +383,31 @@ export function useDeliveryOrderMutations() {
     },
   });
 
+  const acceptBatch = useMutation({
+    mutationFn: (batchId: string) => deliveryPartnerApi.acceptBatch(batchId),
+    onSuccess: async () => {
+      await invalidateAll();
+    },
+  });
+
+  const confirmSequence = useMutation({
+    mutationFn: ({
+      batchId,
+      payload,
+    }: {
+      batchId: string;
+      payload?: ConfirmBatchSequencePayload;
+    }) =>
+      deliveryPartnerApi.confirmBatchSequence(
+        batchId,
+        payload ?? { confirm: true }
+      ),
+    onSuccess: async (batch) => {
+      queryClient.setQueryData(deliveryPartnerKeys.batch(batch.batchId), batch);
+      await invalidateAll();
+    },
+  });
+
   const reject = useMutation({
     mutationFn: ({
       deliveryId,
@@ -361,7 +512,7 @@ export function useDeliveryOrderMutations() {
     },
   });
 
-  return { setOnline, accept, reject, arrived, pickup, reachedCustomer, deliver, invalidateAll };
+  return { setOnline, accept, acceptBatch, confirmSequence, reject, arrived, pickup, reachedCustomer, deliver, invalidateAll };
 }
 
 /** POST /partners/me/documents */

@@ -11,7 +11,7 @@ import {
   MessageCircle,
   X,
 } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,6 +29,8 @@ import {
 import { useDeliveryHeaderScrollProps } from '@/components/delivery/shared/header-scroll';
 import { TripChatSheet } from '@/components/delivery/orders/TripChatSheet';
 import { DeliveryTripMap } from '@/components/delivery/orders/DeliveryTripMap';
+import { TripDetailSheet } from '@/components/delivery/orders/TripDetailSheet';
+import { BatchSequenceSheet } from '@/components/delivery/orders/BatchSequenceSheet';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { usePartnerDutyStatus } from '@/lib/delivery-partner/availability-hooks';
@@ -46,7 +48,9 @@ import {
   normalizeDeliveryStatus,
 } from '@/lib/delivery-partner/api';
 import {
+  useActiveDeliveries,
   useActiveDelivery,
+  useDeliveryBatch,
   useDeliveryHistory,
   useDeliveryOrderMutations,
   useDeliveryPartnerMe,
@@ -62,6 +66,7 @@ import {
   useTrackingStatus,
 } from '@/lib/delivery-partner/tracking-hooks';
 import type { OrderTracking } from '@/lib/delivery-partner/tracking-types';
+import { formatTripError } from '@/lib/delivery-partner/rider-ack';
 import type { PartnerDelivery } from '@/lib/delivery-partner/types';
 import { getApiErrorMessage } from '@/lib/errors';
 
@@ -162,6 +167,13 @@ export function PartnerOrdersManager() {
   const [pickupTargetId, setPickupTargetId] = useState<string | null>(null);
   const [pickupOtp, setPickupOtp] = useState('');
   const [chatDelivery, setChatDelivery] = useState<PartnerDelivery | null>(null);
+  const [detailDelivery, setDetailDelivery] = useState<PartnerDelivery | null>(
+    null
+  );
+  const [sequenceOpen, setSequenceOpen] = useState(false);
+  const [sequenceDismissedId, setSequenceDismissedId] = useState<string | null>(
+    null
+  );
   const [otp, setOtp] = useState('');
   const [proofUri, setProofUri] = useState<string | null>(null);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
@@ -178,6 +190,7 @@ export function PartnerOrdersManager() {
   const goOnlineBlocker = getGoOnlineBlocker(me.data);
   const docProgress = getDocumentProgress(me.data);
   const active = useActiveDelivery(true, { fast: isOnline });
+  const actives = useActiveDeliveries(true, { fast: isOnline });
   const history = useDeliveryHistory(20, true);
   const mutations = useDeliveryOrderMutations();
 
@@ -186,17 +199,18 @@ export function PartnerOrdersManager() {
     [history.data?.pages]
   );
 
-  /** Live assignments from active-delivery + deliveries list (assigned / in progress). */
+  /** Live assignments from GET /partners/me/active-deliveries (+ current trip). */
   const liveOrders = useMemo(() => {
     const map = new Map<string, PartnerDelivery>();
-    for (const row of historyRows) {
+    for (const row of actives.data ?? []) {
       if (row.id && isLiveDelivery(row.status)) {
         map.set(row.id, row);
       }
     }
     const current = active.data;
     if (current?.id && isLiveDelivery(current.status)) {
-      map.set(current.id, current);
+      const existing = map.get(current.id);
+      map.set(current.id, existing ? { ...existing, ...current } : current);
     }
     return Array.from(map.values()).sort((a, b) => {
       const aAssigned = isAssignableStatus(a.status) ? 0 : 1;
@@ -206,15 +220,46 @@ export function PartnerOrdersManager() {
       const bTime = Date.parse(b.assignedAt || b.createdAt || '') || 0;
       return bTime - aTime;
     });
-  }, [active.data, historyRows]);
+  }, [actives.data, active.data]);
 
   const pastOrders = useMemo(
     () => historyRows.filter((row) => isPastDelivery(row.status)),
     [historyRows]
   );
 
+  const pendingBatchId = useMemo(() => {
+    const needsSequence = liveOrders.find(
+      (row) =>
+        row.batchId &&
+        (row.nextAction === 'confirm_sequence' ||
+          row.nextAction === 'accept_batch')
+    );
+    return (
+      needsSequence?.batchId ||
+      liveOrders.find((row) => row.batchId)?.batchId ||
+      null
+    );
+  }, [liveOrders]);
+  const pendingBatch = useDeliveryBatch(pendingBatchId ?? undefined, {
+    enabled: Boolean(pendingBatchId),
+    live: true,
+  });
+
+  useEffect(() => {
+    const batch = pendingBatch.data;
+    if (
+      batch?.canConfirmSequence &&
+      batch.batchId &&
+      batch.batchId !== sequenceDismissedId
+    ) {
+      setSequenceOpen(true);
+    }
+  }, [pendingBatch.data, sequenceDismissedId]);
+
   const mutating =
     mutations.accept.isPending ||
+    mutations.acceptBatch.isPending ||
+    mutations.confirmSequence.isPending ||
     mutations.reject.isPending ||
     mutations.arrived.isPending ||
     mutations.pickup.isPending ||
@@ -225,14 +270,20 @@ export function PartnerOrdersManager() {
   const onRefresh = async () => {
     setPullRefreshing(true);
     try {
-      await Promise.all([active.refetch(), me.refetch(), history.refetch(), duty.refetch()]);
+      await Promise.all([
+        active.refetch(),
+        actives.refetch(),
+        me.refetch(),
+        history.refetch(),
+        duty.refetch(),
+      ]);
     } finally {
       setPullRefreshing(false);
     }
   };
 
   const showError = (error: unknown, fallback: string) => {
-    Alert.alert('Could not complete', getApiErrorMessage(error, fallback));
+    Alert.alert('Could not complete', formatTripError(error, fallback));
   };
 
   const handleGoOnline = async () => {
@@ -258,7 +309,12 @@ export function PartnerOrdersManager() {
     setBusyLabel(next ? 'Going online…' : 'Going offline…');
     try {
       await mutations.setOnline.mutateAsync(next);
-      await Promise.all([active.refetch(), history.refetch(), duty.refetch()]);
+      await Promise.all([
+        active.refetch(),
+        actives.refetch(),
+        history.refetch(),
+        duty.refetch(),
+      ]);
     } catch (error) {
       Alert.alert(
         'Could not go online',
@@ -269,11 +325,29 @@ export function PartnerOrdersManager() {
     }
   };
 
-  const handleAccept = async (deliveryId: string) => {
-    setBusyLabel('Accepting…');
+  const handleAccept = async (delivery: PartnerDelivery) => {
+    setBusyLabel(
+      delivery.batchId &&
+        (delivery.nextAction === 'accept_batch' ||
+          isAssignableStatus(delivery.status))
+        ? 'Accepting stacked orders…'
+        : 'Accepting…'
+    );
     try {
-      await mutations.accept.mutateAsync(deliveryId);
-      await Promise.all([active.refetch(), history.refetch()]);
+      if (
+        delivery.batchId &&
+        (delivery.nextAction === 'accept_batch' ||
+          isAssignableStatus(delivery.status))
+      ) {
+        await mutations.acceptBatch.mutateAsync(delivery.batchId);
+      } else {
+        await mutations.accept.mutateAsync(delivery.id);
+      }
+      await Promise.all([
+        active.refetch(),
+        actives.refetch(),
+        history.refetch(),
+      ]);
     } catch (error) {
       showError(error, 'Could not accept delivery.');
     } finally {
@@ -297,7 +371,11 @@ export function PartnerOrdersManager() {
       });
       setRejectTargetId(null);
       setRejectReason('');
-      await Promise.all([active.refetch(), history.refetch()]);
+      await Promise.all([
+        active.refetch(),
+        actives.refetch(),
+        history.refetch(),
+      ]);
     } catch (error) {
       showError(error, 'Could not decline delivery.');
     } finally {
@@ -360,7 +438,11 @@ export function PartnerOrdersManager() {
       setOtp('');
       setProofUri(null);
       Alert.alert('Delivered', 'Order marked as delivered.');
-      await Promise.all([active.refetch(), history.refetch()]);
+      await Promise.all([
+        active.refetch(),
+        actives.refetch(),
+        history.refetch(),
+      ]);
     } catch (error) {
       showError(error, 'Could not mark delivered.');
     } finally {
@@ -407,8 +489,8 @@ export function PartnerOrdersManager() {
   };
 
   const loadingActive =
-    (active.isLoading && !active.data && !liveOrders.length) ||
-    (history.isLoading && !historyRows.length && !active.data);
+    (actives.isLoading && !(actives.data ?? []).length && !liveOrders.length) ||
+    (active.isLoading && !active.data && !liveOrders.length);
 
   return (
     <View style={[styles.root, { paddingTop: headerScroll.contentInsetTop }]}>
@@ -538,11 +620,14 @@ export function PartnerOrdersManager() {
               <ActivityIndicator color={'#EA4B14'} size="large" />
               <Text style={styles.muted}>Checking for orders…</Text>
             </View>
-          ) : active.isError && !liveOrders.length ? (
+          ) : (actives.isError || active.isError) && !liveOrders.length ? (
             <View style={styles.cardPad}>
               <Text style={styles.sectionTitle}>Couldn’t load orders</Text>
               <Text style={[styles.muted, { marginTop: 6 }]}>
-                {getApiErrorMessage(active.error, 'Pull to retry.')}
+                {formatTripError(
+                  actives.error ?? active.error,
+                  'Pull to retry.'
+                )}
               </Text>
               <Pressable
                 onPress={() => void onRefresh()}
@@ -553,23 +638,52 @@ export function PartnerOrdersManager() {
             </View>
           ) : liveOrders.length > 0 ? (
             <View style={styles.section}>
+              {pendingBatch.data?.canConfirmSequence ? (
+                <Pressable
+                  onPress={() => setSequenceOpen(true)}
+                  style={styles.sequenceBanner}
+                >
+                  <Text style={styles.sequenceBannerTitle}>
+                    Confirm pickup–drop sequence
+                  </Text>
+                  <Text style={styles.sequenceBannerSub}>
+                    {[
+                      `${pendingBatch.data.sequence.length} stops`,
+                      pendingBatch.data.estimatedDistanceKm != null
+                        ? `${pendingBatch.data.estimatedDistanceKm.toFixed(1)} km`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                </Pressable>
+              ) : null}
               <Text style={styles.sectionTitle}>
                 {liveOrders.some((d) => isAssignableStatus(d.status))
                   ? 'Incoming requests'
-                  : 'Current delivery'}
+                  : liveOrders.length > 1
+                    ? 'Current deliveries'
+                    : 'Current delivery'}
               </Text>
               {liveOrders.map((delivery) => (
                 <DeliveryCard
                   key={delivery.id}
                   delivery={delivery}
+                  batchSize={
+                    delivery.batchId
+                      ? liveOrders.filter((row) => row.batchId === delivery.batchId)
+                          .length
+                      : 0
+                  }
                   busy={mutating}
-                  onAccept={() => void handleAccept(delivery.id)}
+                  onAccept={() => void handleAccept(delivery)}
                   onDecline={() => {
                     setRejectReason('');
                     setRejectTargetId(delivery.id);
                   }}
                   onPrimary={() => runPrimaryAction(delivery)}
                   onChat={() => setChatDelivery(delivery)}
+                  onDetails={() => setDetailDelivery(delivery)}
                 />
               ))}
             </View>
@@ -621,6 +735,7 @@ export function PartnerOrdersManager() {
                   key={row.id}
                   delivery={row}
                   bordered={index < pastOrders.length - 1}
+                  onPress={() => setDetailDelivery(row)}
                 />
               ))}
               {history.hasNextPage ? (
@@ -805,24 +920,45 @@ export function PartnerOrdersManager() {
           onClose={() => setChatDelivery(null)}
         />
       ) : null}
+      <TripDetailSheet
+        visible={Boolean(detailDelivery)}
+        deliveryId={detailDelivery?.id ?? null}
+        fallback={detailDelivery}
+        live={Boolean(
+          detailDelivery && isLiveDelivery(detailDelivery.status)
+        )}
+        onClose={() => setDetailDelivery(null)}
+      />
+      <BatchSequenceSheet
+        visible={sequenceOpen && Boolean(pendingBatchId)}
+        batchId={pendingBatchId}
+        onClose={() => {
+          if (pendingBatchId) setSequenceDismissedId(pendingBatchId);
+          setSequenceOpen(false);
+        }}
+      />
     </View>
   );
 }
 
 function DeliveryCard({
   delivery,
+  batchSize = 0,
   busy,
   onAccept,
   onDecline,
   onPrimary,
   onChat,
+  onDetails,
 }: {
   delivery: PartnerDelivery;
+  batchSize?: number;
   busy: boolean;
   onAccept: () => void;
   onDecline: () => void;
   onPrimary: () => void;
   onChat: () => void;
+  onDetails: () => void;
 }) {
   const status = normalizeDeliveryStatus(delivery.status);
   const isNew = isAssignableStatus(status);
@@ -932,6 +1068,11 @@ function DeliveryCard({
             {deliveryStatusLabel(delivery.status)}
           </Text>
         </View>
+        {batchSize > 1 ? (
+          <View style={styles.batchPill}>
+            <Text style={styles.batchPillText}>Stacked · {batchSize}</Text>
+          </View>
+        ) : null}
         <Text style={styles.orderNo}>
           #{delivery.orderNumber || delivery.orderId || delivery.id.slice(-6)}
         </Text>
@@ -1062,20 +1203,27 @@ function DeliveryCard({
       </View>
 
       {isNew ? (
-        <View style={styles.actionRow}>
-          <Pressable
-            onPress={onDecline}
-            disabled={busy}
-            style={styles.declineBtn}
-          >
-            <Text style={styles.declineBtnText}>Decline</Text>
-          </Pressable>
-          <Pressable
-            onPress={onAccept}
-            disabled={busy}
-            style={styles.acceptBtn}
-          >
-            <Text style={styles.acceptBtnText}>Accept</Text>
+        <View style={{ gap: 8 }}>
+          <View style={styles.actionRow}>
+            <Pressable
+              onPress={onDecline}
+              disabled={busy}
+              style={styles.declineBtn}
+            >
+              <Text style={styles.declineBtnText}>Decline</Text>
+            </Pressable>
+            <Pressable
+              onPress={onAccept}
+              disabled={busy}
+              style={styles.acceptBtn}
+            >
+              <Text style={styles.acceptBtnText}>
+                {batchSize > 1 ? `Accept all (${batchSize})` : 'Accept'}
+              </Text>
+            </Pressable>
+          </View>
+          <Pressable onPress={onDetails} style={styles.detailsLink}>
+            <Text style={styles.detailsLinkText}>Trip details</Text>
           </Pressable>
         </View>
       ) : primary ? (
@@ -1098,6 +1246,13 @@ function DeliveryCard({
             <MessageCircle color="#EA4B14" size={16} />
             <Text style={styles.chatBtnText}>Chat</Text>
           </Pressable>
+          <Pressable
+            onPress={onDetails}
+            disabled={busy}
+            style={styles.chatBtn}
+          >
+            <Text style={styles.chatBtnText}>Details</Text>
+          </Pressable>
         </View>
       ) : null}
     </View>
@@ -1107,9 +1262,11 @@ function DeliveryCard({
 function HistoryRow({
   delivery,
   bordered,
+  onPress,
 }: {
   delivery: PartnerDelivery;
   bordered: boolean;
+  onPress: () => void;
 }) {
   const amount = money(delivery.amount, delivery.currency);
   const earning = money(delivery.earning, delivery.currency);
@@ -1119,7 +1276,10 @@ function HistoryRow({
     formatWhen(delivery.createdAt);
 
   return (
-    <View style={[styles.historyRow, bordered && styles.rowBorder]}>
+    <Pressable
+      onPress={onPress}
+      style={[styles.historyRow, bordered && styles.rowBorder]}
+    >
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={styles.historyTitle} numberOfLines={1}>
           {delivery.restaurantName || 'Delivery'}
@@ -1135,7 +1295,7 @@ function HistoryRow({
         </Text>
       </View>
       <Text style={styles.historyAmount}>{earning || amount || '—'}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -1362,6 +1522,46 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     color: '#374151',
+  },
+  batchPill: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  batchPillText: {
+    fontFamily: fonts.bold,
+    fontSize: 11,
+    color: '#3730A3',
+    textTransform: 'uppercase',
+  },
+  sequenceBanner: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  sequenceBannerTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    color: '#9A3412',
+  },
+  sequenceBannerSub: {
+    marginTop: 2,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: '#C2410C',
+  },
+  detailsLink: {
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  detailsLinkText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: '#EA4B14',
   },
   orderNo: {
     fontFamily: fonts.medium,

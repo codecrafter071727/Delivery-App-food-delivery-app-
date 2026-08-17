@@ -4,6 +4,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -11,18 +12,30 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { fonts } from '@/constants/typography';
-import { useDeliveryOrderMutations } from '@/lib/delivery-partner/hooks';
+import {
+  useDeliveryBatch,
+  useDeliveryOrderMutations,
+} from '@/lib/delivery-partner/hooks';
 import {
   clearIncomingOffer,
   getIncomingOffer,
   subscribeIncomingOffer,
   type IncomingOffer,
 } from '@/lib/delivery-partner/offer-store';
+import { formatTripError } from '@/lib/delivery-partner/rider-ack';
 import {
   REJECT_REASON_CODES,
   toRejectReasonCode,
 } from '@/lib/delivery-partner/rider-gateway-types';
-import { getApiErrorMessage } from '@/lib/errors';
+import { getApiErrorCode } from '@/lib/errors';
+
+const OFFER_GONE_CODES = new Set([
+  'OFFER_EXPIRED',
+  'OFFER_TAKEN',
+  'BATCH_EXPIRED',
+  'BATCH_NOT_FOUND',
+  'BATCH_INCOMPLETE',
+]);
 
 function money(amount?: number) {
   if (amount == null || !Number.isFinite(amount)) return null;
@@ -41,9 +54,21 @@ function remainingSeconds(offer: IncomingOffer) {
   return Math.max(0, Math.ceil(offer.timeoutSeconds - elapsed));
 }
 
+function shouldClearOffer(error: unknown) {
+  const code = getApiErrorCode(error);
+  if (code && OFFER_GONE_CODES.has(code)) return true;
+  const message = formatTripError(error, '').toLowerCase();
+  return (
+    message.includes('timed out') ||
+    message.includes('another rider') ||
+    message.includes('no longer')
+  );
+}
+
 /**
  * Full-screen incoming offer — Swiggy/Zomato rider style.
  * Accept / reject go through socket-first mutations (REST fallback).
+ * Stacked offers use PUT /deliveries/batch/:batchId/accept.
  */
 export function IncomingOfferOverlay() {
   const insets = useSafeAreaInsets();
@@ -71,6 +96,26 @@ export function IncomingOfferOverlay() {
     return () => clearInterval(timer);
   }, [offer]);
 
+  const batchQuery = useDeliveryBatch(offer?.batchId, {
+    enabled: Boolean(offer?.batchId),
+    live: true,
+  });
+  const batch = batchQuery.data;
+  const stacked =
+    Boolean(offer?.batchId) &&
+    ((batch?.deliveries.length ?? 0) > 1 ||
+      offer?.nextAction === 'accept_batch');
+  const stackCount = Math.max(
+    batch?.deliveries.length ?? 0,
+    batch?.deliveryIds.length ?? 0,
+    stacked ? 2 : 1
+  );
+  const stackFee =
+    batch?.deliveries.reduce(
+      (sum, row) => sum + (row.partnerEarnings ?? row.deliveryFee ?? 0),
+      0
+    ) || offer?.deliveryFee;
+
   const progress = useMemo(() => {
     if (!offer) return 0;
     const total = Math.max(1, offer.timeoutSeconds);
@@ -79,27 +124,24 @@ export function IncomingOfferOverlay() {
 
   if (!offer) return null;
 
-  const fee = money(offer.deliveryFee);
+  const fee = money(stackFee ?? offer.deliveryFee);
   const urgent = seconds <= 10;
 
   const accept = async () => {
     setBusy('accept');
     try {
-      await mutations.accept.mutateAsync(offer.deliveryId);
+      if (offer.batchId && (batch?.canAccept || stacked)) {
+        await mutations.acceptBatch.mutateAsync(offer.batchId);
+      } else {
+        await mutations.accept.mutateAsync(offer.deliveryId);
+      }
       clearIncomingOffer(offer.deliveryId);
     } catch (error) {
       Alert.alert(
         'Could not accept',
-        getApiErrorMessage(error, 'This order is no longer available.')
+        formatTripError(error, 'This order is no longer available.')
       );
-      const message = getApiErrorMessage(error, '').toLowerCase();
-      if (
-        message.includes('timed out') ||
-        message.includes('another rider') ||
-        message.includes('no longer')
-      ) {
-        clearIncomingOffer(offer.deliveryId);
-      }
+      if (shouldClearOffer(error)) clearIncomingOffer(offer.deliveryId);
     } finally {
       setBusy(null);
     }
@@ -117,8 +159,9 @@ export function IncomingOfferOverlay() {
     } catch (error) {
       Alert.alert(
         'Could not decline',
-        getApiErrorMessage(error, 'Please try again.')
+        formatTripError(error, 'Please try again.')
       );
+      if (shouldClearOffer(error)) clearIncomingOffer(offer.deliveryId);
     } finally {
       setBusy(null);
       setDeclining(false);
@@ -146,39 +189,114 @@ export function IncomingOfferOverlay() {
             </Text>
           </View>
 
-          <Text style={styles.kicker}>New delivery request</Text>
+          <Text style={styles.kicker}>
+            {stacked ? 'Stacked delivery request' : 'New delivery request'}
+          </Text>
           <Text style={styles.payout}>{fee ?? 'New order'}</Text>
           <Text style={styles.meta}>
             {[
+              stacked ? `${stackCount} orders` : null,
               offer.estimatedKm != null
                 ? `${offer.estimatedKm.toFixed(1)} km`
-                : null,
+                : batch?.estimatedDistanceKm != null
+                  ? `${batch.estimatedDistanceKm.toFixed(1)} km`
+                  : null,
               offer.broadcast ? 'Broadcast' : 'Assigned to you',
             ]
               .filter(Boolean)
               .join(' · ')}
           </Text>
 
-          <View style={styles.pinBlock}>
-            <View style={styles.pinDotPickup} />
-            <View style={styles.pinCopy}>
-              <Text style={styles.pinLabel}>Pickup</Text>
-              <Text style={styles.pinValue} numberOfLines={2}>
-                {offer.restaurantName ||
-                  offer.pickupLabel ||
-                  'Restaurant'}
-              </Text>
+          {offer.batchId && batchQuery.isLoading && !batch ? (
+            <View style={styles.batchLoading}>
+              <ActivityIndicator color="#EA4B14" />
+              <Text style={styles.batchLoadingText}>Loading stacked stops…</Text>
             </View>
-          </View>
-          <View style={styles.pinBlock}>
-            <View style={styles.pinDotDrop} />
-            <View style={styles.pinCopy}>
-              <Text style={styles.pinLabel}>Drop</Text>
-              <Text style={styles.pinValue} numberOfLines={2}>
-                {offer.dropLabel || 'Customer location'}
+          ) : null}
+
+          {offer.batchId && batchQuery.isError && !batch ? (
+            <Pressable
+              onPress={() => void batchQuery.refetch()}
+              style={styles.batchError}
+            >
+              <Text style={styles.batchErrorText}>
+                {formatTripError(
+                  batchQuery.error,
+                  'Could not load stacked orders. Retry'
+                )}
               </Text>
-            </View>
-          </View>
+            </Pressable>
+          ) : null}
+
+          <ScrollView
+            style={styles.stops}
+            showsVerticalScrollIndicator={false}
+          >
+            {batch?.sequence.length ? (
+              batch.sequence.map((stop) => (
+                <View
+                  key={`${stop.seq}-${stop.deliveryId}-${stop.leg}`}
+                  style={styles.pinBlock}
+                >
+                  <View
+                    style={
+                      stop.leg === 'drop'
+                        ? styles.pinDotDrop
+                        : styles.pinDotPickup
+                    }
+                  />
+                  <View style={styles.pinCopy}>
+                    <Text style={styles.pinLabel}>
+                      {stop.seq}. {stop.label || (stop.leg === 'drop' ? 'Drop' : 'Pickup')}
+                    </Text>
+                    <Text style={styles.pinValue} numberOfLines={2}>
+                      {stop.address ||
+                        (stop.leg === 'drop'
+                          ? 'Customer location'
+                          : 'Restaurant')}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            ) : batch?.deliveries.length ? (
+              batch.deliveries.map((row, index) => (
+                <View key={row.deliveryId} style={styles.pinBlock}>
+                  <View style={styles.pinDotPickup} />
+                  <View style={styles.pinCopy}>
+                    <Text style={styles.pinLabel}>Order {index + 1}</Text>
+                    <Text style={styles.pinValue} numberOfLines={2}>
+                      {row.restaurantName ||
+                        row.deliveryAddress ||
+                        `#${row.orderId?.slice(-6) || row.deliveryId.slice(-6)}`}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            ) : (
+              <>
+                <View style={styles.pinBlock}>
+                  <View style={styles.pinDotPickup} />
+                  <View style={styles.pinCopy}>
+                    <Text style={styles.pinLabel}>Pickup</Text>
+                    <Text style={styles.pinValue} numberOfLines={2}>
+                      {offer.restaurantName ||
+                        offer.pickupLabel ||
+                        'Restaurant'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.pinBlock}>
+                  <View style={styles.pinDotDrop} />
+                  <View style={styles.pinCopy}>
+                    <Text style={styles.pinLabel}>Drop</Text>
+                    <Text style={styles.pinValue} numberOfLines={2}>
+                      {offer.dropLabel || 'Customer location'}
+                    </Text>
+                  </View>
+                </View>
+              </>
+            )}
+          </ScrollView>
 
           {declining ? (
             <View style={styles.reasons}>
@@ -214,7 +332,9 @@ export function IncomingOfferOverlay() {
                 {busy === 'accept' ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.acceptText}>Accept</Text>
+                  <Text style={styles.acceptText}>
+                    {stacked ? `Accept all (${stackCount})` : 'Accept'}
+                  </Text>
                 )}
               </Pressable>
             </View>
@@ -319,6 +439,31 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 15,
     color: '#111827',
+  },
+  stops: {
+    maxHeight: 220,
+  },
+  batchLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  batchLoadingText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  batchError: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+  },
+  batchErrorText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: '#B91C1C',
   },
   actions: {
     flexDirection: 'row',

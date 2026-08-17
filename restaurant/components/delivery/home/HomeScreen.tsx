@@ -74,6 +74,7 @@ import {
   getGoOnlineBlocker,
 } from '@/lib/delivery-partner/go-online-guard';
 import {
+  useActiveDeliveries,
   useActiveDelivery,
   useDeliveryHistory,
   useDeliveryOrderMutations,
@@ -175,6 +176,7 @@ export function DeliveryHomeScreen() {
     [authUser?.firstName, authUser?.lastName].filter(Boolean).join(' ') ||
     'Partner';
   const active = useActiveDelivery();
+  const actives = useActiveDeliveries();
   const history = useDeliveryHistory(5);
   const performance = usePartnerPerformance();
   const earnings = usePartnerEarnings(1);
@@ -190,7 +192,8 @@ export function DeliveryHomeScreen() {
   const acceptingOrders = canAcceptOffers(dutyStatus);
   const breakBusy =
     startBreak.isPending || endBreak.isPending || extendBreak.isPending;
-  const delivery = active.data ?? null;
+  const delivery = active.data ?? actives.data?.[0] ?? null;
+  const activeCount = actives.data?.length ?? (delivery ? 1 : 0);
   const goOnlineBlocker = getGoOnlineBlocker(me.data);
 
   const todayEarnings = earnings.data?.totalEarnings ?? 0;
@@ -239,6 +242,7 @@ export function DeliveryHomeScreen() {
         dutySummary.refetch(),
         breakPolicy.refetch(),
         active.refetch(),
+        actives.refetch(),
         history.refetch(),
         performance.refetch(),
         earnings.refetch(),
@@ -602,7 +606,9 @@ export function DeliveryHomeScreen() {
 
         {delivery ? (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Active trip</Text>
+            <Text style={styles.sectionTitle}>
+              {activeCount > 1 ? `Active trips (${activeCount})` : 'Active trip'}
+            </Text>
             <Pressable
               onPress={() => router.push(DELIVERY_ROUTES.orders)}
               style={styles.activeCard}
