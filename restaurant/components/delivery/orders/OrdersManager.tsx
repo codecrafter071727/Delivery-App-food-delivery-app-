@@ -1,13 +1,9 @@
 import { useRouter } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
 import {
-  CheckCircle2,
-  MapPin,
   Navigation,
   Package,
   Phone,
   Power,
-  Store,
   MessageCircle,
   X,
 } from 'lucide-react-native';
@@ -31,6 +27,7 @@ import { TripChatSheet } from '@/components/delivery/orders/TripChatSheet';
 import { DeliveryTripMap } from '@/components/delivery/orders/DeliveryTripMap';
 import { TripDetailSheet } from '@/components/delivery/orders/TripDetailSheet';
 import { BatchSequenceSheet } from '@/components/delivery/orders/BatchSequenceSheet';
+import { TripLifecycleBar, tripGeofenceState } from '@/components/delivery/orders/TripLifecycleBar';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { usePartnerDutyStatus } from '@/lib/delivery-partner/availability-hooks';
@@ -44,7 +41,6 @@ import {
   deliveryStatusLabel,
   formatDeliveryAddress,
   isAssignableStatus,
-  nextDeliveryAction,
   normalizeDeliveryStatus,
 } from '@/lib/delivery-partner/api';
 import {
@@ -130,25 +126,6 @@ function openMaps(lat?: number, lng?: number, label?: string) {
   }
 }
 
-function statusTone(status: string) {
-  const s = normalizeDeliveryStatus(status);
-  if (s === 'assigned') return '#D97706';
-  if (s === 'accepted' || s === 'arrived') return '#EA4B14';
-  if (s === 'picked_up' || s === 'out_for_delivery' || s === 'at_customer') return '#B45309';
-  if (s === 'delivered') return '#10B981';
-  if (s === 'rejected' || s === 'cancelled') return '#EF4444';
-  return '#6B7280';
-}
-
-function primaryActionLabel(status: string): string | null {
-  const action = nextDeliveryAction(status);
-  if (action === 'arrived') return 'Arrived at restaurant';
-  if (action === 'pickup') return 'Order picked up';
-  if (action === 'reached_customer') return 'Arrived at customer';
-  if (action === 'deliver') return 'Mark delivered';
-  return null;
-}
-
 function isLiveDelivery(status: string) {
   return LIVE_STATUSES.has(normalizeDeliveryStatus(status));
 }
@@ -184,9 +161,6 @@ export function PartnerOrdersManager() {
   const [tab, setTab] = useState<TabKey>('active');
   const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [deliverTargetId, setDeliverTargetId] = useState<string | null>(null);
-  const [pickupTargetId, setPickupTargetId] = useState<string | null>(null);
-  const [pickupOtp, setPickupOtp] = useState('');
   const [chatDelivery, setChatDelivery] = useState<PartnerDelivery | null>(null);
   const [detailDelivery, setDetailDelivery] = useState<PartnerDelivery | null>(
     null
@@ -196,8 +170,6 @@ export function PartnerOrdersManager() {
     null
   );
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('');
-  const [otp, setOtp] = useState('');
-  const [proofUri, setProofUri] = useState<string | null>(null);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [pullRefreshing, setPullRefreshing] = useState(false);
 
@@ -283,10 +255,6 @@ export function PartnerOrdersManager() {
     mutations.acceptBatch.isPending ||
     mutations.confirmSequence.isPending ||
     mutations.reject.isPending ||
-    mutations.arrived.isPending ||
-    mutations.pickup.isPending ||
-    mutations.reachedCustomer.isPending ||
-    mutations.deliver.isPending ||
     mutations.setOnline.isPending;
 
   const onRefresh = async () => {
@@ -402,111 +370,6 @@ export function PartnerOrdersManager() {
       showError(error, 'Could not decline delivery.');
     } finally {
       setBusyLabel(null);
-    }
-  };
-
-  const handleArrived = async (deliveryId: string) => {
-    setBusyLabel('Marking arrived…');
-    try {
-      await mutations.arrived.mutateAsync(deliveryId);
-    } catch (error) {
-      showError(error, 'Could not mark arrived.');
-    } finally {
-      setBusyLabel(null);
-    }
-  };
-
-  const handlePickup = async () => {
-    if (!pickupTargetId) return;
-    setBusyLabel('Confirming pickup…');
-    try {
-      await mutations.pickup.mutateAsync({
-        deliveryId: pickupTargetId,
-        otp: pickupOtp.trim() || undefined,
-      });
-      setPickupTargetId(null);
-      setPickupOtp('');
-    } catch (error) {
-      showError(error, 'Could not mark pickup. Enter the kitchen OTP if asked.');
-    } finally {
-      setBusyLabel(null);
-    }
-  };
-
-  const handleReachedCustomer = async (deliveryId: string) => {
-    setBusyLabel('Marking arrived at customer…');
-    try {
-      await mutations.reachedCustomer.mutateAsync(deliveryId);
-    } catch (error) {
-      showError(error, 'Could not mark arrived at customer.');
-    } finally {
-      setBusyLabel(null);
-    }
-  };
-
-  const handleDeliver = async () => {
-    if (!deliverTargetId) return;
-    setBusyLabel('Completing delivery…');
-    try {
-      await mutations.deliver.mutateAsync({
-        deliveryId: deliverTargetId,
-        payload: {
-          otp: otp.trim() || undefined,
-          proofUri: proofUri ?? undefined,
-          proofFileName: proofUri ? `proof-${Date.now()}.jpg` : undefined,
-        },
-      });
-      setDeliverTargetId(null);
-      setOtp('');
-      setProofUri(null);
-      Alert.alert('Delivered', 'Order marked as delivered.');
-      await Promise.all([
-        active.refetch(),
-        actives.refetch(),
-        history.refetch(),
-      ]);
-    } catch (error) {
-      showError(error, 'Could not mark delivered.');
-    } finally {
-      setBusyLabel(null);
-    }
-  };
-
-  const runPrimaryAction = (delivery: PartnerDelivery) => {
-    const action = nextDeliveryAction(delivery.status);
-    if (action === 'arrived') void handleArrived(delivery.id);
-    else if (action === 'pickup') {
-      setPickupOtp('');
-      setPickupTargetId(delivery.id);
-    }
-    else if (action === 'reached_customer') void handleReachedCustomer(delivery.id);
-    else if (action === 'deliver') setDeliverTargetId(delivery.id);
-  };
-
-  const pickProof = async (fromCamera: boolean) => {
-    if (fromCamera) {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permission needed', 'Allow camera access for delivery proof.');
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
-      if (!result.canceled && result.assets[0]?.uri) {
-        setProofUri(result.assets[0].uri);
-      }
-      return;
-    }
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to attach proof.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.7,
-    });
-    if (!result.canceled && result.assets[0]?.uri) {
-      setProofUri(result.assets[0].uri);
     }
   };
 
@@ -715,7 +578,6 @@ export function PartnerOrdersManager() {
                     setRejectReason('');
                     setRejectTargetId(delivery.id);
                   }}
-                  onPrimary={() => runPrimaryAction(delivery)}
                   onChat={() => setChatDelivery(delivery)}
                   onDetails={() => setDetailDelivery(delivery)}
                 />
@@ -882,101 +744,6 @@ export function PartnerOrdersManager() {
           </View>
         </View>
       </Modal>
-
-      <Modal
-        visible={Boolean(pickupTargetId)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setPickupTargetId(null);
-          setPickupOtp('');
-        }}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Confirm pickup</Text>
-              <Pressable
-                onPress={() => {
-                  setPickupTargetId(null);
-                  setPickupOtp('');
-                }}
-                hitSlop={8}
-              >
-                <X color={'#6B7280'} size={20} />
-              </Pressable>
-            </View>
-            <Text style={styles.modalSub}>
-              Enter the kitchen pickup OTP if the restaurant asks for it, then
-              confirm. Same as Swiggy / Zomato pickup.
-            </Text>
-            <TextInput
-              value={pickupOtp}
-              onChangeText={setPickupOtp}
-              placeholder="Pickup OTP (if required)"
-              placeholderTextColor={'#9CA3AF'}
-              keyboardType="number-pad"
-              style={styles.input}
-              maxLength={8}
-            />
-            <Pressable onPress={() => void handlePickup()} style={styles.primaryBtn}>
-              <Package color="#fff" size={18} />
-              <Text style={styles.primaryBtnText}>Order picked up</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={Boolean(deliverTargetId)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setDeliverTargetId(null)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Complete delivery</Text>
-              <Pressable onPress={() => setDeliverTargetId(null)} hitSlop={8}>
-                <X color={'#6B7280'} size={20} />
-              </Pressable>
-            </View>
-            <Text style={styles.modalSub}>
-              Enter customer OTP if asked, and optionally attach a proof photo.
-            </Text>
-            <TextInput
-              value={otp}
-              onChangeText={setOtp}
-              placeholder="OTP (optional)"
-              placeholderTextColor={'#9CA3AF'}
-              keyboardType="number-pad"
-              style={styles.input}
-              maxLength={8}
-            />
-            <Pressable
-              onPress={() => void pickProof(true)}
-              style={styles.secondaryBtn}
-            >
-              <Text style={styles.secondaryBtnText}>
-                {proofUri ? 'Proof photo added ✓' : 'Take proof photo'}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => void pickProof(false)}
-              style={styles.secondaryBtn}
-            >
-              <Text style={styles.secondaryBtnText}>Choose from gallery</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => void handleDeliver()}
-              style={styles.primaryBtn}
-            >
-              <CheckCircle2 color="#fff" size={18} />
-              <Text style={styles.primaryBtnText}>Mark delivered</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
       {chatDelivery ? (
         <TripChatSheet
           visible
@@ -1012,7 +779,6 @@ function DeliveryCard({
   busy,
   onAccept,
   onDecline,
-  onPrimary,
   onChat,
   onDetails,
 }: {
@@ -1021,7 +787,6 @@ function DeliveryCard({
   busy: boolean;
   onAccept: () => void;
   onDecline: () => void;
-  onPrimary: () => void;
   onChat: () => void;
   onDetails: () => void;
 }) {
@@ -1077,22 +842,10 @@ function DeliveryCard({
     } as OrderTracking;
   })();
 
-  const action = nextDeliveryAction(status);
   const geo = tracking?.geofence;
-  const geoBlocked =
-    (action === 'arrived' && (!geo || !geo.atPickup)) ||
-    (action === 'reached_customer' && (!geo || !geo.atDrop)) ||
-    (action === 'deliver' && (!geo || !geo.atDrop));
-  const geoHint =
-    action === 'arrived'
-      ? `Get within ${geo?.pickupMeters ?? 150}m of the restaurant to mark arrived.`
-      : action === 'reached_customer'
-        ? `Get within ${geo?.dropMeters ?? 100}m of the customer to mark arrived.`
-      : action === 'deliver'
-        ? `Get within ${geo?.dropMeters ?? 100}m of the customer to complete delivery.`
-        : null;
-
-  const primary = primaryActionLabel(status);
+  const gate = tripGeofenceState(status, geo);
+  const geoBlocked = gate.blocked;
+  const geoHint = gate.hint;
   const pickupLabel = formatDeliveryAddress(delivery.restaurantAddress);
   const dropLabel = formatDeliveryAddress(delivery.deliveryAddress);
   const amount = money(delivery.amount, delivery.currency);
@@ -1333,18 +1086,13 @@ function DeliveryCard({
             <Text style={styles.detailsLinkText}>Trip details</Text>
           </Pressable>
         </View>
-      ) : primary ? (
+      ) : live ? (
         <View style={{ gap: 8 }}>
-          {geoBlocked && geoHint ? (
-            <Text style={styles.geoHint}>{geoHint}</Text>
-          ) : null}
-          <Pressable
-            onPress={onPrimary}
-            disabled={busy || geoBlocked}
-            style={[styles.workflowBtn, geoBlocked && styles.workflowBtnDisabled]}
-          >
-            <Text style={styles.workflowBtnText}>{primary}</Text>
-          </Pressable>
+          <TripLifecycleBar
+            delivery={delivery}
+            geoBlocked={geoBlocked}
+            geoHint={geoHint}
+          />
           <Pressable
             onPress={onChat}
             disabled={busy}

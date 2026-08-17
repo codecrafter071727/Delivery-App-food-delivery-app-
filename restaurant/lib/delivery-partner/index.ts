@@ -27,6 +27,7 @@ export {
   normalizeDeliveryStatus,
   isAssignableStatus,
   nextDeliveryAction,
+  resolveTripStep,
   mapPartnerBatch,
 } from '@/lib/delivery-partner/api';
 export {

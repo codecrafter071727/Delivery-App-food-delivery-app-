@@ -28,6 +28,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DutyControlCard } from '@/components/delivery/home/DutyControlCard';
+import { TripLifecycleWithGeo } from '@/components/delivery/orders/TripLifecycleBar';
 import { TripDetailSheet } from '@/components/delivery/orders/TripDetailSheet';
 import {
   LocationMapPicker,
@@ -627,51 +628,58 @@ export function DeliveryHomeScreen() {
             <Text style={styles.sectionTitle}>
               {activeCount > 1 ? `Active trips (${activeCount})` : 'Active trip'}
             </Text>
-            <Pressable
-              onPress={() => setDetailDelivery(delivery)}
-              style={styles.activeCard}
-            >
-              <View style={styles.activeTop}>
-                <View>
-                  <Text style={styles.activeCardLabel}>Order</Text>
-                  <Text style={styles.activeCardValue}>
-                    #{delivery.orderNumber || delivery.orderId || delivery.id.slice(-6)}
-                  </Text>
+            <View style={styles.activeCard}>
+              <Pressable
+                onPress={() => setDetailDelivery(delivery)}
+                style={styles.activeSummary}
+              >
+                <View style={styles.activeTop}>
+                  <View>
+                    <Text style={styles.activeCardLabel}>Order</Text>
+                    <Text style={styles.activeCardValue}>
+                      #{delivery.orderNumber || delivery.orderId || delivery.id.slice(-6)}
+                    </Text>
+                  </View>
+                  <View style={styles.activeBadge}>
+                    <Text style={styles.activeBadgeText}>
+                      {deliveryStatusLabel(delivery.status)}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.activeBadge}>
-                  <Text style={styles.activeBadgeText}>
-                    {deliveryStatusLabel(delivery.status)}
-                  </Text>
-                </View>
-              </View>
 
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${tripProgress}%` }]} />
-              </View>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${tripProgress}%` }]} />
+                </View>
 
-              <View style={styles.activeBottom}>
-                <View style={{ flex: 1.2 }}>
-                  <Text style={styles.activeCardLabel}>From</Text>
-                  <Text style={styles.activeCardValue} numberOfLines={1}>
-                    {delivery.restaurantName || 'Restaurant'}
-                  </Text>
+                <View style={styles.activeBottom}>
+                  <View style={{ flex: 1.2 }}>
+                    <Text style={styles.activeCardLabel}>From</Text>
+                    <Text style={styles.activeCardValue} numberOfLines={1}>
+                      {delivery.restaurantName || 'Restaurant'}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1.2 }}>
+                    <Text style={styles.activeCardLabel}>To</Text>
+                    <Text style={styles.activeCardValue} numberOfLines={1}>
+                      {delivery.customerName || 'Customer'}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1.6 }}>
+                    <Text style={styles.activeCardLabel}>ETA</Text>
+                    <Text style={styles.activeCardValue} numberOfLines={1}>
+                      {delivery.etaMinutes != null
+                        ? `${delivery.etaMinutes} min`
+                        : 'Open map'}
+                    </Text>
+                  </View>
                 </View>
-                <View style={{ flex: 1.2 }}>
-                  <Text style={styles.activeCardLabel}>To</Text>
-                  <Text style={styles.activeCardValue} numberOfLines={1}>
-                    {delivery.customerName || 'Customer'}
-                  </Text>
-                </View>
-                <View style={{ flex: 1.6 }}>
-                  <Text style={styles.activeCardLabel}>ETA</Text>
-                  <Text style={styles.activeCardValue} numberOfLines={1}>
-                    {delivery.etaMinutes != null
-                      ? `${delivery.etaMinutes} min`
-                      : 'Open map'}
-                  </Text>
-                </View>
+              </Pressable>
+            </View>
+            {normalizeDeliveryStatus(delivery.status) !== 'assigned' ? (
+              <View style={styles.tripActionsCard}>
+                <TripLifecycleWithGeo delivery={delivery} />
               </View>
-            </Pressable>
+            ) : null}
           </View>
         ) : (active.isError || actives.isError) && !delivery ? (
           <View style={styles.section}>
@@ -1242,6 +1250,17 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
+  },
+  activeSummary: {
+    gap: 0,
+  },
+  tripActionsCard: {
+    marginTop: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
   },
   activeTop: {
     flexDirection: 'row',

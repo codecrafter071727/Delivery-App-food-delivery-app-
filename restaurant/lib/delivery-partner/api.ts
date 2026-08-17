@@ -19,6 +19,7 @@ import { partnerTrackingApi } from '@/lib/delivery-partner/tracking-api';
 import type { LocationPingResult } from '@/lib/delivery-partner/tracking-types';
 import { normalizeDutyStatus } from '@/lib/delivery-partner/availability-types';
 import type {
+  CancelDeliveryPayload,
   ConfirmBatchSequencePayload,
   DeliverOrderPayload,
   DeliveryEventsResult,
@@ -36,7 +37,9 @@ import type {
   PartnerDocumentsMap,
   PartnerInviteValidation,
   PartnerLivePoint,
+  PickupVerifyPayload,
   RejectDeliveryPayload,
+  ReportIssuePayload,
   UpdatePartnerProfilePayload,
   UploadPartnerDocumentPayload,
   PartnerGpsCoords,
@@ -422,6 +425,19 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
     nextAction: pickString(source, ['nextAction']),
     canReject: pickBool(source, ['canReject']),
     canCancel: pickBool(source, ['canCancel']),
+    canReportIssue: pickBool(source, ['canReportIssue']),
+    waitStartedAt: pickString(source, ['waitStartedAt']),
+    waitEndedAt: pickString(source, ['waitEndedAt']),
+    waitMinutes: pickNumber(source, ['waitMinutes']),
+    orderNotReadyCount: pickNumber(source, ['orderNotReadyCount']),
+    kitchenReadyAt: pickString(source, ['kitchenReadyAt']),
+    pickupVerified: pickBool(source, ['pickupVerified']),
+    otpVerified: pickBool(source, ['otpVerified']),
+    signatureUrl: pickString(source, ['signatureUrl']),
+    signatureCapturedAt: pickString(source, ['signatureCapturedAt']),
+    proofPhotoUrl:
+      pickString(source, ['proofPhotoUrl', 'proofOfDelivery']) ??
+      pickString(asRecord(source.proofOfDelivery), ['url', 'photoUrl', 'fileUrl']),
     offerExpiresAt: pickString(source, [
       'offerExpiresAt',
       'expiresAt',
@@ -769,16 +785,43 @@ export function isAssignableStatus(status: string) {
   return s === 'assigned';
 }
 
-export function nextDeliveryAction(
-  status: string
-): 'accept' | 'arrived' | 'pickup' | 'reached_customer' | 'deliver' | null {
+export type TripWorkflowAction =
+  | 'accept'
+  | 'arrived'
+  | 'pickup'
+  | 'on_the_way'
+  | 'reached_customer'
+  | 'deliver'
+  | null;
+
+export function nextDeliveryAction(status: string): TripWorkflowAction {
   const s = normalizeDeliveryStatus(status);
   if (s === 'assigned') return 'accept';
   if (s === 'accepted') return 'arrived';
   if (s === 'arrived') return 'pickup';
-  if (s === 'picked_up' || s === 'out_for_delivery') return 'reached_customer';
+  if (s === 'picked_up') return 'on_the_way';
+  if (s === 'out_for_delivery') return 'reached_customer';
   if (s === 'at_customer') return 'deliver';
   return null;
+}
+
+export function resolveTripStep(delivery: PartnerDelivery): TripWorkflowAction {
+  switch (delivery.nextAction) {
+    case 'arrive_restaurant':
+      return 'arrived';
+    case 'wait':
+    case 'confirm_ready':
+    case 'pickup':
+      return 'pickup';
+    case 'start_trip':
+      return 'on_the_way';
+    case 'arrive_customer':
+      return 'reached_customer';
+    case 'deliver':
+      return 'deliver';
+    default:
+      return nextDeliveryAction(delivery.status);
+  }
 }
 
 async function request<T>(
@@ -1788,6 +1831,8 @@ export const deliveryPartnerApi = {
     const restBody: Record<string, unknown> = {};
     if (payload.otp?.trim()) restBody.otp = payload.otp.trim();
     if (payload.notes?.trim()) restBody.notes = payload.notes.trim();
+    if (payload.proofUrl?.trim()) restBody.proofPhotoUrl = payload.proofUrl.trim();
+    if (payload.signatureUrl?.trim()) restBody.signatureUrl = payload.signatureUrl.trim();
 
     const res = await request<unknown>(
       `${ME_BASE}/deliveries/${encodeURIComponent(id)}/deliver`,
@@ -1796,8 +1841,190 @@ export const deliveryPartnerApi = {
     return mapPartnerDelivery(res.data ?? res);
   },
 
+  /** PUT /partners/me/deliveries/:id/order-not-ready */
+  markOrderNotReady: async (deliveryId: string): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/order-not-ready`,
+      { method: 'PUT', body: {} }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** PUT /partners/me/deliveries/:id/waiting */
+  markWaiting: async (deliveryId: string): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/waiting`,
+      { method: 'PUT', body: {} }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** PUT /partners/me/deliveries/:id/order-ready */
+  markOrderReady: async (deliveryId: string): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/order-ready`,
+      { method: 'PUT', body: {} }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** PUT /partners/me/deliveries/:id/pickup-verify */
+  verifyPickup: async (
+    deliveryId: string,
+    payload: PickupVerifyPayload = {}
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const body: Record<string, unknown> = {};
+    if (payload.otp?.trim()) body.otp = payload.otp.trim();
+    if (payload.photoUrl?.trim()) body.photoUrl = payload.photoUrl.trim();
+    if (payload.itemChecklistOk != null) {
+      body.itemChecklistOk = payload.itemChecklistOk;
+    }
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/pickup-verify`,
+      { method: 'PUT', body }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** PUT /partners/me/deliveries/:id/on-the-way */
+  markOnTheWay: async (deliveryId: string): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/on-the-way`,
+      { method: 'PUT', body: {} }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** POST /partners/me/deliveries/:id/verify-otp — verifies drop OTP without completing. */
+  verifyDropOtp: async (
+    deliveryId: string,
+    otp: string
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const code = otp.trim();
+    if (!code) {
+      throw new PartnerApiError('Enter the 4-digit customer OTP.', 'INVALID_OTP');
+    }
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/verify-otp`,
+      { method: 'POST', body: { otp: code } }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** POST /partners/me/deliveries/:id/cancel */
+  cancelDelivery: async (
+    deliveryId: string,
+    payload: CancelDeliveryPayload
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/cancel`,
+      {
+        method: 'POST',
+        body: {
+          reasonCode: payload.reasonCode,
+          reason: payload.reason?.trim() || undefined,
+        },
+      }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** POST /partners/me/deliveries/:id/report-issue */
+  reportIssue: async (
+    deliveryId: string,
+    payload: ReportIssuePayload
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/report-issue`,
+      {
+        method: 'POST',
+        body: {
+          issueCode: payload.issueCode,
+          note: payload.note?.trim() || undefined,
+        },
+      }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** POST /partners/me/deliveries/:id/signature — multipart file or JSON URL. */
+  captureSignature: async (
+    deliveryId: string,
+    payload: { uri?: string; fileName?: string; signatureUrl?: string }
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    if (payload.uri?.trim()) {
+      const file = await prepareJpegFile(
+        payload.uri,
+        payload.fileName ?? `signature-${Date.now()}.jpg`
+      );
+      const uploaded = await postMultipartWithFields(
+        `${ME_BASE}/deliveries/${encodeURIComponent(id)}/signature`,
+        { files: [{ fieldName: 'signature', file }] }
+      );
+      return mapPartnerDelivery(uploaded);
+    }
+    const url = payload.signatureUrl?.trim();
+    if (!url) {
+      throw new PartnerApiError(
+        'Capture the customer signature, then complete delivery.',
+        'SIGNATURE_REQUIRED'
+      );
+    }
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/signature`,
+      { method: 'POST', body: { signatureUrl: url } }
+    );
+    return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** POST /partners/me/deliveries/:id/proof-of-delivery — multipart photo. */
+  uploadProofOfDelivery: async (
+    deliveryId: string,
+    payload: { photoUri?: string; signatureUri?: string; fileName?: string }
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const files: Array<{ fieldName: string; file: UploadFilePart }> = [];
+    if (payload.photoUri?.trim()) {
+      files.push({
+        fieldName: 'photo',
+        file: await prepareJpegFile(
+          payload.photoUri,
+          payload.fileName ?? `pod-${Date.now()}.jpg`
+        ),
+      });
+    }
+    if (payload.signatureUri?.trim()) {
+      files.push({
+        fieldName: 'signature',
+        file: await prepareJpegFile(
+          payload.signatureUri,
+          `pod-sign-${Date.now()}.jpg`
+        ),
+      });
+    }
+    if (!files.length) {
+      throw new PartnerApiError(
+        'Add the delivery OTP or a proof photo to complete.',
+        'PROOF_REQUIRED'
+      );
+    }
+    const uploaded = await postMultipartWithFields(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/proof-of-delivery`,
+      { files }
+    );
+    return mapPartnerDelivery(uploaded);
+  },
+
   /**
-   * POST profile photo / KYC document.
    * Gallery images are converted to JPEG first (HEIC/content:// crash servers).
    */
   uploadDocument: async (

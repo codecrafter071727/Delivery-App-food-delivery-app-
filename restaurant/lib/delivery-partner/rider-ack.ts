@@ -49,8 +49,17 @@ export function socketErrorCopy(code?: string): string | undefined {
       return 'Finish your current trip before going offline.';
     case 'PARTNER_OFFLINE':
       return 'Go online to start receiving orders.';
+    case 'GEOFENCE_NOT_MET':
     case 'OUTSIDE_GEOFENCE':
       return 'Move closer to the pin, then try again.';
+    case 'LOCATION_REQUIRED':
+      return 'Turn on live GPS, then try this step again.';
+    case 'PICKUP_VERIFY_REQUIRED':
+      return 'Verify pickup with OTP, a photo, or the item checklist first.';
+    case 'SIGNATURE_REQUIRED':
+      return 'Capture the customer signature, then complete delivery.';
+    case 'UPLOAD_FAILED':
+      return 'Could not upload the photo. Try again.';
     case 'INVALID_OTP':
       return 'That OTP is incorrect. Ask the customer to share it again.';
     case 'PROOF_REQUIRED':

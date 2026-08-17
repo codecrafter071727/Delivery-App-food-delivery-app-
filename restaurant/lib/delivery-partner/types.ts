@@ -202,6 +202,17 @@ export type PartnerDelivery = {
   nextAction?: string;
   canReject?: boolean;
   canCancel?: boolean;
+  canReportIssue?: boolean;
+  waitStartedAt?: string;
+  waitEndedAt?: string;
+  waitMinutes?: number;
+  orderNotReadyCount?: number;
+  kitchenReadyAt?: string;
+  pickupVerified?: boolean;
+  otpVerified?: boolean;
+  signatureUrl?: string;
+  signatureCapturedAt?: string;
+  proofPhotoUrl?: string;
   offerExpiresAt?: string;
   timeoutSeconds?: number;
   raw?: Record<string, unknown>;
@@ -295,6 +306,50 @@ export type PartnerBatch = {
 export type ConfirmBatchSequencePayload =
   | { confirm: boolean }
   | { stops: { deliveryId: string; leg: 'pickup' | 'drop' }[] };
+
+export const CANCEL_REASON_CODES = [
+  { code: 'vehicle_breakdown', label: 'Vehicle breakdown' },
+  { code: 'personal_emergency', label: 'Personal emergency' },
+  { code: 'restaurant_closed', label: 'Restaurant closed' },
+  { code: 'order_wrong', label: 'Wrong / incomplete order' },
+  { code: 'customer_cancelled', label: 'Customer cancelled' },
+  { code: 'unsafe', label: 'Felt unsafe' },
+  { code: 'other', label: 'Other' },
+] as const;
+
+export type CancelReasonCode = (typeof CANCEL_REASON_CODES)[number]['code'];
+
+export const TRIP_ISSUE_CODES = [
+  { code: 'wrong_address', label: 'Wrong address' },
+  { code: 'customer_unreachable', label: 'Customer unreachable' },
+  { code: 'item_damaged', label: 'Item damaged' },
+  { code: 'item_missing', label: 'Item missing' },
+  { code: 'customer_refused', label: 'Customer refused' },
+  { code: 'payment_issue', label: 'Payment issue' },
+  { code: 'other', label: 'Other' },
+] as const;
+
+export type TripIssueCode = (typeof TRIP_ISSUE_CODES)[number]['code'];
+
+export type PickupVerifyPayload = {
+  otp?: string;
+  photoUrl?: string;
+  itemChecklistOk?: boolean;
+};
+
+export type CancelDeliveryPayload = {
+  reasonCode: CancelReasonCode;
+  reason?: string;
+};
+
+export type ReportIssuePayload = {
+  issueCode: TripIssueCode;
+  note?: string;
+};
+
+export type VerifyDropOtpPayload = {
+  otp: string;
+};
 
 export type RejectDeliveryPayload = {
   reason: string;

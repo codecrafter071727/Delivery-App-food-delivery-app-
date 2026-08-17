@@ -7,10 +7,13 @@ import {
 
 import { deliveryPartnerApi } from '@/lib/delivery-partner/api';
 import type {
+  CancelDeliveryPayload,
   ConfirmBatchSequencePayload,
   DeliverOrderPayload,
   DeliveryPartnerProfile,
   PartnerDelivery,
+  PickupVerifyPayload,
+  ReportIssuePayload,
   UpdatePartnerProfilePayload,
   UploadPartnerDocumentPayload,
 } from '@/lib/delivery-partner/types';
@@ -459,10 +462,12 @@ export function useDeliveryOrderMutations() {
     mutationFn: ({
       deliveryId,
       otp,
+      photoUrl,
     }: {
       deliveryId: string;
       otp?: string;
-    }) => deliveryPartnerApi.markPickedUp(deliveryId, { otp }),
+      photoUrl?: string;
+    }) => deliveryPartnerApi.markPickedUp(deliveryId, { otp, photoUrl }),
     onMutate: async () => {
       const previous = queryClient.getQueryData<PartnerDelivery | null>(
         deliveryPartnerKeys.active()
@@ -520,7 +525,151 @@ export function useDeliveryOrderMutations() {
     },
   });
 
-  return { setOnline, accept, acceptBatch, confirmSequence, reject, arrived, pickup, reachedCustomer, deliver, invalidateAll };
+  const orderNotReady = useMutation({
+    mutationFn: (deliveryId: string) =>
+      deliveryPartnerApi.markOrderNotReady(deliveryId),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  const waiting = useMutation({
+    mutationFn: (deliveryId: string) =>
+      deliveryPartnerApi.markWaiting(deliveryId),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  const orderReady = useMutation({
+    mutationFn: (deliveryId: string) =>
+      deliveryPartnerApi.markOrderReady(deliveryId),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  const pickupVerify = useMutation({
+    mutationFn: ({
+      deliveryId,
+      payload,
+    }: {
+      deliveryId: string;
+      payload: PickupVerifyPayload;
+    }) => deliveryPartnerApi.verifyPickup(deliveryId, payload),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  const onTheWay = useMutation({
+    mutationFn: (deliveryId: string) =>
+      deliveryPartnerApi.markOnTheWay(deliveryId),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  const verifyOtp = useMutation({
+    mutationFn: ({ deliveryId, otp }: { deliveryId: string; otp: string }) =>
+      deliveryPartnerApi.verifyDropOtp(deliveryId, otp),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  const cancelTrip = useMutation({
+    mutationFn: ({
+      deliveryId,
+      payload,
+    }: {
+      deliveryId: string;
+      payload: CancelDeliveryPayload;
+    }) => deliveryPartnerApi.cancelDelivery(deliveryId, payload),
+    onSuccess: async () => {
+      queryClient.setQueryData(deliveryPartnerKeys.active(), null);
+      await invalidateAll();
+    },
+  });
+
+  const reportIssue = useMutation({
+    mutationFn: ({
+      deliveryId,
+      payload,
+    }: {
+      deliveryId: string;
+      payload: ReportIssuePayload;
+    }) => deliveryPartnerApi.reportIssue(deliveryId, payload),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  const captureSignature = useMutation({
+    mutationFn: ({
+      deliveryId,
+      uri,
+      signatureUrl,
+    }: {
+      deliveryId: string;
+      uri?: string;
+      signatureUrl?: string;
+    }) => deliveryPartnerApi.captureSignature(deliveryId, { uri, signatureUrl }),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  const uploadPod = useMutation({
+    mutationFn: ({
+      deliveryId,
+      photoUri,
+      signatureUri,
+    }: {
+      deliveryId: string;
+      photoUri?: string;
+      signatureUri?: string;
+    }) =>
+      deliveryPartnerApi.uploadProofOfDelivery(deliveryId, {
+        photoUri,
+        signatureUri,
+      }),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
+  return {
+    setOnline,
+    accept,
+    acceptBatch,
+    confirmSequence,
+    reject,
+    arrived,
+    pickup,
+    reachedCustomer,
+    deliver,
+    orderNotReady,
+    waiting,
+    orderReady,
+    pickupVerify,
+    onTheWay,
+    verifyOtp,
+    cancelTrip,
+    reportIssue,
+    captureSignature,
+    uploadPod,
+    invalidateAll,
+  };
 }
 
 /** POST /partners/me/documents */
