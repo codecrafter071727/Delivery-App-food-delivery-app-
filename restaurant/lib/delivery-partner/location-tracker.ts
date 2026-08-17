@@ -21,6 +21,7 @@ import {
 
 const WATCH_TIME_INTERVAL_MS = 2_000;
 const DISTANCE_INTERVAL_M = 8;
+const STOP_DEBOUNCE_MS = 500;
 
 export type LocationSyncSnapshot = {
   coords: PartnerGpsCoords | null;
@@ -90,6 +91,7 @@ class PartnerLocationTracker {
   private appStateSub: { remove: () => void } | null = null;
   private running = false;
   private starting: Promise<void> | null = null;
+  private stopDelay: ReturnType<typeof setTimeout> | null = null;
   private pingInFlight = false;
   private heartbeatInFlight = false;
   private latest: PartnerGpsCoords | null = null;
@@ -156,6 +158,7 @@ class PartnerLocationTracker {
   }
 
   async start() {
+    this.cancelDeferredStop();
     if (this.running) return;
     if (this.starting) return this.starting;
 
@@ -163,6 +166,22 @@ class PartnerLocationTracker {
       this.starting = null;
     });
     return this.starting;
+  }
+
+  /** Debounce stop so React Strict Mode remounts do not kill a live watch. */
+  requestStop() {
+    this.cancelDeferredStop();
+    this.stopDelay = setTimeout(() => {
+      this.stopDelay = null;
+      void this.stop();
+    }, STOP_DEBOUNCE_MS);
+  }
+
+  private cancelDeferredStop() {
+    if (this.stopDelay) {
+      clearTimeout(this.stopDelay);
+      this.stopDelay = null;
+    }
   }
 
   private async doStart() {
@@ -247,6 +266,7 @@ class PartnerLocationTracker {
   }
 
   async stop() {
+    this.cancelDeferredStop();
     this.running = false;
     this.watchSub?.remove();
     this.watchSub = null;

@@ -1104,7 +1104,7 @@ async function getCurrentPartnerCoords(): Promise<PartnerGpsCoords> {
   const { status } = await Location.requestForegroundPermissionsAsync();
   if (status !== 'granted') {
     throw new PartnerApiError(
-      'Location permission is required to go online. Enable it in Settings.',
+      'Location permission is required. Enable it in Settings.',
       'LOCATION_REQUIRED'
     );
   }
@@ -1112,7 +1112,7 @@ async function getCurrentPartnerCoords(): Promise<PartnerGpsCoords> {
   const enabled = await Location.hasServicesEnabledAsync();
   if (!enabled) {
     throw new PartnerApiError(
-      'Turn on GPS / location services to go online.',
+      'Turn on GPS / location services, then try again.',
       'LOCATION_REQUIRED'
     );
   }
@@ -1143,6 +1143,15 @@ async function getCurrentPartnerCoords(): Promise<PartnerGpsCoords> {
     altitude: pos.coords.altitude,
     timestamp: pos.timestamp,
   };
+}
+
+/**
+ * Arrive / pickup / drop read Redis GPS, not the phone toggle.
+ * Stale after ~20s → 409 LOCATION_REQUIRED. Ping immediately before those steps.
+ */
+async function pingLiveGpsBeforeTripAction(): Promise<void> {
+  const coords = await getCurrentPartnerCoords();
+  await partnerTrackingApi.pushLocation(coords);
 }
 
 function mapInviteValidation(
@@ -1907,6 +1916,7 @@ export const deliveryPartnerApi = {
   /** PUT /partners/me/deliveries/:id/arrived — socket `delivery:arrived`. */
   markArrived: async (deliveryId: string): Promise<PartnerDelivery> => {
     const id = deliveryId.trim();
+    await pingLiveGpsBeforeTripAction();
     if (isRiderSocketConnected()) {
       try {
         const data = await emitRiderEvent('delivery:arrived', { deliveryId: id });
@@ -1928,6 +1938,7 @@ export const deliveryPartnerApi = {
     payload?: { otp?: string; photoUrl?: string }
   ): Promise<PartnerDelivery> => {
     const id = deliveryId.trim();
+    await pingLiveGpsBeforeTripAction();
     const socketBody: Record<string, unknown> = { deliveryId: id };
     if (payload?.otp?.trim()) socketBody.otp = payload.otp.trim();
     if (payload?.photoUrl?.trim()) socketBody.photoUrl = payload.photoUrl.trim();
@@ -1950,6 +1961,7 @@ export const deliveryPartnerApi = {
   /** PUT /partners/me/deliveries/:id/arrived-customer — socket `delivery:reached-customer`. */
   markReachedCustomer: async (deliveryId: string): Promise<PartnerDelivery> => {
     const id = deliveryId.trim();
+    await pingLiveGpsBeforeTripAction();
     if (isRiderSocketConnected()) {
       try {
         const data = await emitRiderEvent('delivery:reached-customer', {
@@ -1972,6 +1984,7 @@ export const deliveryPartnerApi = {
     deliveryId: string,
     payload: DeliverOrderPayload = {}
   ): Promise<PartnerDelivery> => {
+    await pingLiveGpsBeforeTripAction();
     if (payload.proofUri) {
       return postDeliverWithProof(deliveryId, payload);
     }

@@ -45,19 +45,15 @@ export function usePartnerLocationSync(enabled = true) {
         return;
       }
 
-      if (partnerLocationTracker.isRunning() || startedRef.current) {
-        return;
-      }
-
       startedRef.current = true;
       try {
         await partnerLocationTracker.start();
       } catch {
-        startedRef.current = false;
+        if (!cancelled) startedRef.current = false;
       }
 
       if (cancelled) {
-        await partnerLocationTracker.stop();
+        partnerLocationTracker.requestStop();
         startedRef.current = false;
       }
     };
@@ -67,7 +63,7 @@ export function usePartnerLocationSync(enabled = true) {
     return () => {
       cancelled = true;
       startedRef.current = false;
-      void partnerLocationTracker.stop();
+      partnerLocationTracker.requestStop();
     };
   }, [shouldTrack]);
 

@@ -42,7 +42,7 @@ export function socketErrorCopy(code?: string): string | undefined {
     case 'OFFER_TAKEN':
       return 'Another rider took this order.';
     case 'PARTNER_NOT_ACTIVE':
-      return 'Your account is still under review. You can go online after KYC is approved.';
+      return 'Could not go online. Check GPS and try again.';
     case 'PARTNER_SUSPENDED':
       return 'Your account is suspended. Contact support.';
     case 'ACTIVE_DELIVERY':
@@ -53,7 +53,7 @@ export function socketErrorCopy(code?: string): string | undefined {
     case 'OUTSIDE_GEOFENCE':
       return 'Move closer to the pin, then try again.';
     case 'LOCATION_REQUIRED':
-      return 'Turn on live GPS, then try this step again.';
+      return 'Could not confirm live GPS with the server. Keep location on and try this step again.';
     case 'PICKUP_VERIFY_REQUIRED':
       return 'Verify pickup with OTP, a photo, or the item checklist first.';
     case 'SIGNATURE_REQUIRED':

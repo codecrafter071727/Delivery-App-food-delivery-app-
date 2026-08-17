@@ -65,30 +65,33 @@ type TripGeo = {
 
 export function tripGeofenceState(status: string, geo?: TripGeo) {
   const action = nextDeliveryAction(status);
+  // Missing tracking payload ≠ outside geofence. Still allow the tap so we can
+  // ping GPS; the server returns GEOFENCE_NOT_MET if they are too far.
+  if (!geo) return { blocked: false, hint: null as string | null };
   if (action === 'arrived' || action === 'pickup') {
-    const blocked = !geo?.atPickup;
+    const blocked = !geo.atPickup;
     return {
       blocked,
       hint: blocked
-        ? `Get within ${geo?.pickupMeters ?? 150}m of the restaurant.`
+        ? `Get within ${geo.pickupMeters ?? 150}m of the restaurant.`
         : null,
     };
   }
   if (action === 'reached_customer' || action === 'deliver') {
-    const blocked = !geo?.atDrop;
+    const blocked = !geo.atDrop;
     return {
       blocked,
       hint: blocked
-        ? `Get within ${geo?.dropMeters ?? 100}m of the customer.`
+        ? `Get within ${geo.dropMeters ?? 100}m of the customer.`
         : null,
     };
   }
   if (action === 'return_store') {
-    const blocked = !geo?.atPickup;
+    const blocked = !geo.atPickup;
     return {
       blocked,
       hint: blocked
-        ? `Get within ${geo?.pickupMeters ?? 150}m of the restaurant to return.`
+        ? `Get within ${geo.pickupMeters ?? 150}m of the restaurant to return.`
         : null,
     };
   }
