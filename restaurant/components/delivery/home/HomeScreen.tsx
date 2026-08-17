@@ -54,6 +54,7 @@ import {
 } from '@/lib/delivery-partner/api';
 import {
   formatDutyError,
+  usePartnerAttendanceStreak,
   usePartnerBreakPolicy,
   usePartnerDutyMutations,
   usePartnerDutyStatus,
@@ -62,6 +63,7 @@ import {
 import {
   canAcceptOffers,
   isDutySwitchOn,
+  resolveDisplayStreak,
 } from '@/lib/delivery-partner/availability-types';
 import { pushLiveToast } from '@/lib/delivery-partner/live-toast-store';
 import { useLocationSyncSnapshot } from '@/lib/delivery-partner/use-partner-location-sync';
@@ -208,6 +210,7 @@ export function DeliveryHomeScreen() {
   const actives = useActiveDeliveries();
   const history = useDeliveryHistory(5);
   const performance = usePartnerPerformance();
+  const attendanceStreak = usePartnerAttendanceStreak();
   const earnings = usePartnerEarnings();
   const { setOnline } = useDeliveryOrderMutations();
 
@@ -243,7 +246,10 @@ export function DeliveryHomeScreen() {
   const completionRate = performance.data?.completionRate ?? 0;
   const acceptanceRate = performance.data?.acceptanceRate ?? 0;
   const onTimeRate = performance.data?.onTimeRate ?? 0;
-  const streak = performance.data?.currentStreak ?? 0;
+  const streak = resolveDisplayStreak(
+    attendanceStreak.data,
+    performance.data?.currentStreak
+  );
 
   const recent = history.data?.pages.flatMap((p) => p.deliveries) ?? [];
   const loading = me.isLoading && !me.data;
@@ -284,6 +290,7 @@ export function DeliveryHomeScreen() {
         actives.refetch(),
         history.refetch(),
         performance.refetch(),
+        attendanceStreak.refetch(),
         earnings.refetch(),
         lastLocation.refetch(),
       ]);

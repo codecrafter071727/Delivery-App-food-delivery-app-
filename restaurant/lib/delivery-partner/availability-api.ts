@@ -9,7 +9,10 @@ import {
   DEFAULT_BREAK_MINUTES,
   MAX_BREAK_MINUTES,
   MAX_BREAK_MINUTES_PER_DAY,
+  addIstDays,
+  computeLoginStreak,
   isShiftCancelWindowOpen,
+  istDateString,
   normalizeDutyStatus,
   type AttendanceDay,
   type AttendanceLog,
@@ -420,12 +423,79 @@ function mapAttendance(
 
 function mapStreak(raw: unknown): AttendanceStreak {
   const record = asRecord(unwrap(raw));
+  const nested = asRecord(
+    record.streak ??
+      record.attendance ??
+      record.loginStreak ??
+      record.attendanceStreak ??
+      record
+  );
+  const source = Object.keys(nested).length ? nested : record;
+  const today = istDateString();
+  const yesterday = addIstDays(today, -1);
+
+  let currentStreak: number | undefined;
+  for (const key of [
+    'currentStreak',
+    'streak',
+    'days',
+    'consecutiveDays',
+    'loginStreak',
+    'current',
+    'value',
+  ]) {
+    const rawValue = source[key];
+    if (rawValue == null || rawValue === '') continue;
+    if (typeof rawValue === 'object') continue;
+    const value = Number(rawValue);
+    if (Number.isFinite(value) && value >= 0) {
+      currentStreak = value;
+      break;
+    }
+  }
+
+  const todayCounted =
+    pickBool(source, ['todayCounted', 'today', 'countedToday', 'loggedInToday']) ??
+    false;
+  const lastWorkedDate =
+    pickString(source, [
+      'lastWorkedDate',
+      'lastDate',
+      'lastLoginDate',
+      'lastOnlineDate',
+      'lastDutyDate',
+    ]) ?? null;
+  const last = lastWorkedDate?.slice(0, 10) ?? '';
+
+  let streak = currentStreak ?? 0;
+  if (streak <= 0 && (todayCounted || last === today || last === yesterday)) {
+    streak = 1;
+  }
+
   return {
-    currentStreak: pickNumber(record, ['currentStreak', 'streak', 'days']) ?? 0,
-    todayCounted: pickBool(record, ['todayCounted', 'today', 'countedToday']) ?? false,
-    lastWorkedDate:
-      pickString(record, ['lastWorkedDate', 'lastDate', 'lastLoginDate']) ?? null,
+    currentStreak: streak,
+    todayCounted: todayCounted || last === today,
+    lastWorkedDate,
   };
+}
+
+function mergeStreaks(...rows: AttendanceStreak[]): AttendanceStreak {
+  const today = istDateString();
+  let currentStreak = 0;
+  let todayCounted = false;
+  let lastWorkedDate: string | null = null;
+  for (const row of rows) {
+    currentStreak = Math.max(currentStreak, row.currentStreak ?? 0);
+    todayCounted = todayCounted || row.todayCounted;
+    const last = row.lastWorkedDate?.slice(0, 10) ?? '';
+    if (last && (!lastWorkedDate || last > lastWorkedDate)) {
+      lastWorkedDate = last;
+    }
+  }
+  if (todayCounted || lastWorkedDate === today || lastWorkedDate === addIstDays(today, -1)) {
+    currentStreak = Math.max(currentStreak, 1);
+  }
+  return { currentStreak, todayCounted, lastWorkedDate };
 }
 
 export function applyDutyStatusToProfile(
@@ -799,6 +869,29 @@ export const partnerAvailabilityApi = {
   /** GET /partners/me/attendance/streak */
   getAttendanceStreak: async (): Promise<AttendanceStreak> => {
     const res = await request<unknown>(`${ME_BASE}/attendance/streak`);
-    return mapStreak(res.data ?? res);
+    const fromApi = mapStreak(res.data ?? res);
+    const today = istDateString();
+    const from = addIstDays(today, -20);
+    try {
+      const [attendance, summary] = await Promise.all([
+        partnerAvailabilityApi.getAttendance({ from, to: today }),
+        partnerAvailabilityApi.getDutySummary().catch(() => null),
+      ]);
+      const fromLog = computeLoginStreak(attendance.days, today);
+      const fromDuty: AttendanceStreak | null =
+        summary &&
+        (summary.onlineMinutes > 0 ||
+          summary.stillOnDuty ||
+          summary.deliveries > 0)
+          ? {
+              currentStreak: 1,
+              todayCounted: true,
+              lastWorkedDate: summary.date || today,
+            }
+          : null;
+      return mergeStreaks(fromApi, fromLog, ...(fromDuty ? [fromDuty] : []));
+    } catch {
+      return fromApi;
+    }
   },
 };

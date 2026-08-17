@@ -30,6 +30,8 @@ import {
   formatRating,
 } from '@/lib/delivery-partner/analytics-api';
 import { usePartnerPerformance } from '@/lib/delivery-partner/analytics-hooks';
+import { usePartnerAttendanceStreak } from '@/lib/delivery-partner/availability-hooks';
+import { resolveDisplayStreak } from '@/lib/delivery-partner/availability-types';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import { formatPerformanceError } from '@/lib/delivery-partner/performance-api';
 import {
@@ -257,6 +259,7 @@ export function PartnerPerformanceManager() {
   const [ackError, setAckError] = useState<string | null>(null);
 
   const performance = usePartnerPerformance(tab === 'stats');
+  const attendanceStreak = usePartnerAttendanceStreak(tab === 'stats');
   const acceptance = useAcceptanceRate(tab === 'stats');
   const cancellation = useCancellationRate(tab === 'stats');
   const summary = useRatingSummary(tab === 'ratings' || tab === 'stats');
@@ -271,6 +274,10 @@ export function PartnerPerformanceManager() {
   const { acknowledgeWarning } = usePerformanceMutations();
 
   const perf = performance.data;
+  const streakDays = resolveDisplayStreak(
+    attendanceStreak.data,
+    perf?.currentStreak
+  );
   const reviewRows = reviews.data?.pages.flatMap((p) => p.items) ?? [];
   const ratingRows = ratings.data?.pages.flatMap((p) => p.items) ?? [];
   const warningRows = warnings.data?.pages.flatMap((p) => p.items) ?? [];
@@ -284,6 +291,7 @@ export function PartnerPerformanceManager() {
     try {
       await Promise.all([
         performance.refetch(),
+        attendanceStreak.refetch(),
         acceptance.refetch(),
         cancellation.refetch(),
         summary.refetch(),
@@ -414,7 +422,7 @@ export function PartnerPerformanceManager() {
                   <Text style={styles.gridLabel}>Complete</Text>
                 </View>
                 <View style={styles.gridItem}>
-                  <Text style={styles.gridValue}>{perf?.currentStreak ?? 0}d</Text>
+                  <Text style={styles.gridValue}>{streakDays}d</Text>
                   <Text style={styles.gridLabel}>Streak</Text>
                 </View>
               </View>

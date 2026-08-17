@@ -176,6 +176,62 @@ export type AttendanceStreak = {
   lastWorkedDate?: string | null;
 };
 
+export function attendanceDayWorked(day: AttendanceDay): boolean {
+  return (
+    day.onlineMinutes > 0 ||
+    day.stillOnDuty ||
+    Boolean(day.loginAt)
+  );
+}
+
+/** Consecutive IST login/work days. Yesterday still counts until today is missed. */
+export function computeLoginStreak(
+  days: AttendanceDay[],
+  today = istDateString()
+): AttendanceStreak {
+  const worked = new Set<string>();
+  let last: string | null = null;
+  for (const day of days) {
+    if (!attendanceDayWorked(day)) continue;
+    const key = day.date.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+    worked.add(key);
+    if (!last || key > last) last = key;
+  }
+
+  const todayCounted = worked.has(today);
+  const yesterday = addIstDays(today, -1);
+  if (!todayCounted && !worked.has(yesterday)) {
+    return { currentStreak: 0, todayCounted: false, lastWorkedDate: last };
+  }
+
+  let cursor = todayCounted ? today : yesterday;
+  let streak = 0;
+  while (worked.has(cursor)) {
+    streak += 1;
+    cursor = addIstDays(cursor, -1);
+  }
+
+  return { currentStreak: streak, todayCounted, lastWorkedDate: last };
+}
+
+/** Prefer live attendance streak; never hide a day you already worked. */
+export function resolveDisplayStreak(
+  attendance?: AttendanceStreak | null,
+  performanceStreak?: number | null
+): number {
+  const today = istDateString();
+  const yesterday = addIstDays(today, -1);
+  const last = attendance?.lastWorkedDate?.slice(0, 10) ?? '';
+  const fromDates =
+    attendance?.todayCounted || last === today || last === yesterday ? 1 : 0;
+  return Math.max(
+    attendance?.currentStreak ?? 0,
+    performanceStreak ?? 0,
+    fromDates
+  );
+}
+
 export const DEFAULT_BREAK_MINUTES = 15;
 export const MAX_BREAK_MINUTES = 30;
 export const MAX_BREAK_MINUTES_PER_DAY = 60;

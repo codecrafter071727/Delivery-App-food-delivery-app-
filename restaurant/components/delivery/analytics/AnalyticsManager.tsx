@@ -45,6 +45,8 @@ import {
   usePartnerIncentives,
   usePartnerPerformance,
 } from '@/lib/delivery-partner/analytics-hooks';
+import { usePartnerAttendanceStreak } from '@/lib/delivery-partner/availability-hooks';
+import { resolveDisplayStreak } from '@/lib/delivery-partner/availability-types';
 import type {
   PartnerDailyEarning,
   PartnerIncentive,
@@ -206,6 +208,7 @@ export function PartnerAnalyticsManager() {
   const [pullRefreshing, setPullRefreshing] = useState(false);
 
   const performance = usePartnerPerformance();
+  const attendanceStreak = usePartnerAttendanceStreak();
   const earnings = usePartnerEarnings();
   const daily = usePartnerDailyEarnings(days);
   const incentives = usePartnerIncentives();
@@ -245,6 +248,7 @@ export function PartnerAnalyticsManager() {
     try {
       await Promise.all([
         performance.refetch(),
+        attendanceStreak.refetch(),
         earnings.refetch(),
         daily.refetch(),
         incentives.refetch(),
@@ -317,7 +321,7 @@ export function PartnerAnalyticsManager() {
       id: 'streak',
       title: 'Delivery Streak',
       category: 'Consistency',
-      value: `${perf?.currentStreak ?? 0} days`,
+      value: `${resolveDisplayStreak(attendanceStreak.data, perf?.currentStreak)} days`,
       icon: Flame,
     },
     {

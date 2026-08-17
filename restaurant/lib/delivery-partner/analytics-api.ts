@@ -206,7 +206,16 @@ function mapPerformance(raw: unknown): PartnerPerformance {
         'streak',
         'deliveryStreak',
         'streakDays',
-      ]) ?? 0,
+        'consecutiveDays',
+        'loginStreak',
+      ]) ??
+      pickNumber(asRecord(source.streak), [
+        'currentStreak',
+        'current',
+        'days',
+        'value',
+      ]) ??
+      0,
     performanceScore: score,
     scoreLabel: pickString(source, [
       'scoreLabel',
