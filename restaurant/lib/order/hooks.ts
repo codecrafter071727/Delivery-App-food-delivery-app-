@@ -634,12 +634,15 @@ const HANDOVER_LIVE_STATUSES = new Set(['ready', 'out_for_delivery']);
 export function useOrderHandover(
   restaurantId?: string,
   orderId?: string,
-  order?: Pick<OwnerOrder, 'fulfillmentTone' | 'status'>
+  order?: Pick<OwnerOrder, 'fulfillmentTone' | 'status' | 'deliveryTripStatus'>
 ) {
   const isActive = useAppIsActive();
   const live =
     order?.fulfillmentTone === 'delivery' &&
-    Boolean(order.status && HANDOVER_LIVE_STATUSES.has(order.status));
+    Boolean(
+      (order.status && HANDOVER_LIVE_STATUSES.has(order.status)) ||
+        order.deliveryTripStatus === 'returning_to_restaurant'
+    );
 
   return useQuery({
     queryKey: restaurantOrderKeys.handover(restaurantId ?? '', orderId ?? ''),
@@ -655,8 +658,10 @@ export function useOrderHandover(
     staleTime: 3_000,
     refetchInterval: (query) => {
       const data = query.state.data as KitchenHandover | undefined;
-      if (!isActive || !live || data?.confirmed) return false;
-      return 5_000;
+      if (!isActive || !live) return false;
+      if (data?.hide && order?.status !== 'out_for_delivery') return false;
+      if (data?.kind === 'return' && data.returnVerified) return false;
+      return 4_000;
     },
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,

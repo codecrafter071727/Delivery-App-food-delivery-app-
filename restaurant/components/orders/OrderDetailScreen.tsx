@@ -63,6 +63,7 @@ import {
   money,
   nextKitchenAction,
   kitchenHandoverCopy,
+  kitchenHandoverErrorCopy,
   orderPlacedLabel,
   rejectBlockedReason,
   resolveOrderTotal,
@@ -202,13 +203,10 @@ export function OrderDetailScreen({ orderId }: Props) {
     if (action.kind === 'handover') {
       try {
         const result = await ticket.handToRider.mutateAsync(order.id);
-        const copy = kitchenHandoverCopy(
-          result.outcome,
-          result.handover.message
-        );
+        const copy = kitchenHandoverCopy(result.outcome, result.handover);
         Alert.alert(copy.title, copy.body);
       } catch (error) {
-        Alert.alert('Could not hand to rider', getApiErrorMessage(error));
+        Alert.alert('Could not hand to rider', kitchenHandoverErrorCopy(error));
       }
       return;
     }
@@ -217,13 +215,16 @@ export function OrderDetailScreen({ orderId }: Props) {
 
   const confirmHandover = async (method: 'otp' | 'tap', otp?: string) => {
     try {
-      await ticket.confirmHandover.mutateAsync({
+      const next = await ticket.confirmHandover.mutateAsync({
         orderId,
         method,
         otp,
       });
+      if (next.kind === 'return' && next.returnVerified) {
+        Alert.alert('Returned order received', 'Bag received. Trip closed.');
+      }
     } catch (error) {
-      Alert.alert('Could not confirm handover', getApiErrorMessage(error));
+      Alert.alert('Could not confirm handover', kitchenHandoverErrorCopy(error));
     }
   };
 
@@ -424,7 +425,11 @@ export function OrderDetailScreen({ orderId }: Props) {
             ) : null}
 
             {order.fulfillmentTone === 'delivery' &&
-            (order.status === 'ready' || order.status === 'out_for_delivery') ? (
+            (order.status === 'ready' ||
+              order.status === 'out_for_delivery' ||
+              order.deliveryTripStatus === 'returning_to_restaurant' ||
+              handoverQuery.data?.kind === 'return') &&
+            !handoverQuery.data?.hide ? (
               <RiderHandoverCard
                 handover={handoverQuery.data}
                 loading={handoverQuery.isLoading}
@@ -608,7 +613,13 @@ export function OrderDetailScreen({ orderId }: Props) {
                       </View>
                       {active && (
                         <Text style={styles.vTimelineDesc}>
-                          {statusCaption(order.status, order.fulfillmentTone)}
+                          {statusCaption(
+                            order.deliveryTripStatus ===
+                              'returning_to_restaurant'
+                              ? 'returning_to_restaurant'
+                              : order.status,
+                            order.fulfillmentTone
+                          )}
                         </Text>
                       )}
                     </View>

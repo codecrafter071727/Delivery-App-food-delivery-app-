@@ -34,6 +34,7 @@ type Props = {
 function dutyLabel(rider: KitchenRider) {
   const raw = rider.dutyStatus || rider.status || '';
   if (!raw) return rider.isOnline ? 'Online' : null;
+  if (raw.toLowerCase().includes('return')) return 'Returning to store';
   if (raw.toLowerCase().includes('arrived')) return 'At the store';
   return displayStatus(raw);
 }

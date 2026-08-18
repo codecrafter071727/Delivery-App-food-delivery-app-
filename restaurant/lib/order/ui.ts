@@ -1,4 +1,5 @@
 import type { OwnerOrder } from '@/lib/dashboard/types';
+import { getApiErrorCode, getApiErrorMessage } from '@/lib/errors';
 import type { RestaurantOrderAction } from '@/lib/order/owner-api';
 import {
   Check,
@@ -67,6 +68,9 @@ export function statusTone(status?: string | null) {
   if (status === 'pending_payment') {
     return { backgroundColor: '#FFFBEB', color: '#B45309', border: '#FDE68A' };
   }
+  if (status === 'returning_to_restaurant' || status === 'returned') {
+    return { backgroundColor: '#FFF7ED', color: '#C2410C', border: '#FED7AA' };
+  }
   if (status === 'ready' || status === 'out_for_delivery' || status === 'delivered') {
     return { backgroundColor: '#ECFDF5', color: '#059669', border: '#A7F3D0' };
   }
@@ -93,6 +97,11 @@ export function statusCaption(
   }
   if (status === 'ready') return 'Packed — wait for the rider, then confirm PIN';
   if (status === 'out_for_delivery') return 'Rider is on the way';
+  if (status === 'returning_to_restaurant') {
+    return 'Rider is bringing the order back';
+  }
+  if (status === 'returned') return 'Returned order received';
+  if (status === 'failed') return 'Return failed';
   if (status === 'delivered' && fulfillmentTone === 'pickup') {
     return 'Customer collected the order';
   }
@@ -247,35 +256,85 @@ export function nextKitchenAction(order: OwnerOrder): KitchenTicketAction | null
       Icon: Truck,
     };
   }
+  if (
+    order.fulfillmentTone === 'delivery' &&
+    order.deliveryTripStatus === 'returning_to_restaurant'
+  ) {
+    return {
+      kind: 'handover',
+      label: 'Receive bag',
+      Icon: Truck,
+    };
+  }
   return null;
+}
+
+export function kitchenHandoverErrorCopy(error: unknown): string {
+  const code = getApiErrorCode(error);
+  if (code === 'INVALID_OTP') return 'Wrong code — retry.';
+  if (code === 'RIDER_NOT_ARRIVED_FOR_RETURN') {
+    return 'Wait until the rider arrives at the store.';
+  }
+  if (code === 'OTP_REQUIRED') return 'Enter the 4-digit return OTP.';
+  if (code === 'ILLEGAL_TRANSITION') {
+    return 'This step is not available yet.';
+  }
+  return getApiErrorMessage(error, 'Could not confirm handover.');
 }
 
 export function kitchenHandoverCopy(
   outcome: 'confirmed' | 'already' | 'need_otp' | 'waiting',
-  message?: string
+  handover?: { kind?: string; message?: string; returnVerified?: boolean }
 ): { title: string; body: string } {
+  const returning = handover?.kind === 'return';
   if (outcome === 'confirmed') {
+    if (returning) {
+      return {
+        title: 'Returned order received',
+        body: 'Bag received. Trip closed.',
+      };
+    }
     return {
       title: 'Handed to rider',
       body: 'The bag is with the rider. They mark Out for delivery in the rider app after pickup.',
     };
   }
   if (outcome === 'already') {
+    if (returning || handover?.returnVerified) {
+      return {
+        title: 'Bag received. Trip closed.',
+        body: 'This return is already confirmed.',
+      };
+    }
     return {
       title: 'Already handed over',
       body: 'This order is already with the rider. Out for delivery is set in the rider app, not kitchen.',
     };
   }
   if (outcome === 'need_otp') {
+    if (returning) {
+      return {
+        title: 'Receive returned order',
+        body: 'Check the bag, then Receive. The return OTP is on the ticket — not the customer drop OTP.',
+      };
+    }
     return {
       title: 'Enter pickup OTP',
       body: 'The rider is at the counter. Open the ticket and enter the 4-digit OTP to confirm handover.',
     };
   }
+  if (returning) {
+    return {
+      title: 'Rider is returning this order',
+      body:
+        handover?.message ||
+        'Rider could not deliver. They are bringing the food back. Wait until they arrive.',
+    };
+  }
   return {
     title: 'Wait for the rider',
     body:
-      message ||
+      handover?.message ||
       'The rider must tap Arrived at restaurant first. Then you can hand over the bag.',
   };
 }

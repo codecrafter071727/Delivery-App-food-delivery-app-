@@ -45,6 +45,8 @@ export type OwnerOrder = {
   delayMinutes?: number;
   acceptBy?: string;
   promisedReadyAt?: string;
+  /** Rider trip status from `delivery:status` (order status stays OFD until receive). */
+  deliveryTripStatus?: string;
 };
 
 export type DashboardInsight = {

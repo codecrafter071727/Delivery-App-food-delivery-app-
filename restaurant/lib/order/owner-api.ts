@@ -6,6 +6,7 @@ import type {
   OwnerOrderItem,
 } from '@/lib/dashboard/types';
 import { api } from '@/lib/api';
+import { PartnerApiError, getApiErrorCode } from '@/lib/errors';
 import { noteRateLimited } from '@/lib/live-query';
 
 /**
@@ -57,16 +58,34 @@ export const PREP_TIME_OPTIONS = [10, 15, 20, 25, 30, 40] as const;
 export const DELAY_EXTRA_OPTIONS = [5, 10, 15, 20] as const;
 
 export type KitchenHandoverMethod = 'otp' | 'tap';
+export type HandoverKind = 'pickup' | 'return';
 
 export type KitchenHandover = {
+  kind?: HandoverKind;
   available: boolean;
   confirmed: boolean;
+  /** GET 400 ILLEGAL_TRANSITION — not pickup-arrive and not an RTO return. */
+  hide?: boolean;
   status?: string;
-  otp?: string;
+  otp?: string | null;
   methods: KitchenHandoverMethod[];
   riderName?: string;
   message?: string;
+  pickupVerified: boolean;
+  returnArrived: boolean;
+  returnVerified: boolean;
+  rtoFee?: number | null;
+  pickupVerifiedAt?: string | null;
+  returnVerifiedAt?: string | null;
+  returnedAt?: string | null;
+  deliveryId?: string;
+  orderId?: string;
+  method?: KitchenHandoverMethod;
+  code?: string;
 };
+
+export type RestaurantHandoverDisplay = KitchenHandover;
+export type RestaurantHandoverConfirm = KitchenHandover;
 
 export type KitchenHandoverTryResult = {
   outcome: 'confirmed' | 'already' | 'need_otp' | 'waiting';
@@ -438,6 +457,9 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
     acceptBy: String(data.acceptBy ?? '').trim() || undefined,
     promisedReadyAt:
       String(data.promisedReadyAt ?? data.promisedAt ?? '').trim() || undefined,
+    deliveryTripStatus: optionalString(
+      data.deliveryTripStatus ?? data.tripStatus
+    ),
   };
 }
 
@@ -516,7 +538,7 @@ function errorMessage(error: unknown, fallback: string): Error {
     const suffix = body?.code
       ? ` (${body.code})`
       : ` (${error.response.status})`;
-    return new Error(`${detail}${suffix}`);
+    return new PartnerApiError(`${detail}${suffix}`, body?.code);
   }
   return error instanceof Error ? error : new Error(fallback);
 }
@@ -769,24 +791,73 @@ function mapMoneyOutcome(raw: unknown, fallbackId: string): KitchenMoneyOutcome 
   };
 }
 
+function optionalBool(...values: unknown[]): boolean {
+  for (const value of values) {
+    if (value === true) return true;
+    if (value === false) return false;
+  }
+  return false;
+}
+
+function inferHandoverKind(
+  rec: Record<string, unknown>,
+  status?: string
+): HandoverKind {
+  const raw = optionalString(rec.kind)?.toLowerCase();
+  if (raw === 'return' || raw === 'pickup') return raw;
+  const s = (status ?? '').toLowerCase();
+  if (
+    s.includes('return') ||
+    s === 'returning_to_restaurant' ||
+    s === 'returned'
+  ) {
+    return 'return';
+  }
+  return 'pickup';
+}
+
+function emptyHandover(
+  patch: Partial<KitchenHandover> = {}
+): KitchenHandover {
+  return {
+    available: false,
+    confirmed: false,
+    pickupVerified: false,
+    returnArrived: false,
+    returnVerified: false,
+    methods: [],
+    otp: null,
+    rtoFee: null,
+    ...patch,
+  };
+}
+
 function mapHandover(raw: unknown): KitchenHandover {
   const rec = extractOrder(raw);
-  const otp = optionalString(
-    rec.otp ?? rec.pickupOtp ?? rec.handoverOtp ?? rec.pin ?? rec.code
-  );
+  const otp =
+    optionalString(
+      rec.otp ?? rec.pickupOtp ?? rec.handoverOtp ?? rec.pin ?? rec.code
+    ) ?? null;
   const status = optionalString(
     rec.status ?? rec.riderStatus ?? rec.deliveryStatus ?? rec.handoverStatus
   );
-  const confirmed =
-    rec.confirmed === true ||
-    rec.handedOver === true ||
-    rec.completed === true ||
-    rec.pickupVerified === true;
-  const arrived =
-    rec.available === true ||
-    rec.arrived === true ||
-    Boolean(otp) ||
-    (status ?? '').toLowerCase().includes('arrived');
+  const kind = inferHandoverKind(rec, status);
+  const pickupVerified = optionalBool(
+    rec.pickupVerified,
+    rec.handedOver,
+    rec.completed
+  );
+  const returnArrived = optionalBool(rec.returnArrived);
+  const returnVerified = optionalBool(rec.returnVerified);
+  const confirmed = kind === 'return' ? returnVerified : pickupVerified;
+  const returnReady = kind === 'return' && returnArrived && !returnVerified;
+  const pickupReady =
+    kind === 'pickup' &&
+    !pickupVerified &&
+    (Boolean(otp) ||
+      rec.available === true ||
+      rec.arrived === true ||
+      (status ?? '').toLowerCase().includes('arrived'));
   const methods: KitchenHandoverMethod[] = [];
   const rawMethods = rec.methods ?? rec.allowedMethods ?? rec.handoverMethods;
   if (Array.isArray(rawMethods)) {
@@ -796,11 +867,13 @@ function mapHandover(raw: unknown): KitchenHandover {
     }
   }
   if (otp && !methods.includes('otp')) methods.push('otp');
-  if (arrived && !confirmed && !methods.length) {
+  if ((returnReady || pickupReady) && !methods.length) {
     methods.push('otp', 'tap');
   }
+  const rtoFee = optionalNumber(rec.rtoFee);
   return {
-    available: arrived && !confirmed,
+    kind,
+    available: returnReady || pickupReady,
     confirmed,
     status,
     otp,
@@ -813,6 +886,19 @@ function mapHandover(raw: unknown): KitchenHandover {
         rec.fullName
     ),
     message: optionalString(rec.message),
+    pickupVerified,
+    returnArrived,
+    returnVerified,
+    rtoFee: rtoFee ?? null,
+    pickupVerifiedAt: optionalString(rec.pickupVerifiedAt) ?? null,
+    returnVerifiedAt: optionalString(rec.returnVerifiedAt) ?? null,
+    returnedAt: optionalString(rec.returnedAt) ?? null,
+    deliveryId: optionalString(rec.deliveryId),
+    orderId: optionalString(rec.orderId),
+    method:
+      optionalString(rec.method) === 'tap' || optionalString(rec.method) === 'otp'
+        ? (optionalString(rec.method) as KitchenHandoverMethod)
+        : undefined,
   };
 }
 
@@ -1262,21 +1348,22 @@ export const restaurantOrderApi = {
       );
       return mapHandover(response.data?.data ?? response.data);
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const status = error.response?.status;
-        if (status === 400 || status === 404 || status === 409) {
-          const body = error.response?.data as
-            | { message?: string; code?: string }
-            | undefined;
-          return {
-            available: false,
-            confirmed: false,
-            methods: [],
-            message:
-              body?.message ||
-              'Rider has not arrived yet. OTP appears when they reach the store.',
-          };
-        }
+      const code = getApiErrorCode(error);
+      const status = axios.isAxiosError(error)
+        ? error.response?.status
+        : undefined;
+      if (code === 'ILLEGAL_TRANSITION') {
+        return emptyHandover({
+          hide: true,
+          code: 'ILLEGAL_TRANSITION',
+          message: 'Handover is not available for this step.',
+        });
+      }
+      if (code === 'DELIVERY_NOT_FOUND' || status === 404) {
+        return emptyHandover({
+          message: 'No rider assigned yet',
+          code: code ?? 'DELIVERY_NOT_FOUND',
+        });
       }
       throw errorMessage(error, 'Unable to load handover details');
     }
@@ -1288,19 +1375,24 @@ export const restaurantOrderApi = {
     orderId: string,
     input: { method: KitchenHandoverMethod; otp?: string }
   ): Promise<KitchenHandover> => {
+    const otp =
+      input.method === 'otp'
+        ? String(input.otp ?? '').replace(/\D/g, '').slice(0, 4)
+        : undefined;
+    if (input.method === 'otp' && otp?.length !== 4) {
+      throw new PartnerApiError('Enter the 4-digit OTP.', 'OTP_REQUIRED');
+    }
     try {
       const response = await api.put<Envelope<unknown>>(
         kitchenPath(
           restaurantId,
           `/orders/${encodeURIComponent(orderId)}/handover`
         ),
-        input.method === 'otp'
-          ? { method: 'otp', otp: String(input.otp ?? '').replace(/\D/g, '').slice(0, 4) }
-          : { method: 'tap' },
+        input.method === 'otp' ? { method: 'otp', otp } : { method: 'tap' },
         { timeout: REQUEST_TIMEOUT_MS }
       );
       const mapped = mapHandover(response.data?.data ?? response.data);
-      return { ...mapped, confirmed: true, available: false };
+      return mapped;
     } catch (error) {
       throw errorMessage(error, 'Unable to confirm handover');
     }
@@ -1315,7 +1407,19 @@ export const restaurantOrderApi = {
     orderId: string
   ): Promise<KitchenHandoverTryResult> => {
     const handover = await restaurantOrderApi.getHandover(restaurantId, orderId);
-    if (handover.confirmed) {
+    if (handover.hide) {
+      return { outcome: 'waiting', handover };
+    }
+    if (handover.kind === 'return') {
+      if (handover.returnVerified) {
+        return { outcome: 'already', handover };
+      }
+      if (!handover.returnArrived) {
+        return { outcome: 'waiting', handover };
+      }
+      return { outcome: 'need_otp', handover };
+    }
+    if (handover.confirmed || handover.pickupVerified) {
       return { outcome: 'already', handover };
     }
     if (handover.available && handover.methods.includes('tap')) {

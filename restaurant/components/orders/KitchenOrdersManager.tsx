@@ -31,6 +31,7 @@ import {
   AcceptPrepSheet,
   RejectOrderSheet,
 } from '@/components/orders/KitchenActionSheets';
+import { RiderHandoverCard } from '@/components/orders/KitchenTicketSheets';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import type { OwnerOrder } from '@/lib/dashboard/types';
@@ -42,6 +43,7 @@ import {
   useKitchenKds,
   useKitchenTicketMutations,
   useMyRestaurantId,
+  useOrderHandover,
   useOrderHistory,
   useRejectReasons,
   useRestaurantOrders,
@@ -55,6 +57,7 @@ import {
   money,
   nextKitchenAction,
   kitchenHandoverCopy,
+  kitchenHandoverErrorCopy,
   rejectBlockedReason,
   resolveOrderTotal,
   shortOrderId,
@@ -64,7 +67,13 @@ import {
 
 type BoardTab = 'board' | 'incoming' | 'scheduled' | 'history';
 type HistoryRange = 'today' | '7d' | '30d';
-type IncomingFilter = 'all' | 'pending' | 'preparing' | 'ready' | 'cancelled';
+type IncomingFilter =
+  | 'all'
+  | 'pending'
+  | 'preparing'
+  | 'ready'
+  | 'out_for_delivery'
+  | 'cancelled';
 
 const TABS: { key: BoardTab; label: string; Icon: typeof LayoutGrid }[] = [
   { key: 'board', label: 'Board', Icon: LayoutGrid },
@@ -78,6 +87,7 @@ const INCOMING_FILTERS: { key: IncomingFilter; label: string }[] = [
   { key: 'pending', label: 'New' },
   { key: 'preparing', label: 'Preparing' },
   { key: 'ready', label: 'Ready' },
+  { key: 'out_for_delivery', label: 'Out' },
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
@@ -147,6 +157,12 @@ function incomingMatches(order: OwnerOrder, filter: IncomingFilter) {
   }
   if (filter === 'preparing') {
     return order.status === 'accepted' || order.status === 'preparing';
+  }
+  if (filter === 'out_for_delivery') {
+    return (
+      order.status === 'out_for_delivery' ||
+      order.deliveryTripStatus === 'returning_to_restaurant'
+    );
   }
   if (filter === 'cancelled') {
     return order.status === 'cancelled' || order.status === 'rejected';
@@ -297,10 +313,7 @@ export function KitchenOrdersManager() {
     if (action.kind === 'handover') {
       try {
         const result = await ticket.handToRider.mutateAsync(order.id);
-        const copy = kitchenHandoverCopy(
-          result.outcome,
-          result.handover.message
-        );
+        const copy = kitchenHandoverCopy(result.outcome, result.handover);
         if (result.outcome === 'need_otp' || result.outcome === 'waiting') {
           Alert.alert(copy.title, copy.body);
           router.push(`/order/${encodeURIComponent(order.id)}`);
@@ -308,7 +321,7 @@ export function KitchenOrdersManager() {
         }
         Alert.alert(copy.title, copy.body);
       } catch (error) {
-        Alert.alert('Could not hand to rider', getApiErrorMessage(error));
+        Alert.alert('Could not hand to rider', kitchenHandoverErrorCopy(error));
       }
       return;
     }
@@ -756,11 +769,45 @@ function OrderTicket({
   onAction?: (action: KitchenTicketAction) => void;
   onReject?: () => void;
 }) {
-  const tone = statusTone(order.status);
+  const restaurantQuery = useMyRestaurantId();
+  const restaurantId = restaurantQuery.data?.id;
+  const handoverQuery = useOrderHandover(
+    restaurantId,
+    order.id,
+    history ? undefined : order
+  );
+  const ticket = useKitchenTicketMutations(restaurantId);
+  const tone = statusTone(
+    order.deliveryTripStatus === 'returning_to_restaurant'
+      ? 'returning_to_restaurant'
+      : order.status
+  );
   const action = history ? null : nextKitchenAction(order);
   const ActionIcon = action?.Icon;
   const windowLabel = acceptWindow(order.acceptBy);
   const showReject = Boolean(onReject && canReject(order) && !history);
+  const showHandover =
+    !history &&
+    order.fulfillmentTone === 'delivery' &&
+    !handoverQuery.data?.hide &&
+    (handoverQuery.data?.kind === 'return' ||
+      handoverQuery.data?.available ||
+      order.deliveryTripStatus === 'returning_to_restaurant');
+
+  const confirmHandover = async (method: 'otp' | 'tap', otp?: string) => {
+    try {
+      const next = await ticket.confirmHandover.mutateAsync({
+        orderId: order.id,
+        method,
+        otp,
+      });
+      if (next.kind === 'return' && next.returnVerified) {
+        Alert.alert('Returned order received', 'Bag received. Trip closed.');
+      }
+    } catch (error) {
+      Alert.alert('Could not confirm handover', kitchenHandoverErrorCopy(error));
+    }
+  };
 
   return (
     <Pressable onPress={onOpen} style={styles.ticket}>
@@ -810,13 +857,31 @@ function OrderTicket({
                 { color: order.isDelayed ? '#DC2626' : tone.color },
               ]}
             >
-              {order.isDelayed && order.delayMinutes
-                ? `Late +${order.delayMinutes}m`
-                : displayStatus(order.status)}
+              {order.deliveryTripStatus === 'returning_to_restaurant'
+                ? 'Rider returning'
+                : order.isDelayed && order.delayMinutes
+                  ? `Late +${order.delayMinutes}m`
+                  : displayStatus(order.status)}
             </Text>
           </View>
         </View>
       </View>
+
+      {showHandover ? (
+        <Pressable
+          onPress={(event) => event.stopPropagation()}
+        >
+          <RiderHandoverCard
+            handover={handoverQuery.data}
+            loading={handoverQuery.isLoading}
+            error={handoverQuery.error}
+            busy={ticket.confirmHandover.isPending}
+            onRetry={() => void handoverQuery.refetch()}
+            onConfirmOtp={(otp) => void confirmHandover('otp', otp)}
+            onConfirmTap={() => void confirmHandover('tap')}
+          />
+        </Pressable>
+      ) : null}
 
       {showReject || action ? (
         <View style={styles.actions}>

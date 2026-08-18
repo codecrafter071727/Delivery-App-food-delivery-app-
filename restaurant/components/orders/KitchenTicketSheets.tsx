@@ -19,7 +19,7 @@ import {
   type KitchenHandover,
   type KotPrintResult,
 } from '@/lib/order/owner-api';
-import { money } from '@/lib/order/ui';
+import { kitchenHandoverErrorCopy, money } from '@/lib/order/ui';
 
 const DELAY_REASONS = [
   'Rush hour',
@@ -420,12 +420,15 @@ export function RiderHandoverCard({
   const pin = (handover?.otp ?? typed).replace(/\D/g, '').slice(0, 4);
   const canOtp = Boolean(handover?.methods.includes('otp') || handover?.otp);
   const canTap = Boolean(handover?.methods.includes('tap'));
+  const returning = handover?.kind === 'return';
+
+  if (handover?.hide) return null;
 
   if (loading && !handover) {
     return (
       <View style={styles.handoverCard}>
         <ActivityIndicator color={authTheme.brand} />
-        <Text style={styles.copy}>Checking if the rider has arrived…</Text>
+        <Text style={styles.copy}>Checking rider handover…</Text>
       </View>
     );
   }
@@ -433,8 +436,8 @@ export function RiderHandoverCard({
   if (error && !handover) {
     return (
       <View style={[styles.handoverCard, styles.handoverWait]}>
-        <Text style={styles.title}>Couldn’t load pickup PIN</Text>
-        <Text style={styles.error}>{String(getHandoverError(error))}</Text>
+        <Text style={styles.title}>Couldn’t load handover</Text>
+        <Text style={styles.error}>{kitchenHandoverErrorCopy(error)}</Text>
         <Pressable onPress={onRetry} style={styles.secondary}>
           <Text style={styles.secondaryText}>Retry</Text>
         </Pressable>
@@ -442,7 +445,21 @@ export function RiderHandoverCard({
     );
   }
 
-  if (handover?.confirmed) {
+  if (returning && handover?.returnVerified) {
+    return (
+      <View style={[styles.handoverCard, styles.handoverDone]}>
+        <Text style={styles.handoverEyebrow}>BAG RECEIVED</Text>
+        <Text style={styles.title}>Bag received. Trip closed.</Text>
+        <Text style={styles.copy}>
+          {handover.riderName
+            ? `${handover.riderName} returned this order.`
+            : 'Returned order received.'}
+        </Text>
+      </View>
+    );
+  }
+
+  if (!returning && handover?.confirmed) {
     return (
       <View style={[styles.handoverCard, styles.handoverDone]}>
         <Text style={styles.handoverEyebrow}>HANDED TO RIDER</Text>
@@ -456,6 +473,25 @@ export function RiderHandoverCard({
     );
   }
 
+  if (returning && !handover?.returnArrived) {
+    return (
+      <View style={[styles.handoverCard, styles.handoverWait]}>
+        <Text style={styles.handoverEyebrow}>RIDER IS RETURNING</Text>
+        <Text style={styles.title}>Rider is returning this order</Text>
+        <Text style={styles.copy}>
+          Rider could not deliver. They are bringing the food back. Wait until
+          they arrive.
+        </Text>
+        {handover?.rtoFee != null && handover.rtoFee > 0 ? (
+          <Text style={styles.copy}>
+            Rider RTO fee ₹{Math.round(handover.rtoFee)} (platform pays the
+            rider — do not collect cash).
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+
   if (!handover?.available) {
     return (
       <View style={[styles.handoverCard, styles.handoverWait]}>
@@ -465,6 +501,71 @@ export function RiderHandoverCard({
           {handover?.message ||
             'The 4-digit PIN appears here only after the rider taps Arrived at store. Never invent a PIN.'}
         </Text>
+      </View>
+    );
+  }
+
+  if (returning) {
+    return (
+      <View style={[styles.handoverCard, styles.handoverReady]}>
+        <Text style={styles.handoverEyebrow}>RECEIVE RETURNED ORDER</Text>
+        <Text style={styles.title}>
+          {handover.riderName
+            ? `${handover.riderName} is back at the store`
+            : 'Check the bag, then Receive'}
+        </Text>
+        <Text style={styles.copy}>
+          {handover.otp
+            ? `Check the bag, then Receive. OTP ${handover.otp}.`
+            : 'Ask the rider for the kitchen return OTP — not the customer drop OTP.'}
+        </Text>
+        {handover.otp ? (
+          <View style={styles.pinRow}>
+            {handover.otp
+              .replace(/\D/g, '')
+              .slice(0, 4)
+              .padEnd(4, ' ')
+              .split('')
+              .map((digit, index) => (
+                <View key={`${digit}-${index}`} style={styles.pinBox}>
+                  <Text style={styles.pinDigit}>{digit.trim() || '·'}</Text>
+                </View>
+              ))}
+          </View>
+        ) : (
+          <TextInput
+            autoFocus
+            keyboardType="number-pad"
+            maxLength={4}
+            onChangeText={(value) => setTyped(value.replace(/\D/g, '').slice(0, 4))}
+            placeholder="4-digit return OTP"
+            placeholderTextColor={authTheme.textDim}
+            style={styles.pinInput}
+            value={typed}
+          />
+        )}
+        {canTap ? (
+          <Pressable
+            disabled={busy}
+            onPress={onConfirmTap}
+            style={[styles.primary, busy && styles.disabled]}
+          >
+            {busy ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.primaryText}>Tap receive</Text>
+            )}
+          </Pressable>
+        ) : null}
+        {canOtp ? (
+          <Pressable
+            disabled={busy || pin.length !== 4}
+            onPress={() => onConfirmOtp(pin)}
+            style={[styles.secondary, (busy || pin.length !== 4) && styles.disabled]}
+          >
+            <Text style={styles.secondaryText}>Confirm OTP</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
@@ -517,22 +618,17 @@ export function RiderHandoverCard({
           {busy ? (
             <ActivityIndicator color="#FFFFFF" size="small" />
           ) : (
-            <Text style={styles.primaryText}>Confirm with PIN</Text>
+            <Text style={styles.primaryText}>Confirm OTP</Text>
           )}
         </Pressable>
       ) : null}
       {canTap ? (
         <Pressable disabled={busy} onPress={onConfirmTap} style={styles.secondary}>
-          <Text style={styles.secondaryText}>Confirm without PIN</Text>
+          <Text style={styles.secondaryText}>Tap handover</Text>
         </Pressable>
       ) : null}
     </View>
   );
-}
-
-function getHandoverError(error: unknown) {
-  if (error instanceof Error && error.message) return error.message;
-  return 'Delivery service is unavailable. Try again.';
 }
 
 const styles = StyleSheet.create({

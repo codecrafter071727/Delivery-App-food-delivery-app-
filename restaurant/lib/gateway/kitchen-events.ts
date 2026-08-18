@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { OwnerOrder } from '@/lib/dashboard/types';
 import { notificationKeys } from '@/lib/notification/hooks';
 import { restaurantOrderKeys, syncDashboardFromOrders } from '@/lib/order/hooks';
+import type { KitchenKdsBoard } from '@/lib/order/owner-api';
 
 export type KitchenInboundEvent =
   | 'kitchen:order-new'
@@ -137,7 +138,18 @@ export function applyKitchenSocketEvent(
     return;
   }
 
-  if (event === 'chat:new-message' || event === 'typing') return;
+  if (event === 'chat:new-message') {
+    const chatOrderId = pickString(asRecord(payload), ['orderId', 'id']);
+    if (chatOrderId) {
+      void queryClient.invalidateQueries({
+        queryKey: restaurantOrderKeys.handover(restaurantId, chatOrderId),
+        refetchType: 'active',
+      });
+    }
+    return;
+  }
+
+  if (event === 'typing') return;
 
   const record = asRecord(payload);
   const orderId = pickString(record, ['orderId', 'id', '_id']);
@@ -173,6 +185,50 @@ export function applyKitchenSocketEvent(
 
   if (event === 'delivery:status') {
     if (!orderId) return;
+    const tripStatus = pickString(record, ['status', 'deliveryStatus']);
+    if (tripStatus) {
+      patchList(queryClient, restaurantId, orderId, {
+        deliveryTripStatus: tripStatus,
+      });
+      const kdsKey = restaurantOrderKeys.kds(restaurantId);
+      queryClient.setQueryData(
+        kdsKey,
+        (board: KitchenKdsBoard | undefined) => {
+          if (!board) return board;
+          const list = queryClient.getQueryData<OwnerOrder[]>(
+            restaurantOrderKeys.list(restaurantId)
+          );
+          const all = [
+            ...board.new,
+            ...board.preparing,
+            ...board.ready,
+            ...board.delayed,
+          ];
+          const found =
+            all.find((row) => row.id === orderId) ??
+            list?.find((row) => row.id === orderId);
+          const drop = (rows: OwnerOrder[]) =>
+            rows.filter((row) => row.id !== orderId);
+          const next: KitchenKdsBoard = {
+            new: drop(board.new),
+            preparing: drop(board.preparing),
+            ready: drop(board.ready),
+            delayed: drop(board.delayed),
+          };
+          if (tripStatus === 'returning_to_restaurant' && found) {
+            next.ready.unshift({
+              ...found,
+              deliveryTripStatus: tripStatus,
+            });
+            return next;
+          }
+          if (tripStatus === 'returned' || tripStatus === 'failed') {
+            return next;
+          }
+          return board;
+        }
+      );
+    }
     void queryClient.invalidateQueries({
       queryKey: ['delivery-partners', 'order', orderId, 'partner'],
     });
