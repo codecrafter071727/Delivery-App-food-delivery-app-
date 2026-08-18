@@ -437,14 +437,16 @@ export function DeliveryTripMap({
           </Text>
         ) : null}
         <Text style={styles.etaHint} numberOfLines={1}>
-          {hint ||
-            (navRoute?.leg === 'return'
-              ? 'Return to restaurant'
+          {hint && !/head to destination/i.test(hint)
+            ? hint
+            : navRoute?.leg === 'return'
+              ? `Return to ${pickupLabel}`
               : navRoute?.leg === 'drop' ||
                   status === 'picked_up' ||
-                  status === 'out_for_delivery'
-                ? 'Navigate to customer'
-                : 'Navigate to restaurant')}
+                  status === 'out_for_delivery' ||
+                  status === 'at_customer'
+                ? `Heading to ${dropLabel}`
+                : `Heading to ${pickupLabel}`}
         </Text>
         <Text style={styles.etaValue}>
           {formatEtaSeconds(etaSeconds)}
@@ -463,17 +465,15 @@ export function DeliveryTripMap({
           style={[styles.navBtn, fill && styles.navBtnFill]}
         >
           <Navigation color="#fff" size={14} />
-          <Text style={styles.navBtnText}>
+          <Text style={styles.navBtnText} numberOfLines={1}>
             Navigate to{' '}
             {navRoute?.leg === 'return' || status === 'returning_to_restaurant'
-              ? 'restaurant'
+              ? delivery.restaurantName || 'restaurant'
               : status === 'picked_up' ||
                   status === 'out_for_delivery' ||
                   status === 'at_customer'
-                ? 'customer'
-                : status === 'accepted' || status === 'arrived'
-                  ? 'restaurant'
-                  : 'destination'}
+                ? delivery.customerName || 'customer'
+                : delivery.restaurantName || 'restaurant'}
           </Text>
         </Pressable>
       ) : null}

@@ -1,4 +1,13 @@
-import { ChevronDown, MessageCircle, Phone } from 'lucide-react-native';
+import {
+  ChevronDown,
+  MapPin,
+  MessageCircle,
+  Package,
+  Phone,
+  Store,
+  User,
+  Wallet,
+} from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -22,14 +31,16 @@ import {
 } from '@/components/delivery/orders/TripLifecycleBar';
 import { fonts } from '@/constants/typography';
 import {
-  deliveryStatusLabel,
   formatDeliveryAddress,
   isAssignableStatus,
   normalizeDeliveryStatus,
+  tripOrderCode,
 } from '@/lib/delivery-partner/api';
+import { isCodPayment } from '@/lib/delivery-partner/finance-types';
 import {
   useActiveDeliveries,
   useActiveDelivery,
+  useDeliveryDetail,
   useDeliveryOrderMutations,
   useTripNavRoute,
 } from '@/lib/delivery-partner/hooks';
@@ -81,7 +92,30 @@ function phaseCopy(status: string) {
   if (s === 'returning_to_restaurant') {
     return { kicker: 'Return', title: 'Return to restaurant' };
   }
-  return { kicker: 'Trip', title: deliveryStatusLabel(s) };
+  return { kicker: 'Trip', title: s.replace(/_/g, ' ') };
+}
+
+function mergeDelivery(
+  base: PartnerDelivery,
+  extra?: PartnerDelivery | null
+): PartnerDelivery {
+  if (!extra) return base;
+  return {
+    ...base,
+    ...extra,
+    restaurantName: extra.restaurantName || base.restaurantName,
+    restaurantPhone: extra.restaurantPhone || base.restaurantPhone,
+    restaurantAddress: extra.restaurantAddress ?? base.restaurantAddress,
+    customerName: extra.customerName || base.customerName,
+    customerPhone: extra.customerPhone || base.customerPhone,
+    deliveryAddress: extra.deliveryAddress ?? base.deliveryAddress,
+    itemsSummary: extra.itemsSummary || base.itemsSummary,
+    itemCount: extra.itemCount ?? base.itemCount,
+    amount: extra.amount ?? base.amount,
+    earning: extra.earning ?? base.earning,
+    paymentMethod: extra.paymentMethod || base.paymentMethod,
+    notes: extra.notes || base.notes,
+  };
 }
 
 /**
@@ -148,7 +182,7 @@ export function ActiveTripSession() {
 }
 
 function ActiveTripBody({
-  delivery,
+  delivery: seed,
   stack,
   onSelect,
   onMinimize,
@@ -159,6 +193,8 @@ function ActiveTripBody({
   onMinimize: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const detail = useDeliveryDetail(seed.id, true);
+  const delivery = mergeDelivery(seed, detail.data);
   const status = normalizeDeliveryStatus(delivery.status);
   const phase = tripPhase(status);
   const copy = phaseCopy(status);
@@ -223,8 +259,24 @@ function ActiveTripBody({
 
   const geo = tracking?.geofence;
   const gate = tripGeofenceState(status, geo);
-  const pickupLabel = formatDeliveryAddress(delivery.restaurantAddress);
-  const dropLabel = formatDeliveryAddress(delivery.deliveryAddress);
+  const pickupLabel =
+    formatDeliveryAddress(delivery.restaurantAddress) ||
+    tracking?.pickup?.address?.trim() ||
+    '';
+  const dropLabel =
+    formatDeliveryAddress(delivery.deliveryAddress) ||
+    tracking?.drop?.address?.trim() ||
+    '';
+  const restaurantName =
+    delivery.restaurantName?.trim() ||
+    delivery.restaurantAddress?.label?.trim() ||
+    tracking?.pickup?.address?.split(',')[0]?.trim() ||
+    'Restaurant';
+  const customerName =
+    delivery.customerName?.trim() ||
+    delivery.deliveryAddress?.label?.trim() ||
+    tracking?.drop?.address?.split(',')[0]?.trim() ||
+    'Customer';
   const routePoints = (
     tripRouteQuery.data?.points ??
     routeQuery.data?.points ??
@@ -252,6 +304,7 @@ function ActiveTripBody({
     void etaQuery.refetch();
     void liveLocationQuery.refetch();
     void historyQuery.refetch();
+    void detail.refetch();
   };
 
   const placeCall = async (target: 'customer' | 'restaurant') => {
@@ -277,23 +330,44 @@ function ActiveTripBody({
   };
 
   const showRestaurant = phase === 'restaurant' || phase === 'return';
-  const stopTitle = showRestaurant
-    ? delivery.restaurantName || 'Restaurant'
-    : delivery.customerName || 'Customer';
+  const stopTitle = showRestaurant ? restaurantName : customerName;
   const stopAddr = showRestaurant ? pickupLabel : dropLabel;
+  const nextTitle = showRestaurant ? customerName : restaurantName;
+  const nextAddr = showRestaurant ? dropLabel : pickupLabel;
   const stopCall: 'restaurant' | 'customer' = showRestaurant
     ? 'restaurant'
     : 'customer';
-  const sheetMax = Math.round(Dimensions.get('window').height * 0.5);
+  const sheetMax = Math.round(Dimensions.get('window').height * 0.56);
   const earn = money(delivery.earning, delivery.currency);
   const amount = money(delivery.amount, delivery.currency);
+  const payLabel = isCodPayment(delivery.paymentMethod)
+    ? 'COD'
+    : delivery.paymentMethod
+      ? 'Prepaid'
+      : null;
+  const orderCode = tripOrderCode(delivery);
+  const itemLine = delivery.itemsSummary
+    ? `${delivery.itemCount ? `${delivery.itemCount} item${delivery.itemCount === 1 ? '' : 's'} · ` : ''}${delivery.itemsSummary}`
+    : delivery.itemCount
+      ? `${delivery.itemCount} item${delivery.itemCount === 1 ? '' : 's'}`
+      : null;
 
   return (
     <View style={styles.root}>
       <View style={styles.mapPane}>
         <DeliveryTripMap
           fill
-          delivery={delivery}
+          delivery={{
+            ...delivery,
+            restaurantName,
+            customerName,
+            restaurantAddress: delivery.restaurantAddress ?? {
+              line1: pickupLabel || undefined,
+            },
+            deliveryAddress: delivery.deliveryAddress ?? {
+              line1: dropLabel || undefined,
+            },
+          }}
           tracking={tracking}
           eta={etaQuery.data}
           liveLocation={liveLocationQuery.data}
@@ -308,22 +382,19 @@ function ActiveTripBody({
             setTrackingPatch((prev) => ({ ...prev, ...patch }))
           }
         />
-        <Pressable
-          onPress={onMinimize}
-          style={[styles.minimize, { top: Math.max(insets.top, 8) + 8 }]}
-          hitSlop={8}
-        >
-          <ChevronDown color="#111827" size={20} />
-        </Pressable>
       </View>
 
       <View
         style={[
           styles.sheet,
-          { maxHeight: sheetMax, paddingBottom: Math.max(insets.bottom, 12) },
+          { maxHeight: sheetMax, paddingBottom: Math.max(insets.bottom, 14) },
         ]}
       >
-        <View style={styles.handle} />
+        <Pressable onPress={onMinimize} hitSlop={10} style={styles.handleHit}>
+          <View style={styles.handle} />
+          <ChevronDown color="#9CA3AF" size={16} />
+        </Pressable>
+
         {stack.length > 1 ? (
           <ScrollView
             horizontal
@@ -338,8 +409,10 @@ function ActiveTripBody({
                   onPress={() => onSelect(row.id)}
                   style={[styles.stackChip, on && styles.stackChipOn]}
                 >
-                  <Text style={[styles.stackChipText, on && styles.stackChipTextOn]}>
-                    {index + 1}. {row.restaurantName || row.orderNumber || 'Trip'}
+                  <Text
+                    style={[styles.stackChipText, on && styles.stackChipTextOn]}
+                  >
+                    {index + 1}. {row.restaurantName || tripOrderCode(row)}
                   </Text>
                 </Pressable>
               );
@@ -355,20 +428,24 @@ function ActiveTripBody({
           <View style={styles.phaseRow}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.kicker}>{copy.kicker}</Text>
-              <Text style={styles.phaseTitle}>{copy.title}</Text>
-            </View>
-            <View style={styles.statusPill}>
-              <Text style={styles.statusPillText}>
-                {deliveryStatusLabel(status)}
+              <Text style={styles.phaseTitle} numberOfLines={1}>
+                {stopTitle}
               </Text>
+              <Text style={styles.phaseHint}>{copy.title}</Text>
             </View>
+            {earn ? (
+              <View style={styles.earnPill}>
+                <Text style={styles.earnKicker}>Est. earn</Text>
+                <Text style={styles.earnValue}>{earn}</Text>
+              </View>
+            ) : null}
           </View>
 
-          <Text style={styles.orderNo}>
-            #{delivery.orderNumber || delivery.orderId || delivery.id.slice(-6)}
-            {earn ? ` · Est. ${earn}` : ''}
-            {amount ? ` · ${amount}` : ''}
-          </Text>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaChip}>#{orderCode}</Text>
+            {payLabel ? <Text style={styles.metaChip}>{payLabel}</Text> : null}
+            {amount ? <Text style={styles.metaChip}>{amount}</Text> : null}
+          </View>
 
           {trackingBusy ? (
             <View style={styles.banner}>
@@ -387,28 +464,44 @@ function ActiveTripBody({
           ) : null}
 
           <View style={styles.stopCard} key={phase}>
-            <View
-              style={[
-                styles.stopDot,
-                !showRestaurant && styles.stopDotDrop,
-              ]}
-            />
+            <View style={styles.stopIconWrap}>
+              {showRestaurant ? (
+                <Store color="#EA4B14" size={18} />
+              ) : (
+                <User color="#2563EB" size={18} />
+              )}
+            </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.stopLabel}>
-                {showRestaurant ? 'Restaurant' : 'Customer'}
+                {showRestaurant ? 'Pickup restaurant' : 'Drop customer'}
               </Text>
-              <Text style={styles.stopTitle} numberOfLines={1}>
+              <Text style={styles.stopTitle} numberOfLines={2}>
                 {stopTitle}
               </Text>
               {stopAddr ? (
-                <Text style={styles.stopAddr} numberOfLines={2}>
-                  {stopAddr}
+                <View style={styles.addrRow}>
+                  <MapPin color="#9CA3AF" size={13} />
+                  <Text style={styles.stopAddr}>{stopAddr}</Text>
+                </View>
+              ) : detail.isLoading ? (
+                <Text style={styles.stopAddr}>Loading address…</Text>
+              ) : (
+                <Text style={styles.stopAddrMuted}>
+                  Address will show when the trip pin is ready. Use Navigate on
+                  the map.
                 </Text>
+              )}
+              {itemLine ? (
+                <View style={styles.addrRow}>
+                  <Package color="#9CA3AF" size={13} />
+                  <Text style={styles.items} numberOfLines={2}>
+                    {itemLine}
+                  </Text>
+                </View>
               ) : null}
-              {delivery.itemsSummary ? (
-                <Text style={styles.items} numberOfLines={2}>
-                  {delivery.itemCount ? `${delivery.itemCount} items · ` : ''}
-                  {delivery.itemsSummary}
+              {delivery.notes ? (
+                <Text style={styles.notes} numberOfLines={2}>
+                  Note: {delivery.notes}
                 </Text>
               ) : null}
             </View>
@@ -420,10 +513,27 @@ function ActiveTripBody({
             </Pressable>
           </View>
 
+          {nextAddr || nextTitle ? (
+            <View style={styles.nextCard}>
+              <Text style={styles.nextKicker}>
+                {showRestaurant ? 'Then drop' : 'Picked up from'}
+              </Text>
+              <Text style={styles.nextTitle} numberOfLines={1}>
+                {nextTitle}
+              </Text>
+              {nextAddr ? (
+                <Text style={styles.nextAddr} numberOfLines={2}>
+                  {nextAddr}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
           <TripLifecycleBar
             delivery={delivery}
             geoBlocked={gate.blocked}
             geoHint={gate.hint}
+            hideCallActions
           />
 
           <View style={styles.auxRow}>
@@ -431,8 +541,18 @@ function ActiveTripBody({
               <MessageCircle color="#EA4B14" size={16} />
               <Text style={styles.auxText}>Chat</Text>
             </Pressable>
+            <Pressable
+              onPress={() => void placeCall(showRestaurant ? 'customer' : 'restaurant')}
+              style={styles.auxBtn}
+            >
+              <Phone color="#EA4B14" size={16} />
+              <Text style={styles.auxText}>
+                {showRestaurant ? 'Call customer' : 'Call store'}
+              </Text>
+            </Pressable>
             <Pressable onPress={() => setDetailsOpen(true)} style={styles.auxBtn}>
-              <Text style={styles.auxText}>Trip details</Text>
+              <Wallet color="#EA4B14" size={16} />
+              <Text style={styles.auxText}>Details</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -460,45 +580,34 @@ function ActiveTripBody({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E8EAED',
   },
   mapPane: {
     flex: 1,
-  },
-  minimize: {
-    position: 'absolute',
-    left: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
   },
   sheet: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingTop: 8,
-    marginTop: -18,
-    elevation: 16,
+    paddingTop: 4,
+    marginTop: -22,
+    elevation: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -6 },
+  },
+  handleHit: {
+    alignItems: 'center',
+    paddingTop: 6,
+    paddingBottom: 4,
   },
   handle: {
-    alignSelf: 'center',
     width: 42,
     height: 5,
     borderRadius: 99,
     backgroundColor: '#E5E7EB',
-    marginBottom: 8,
+    marginBottom: 2,
   },
   stackRow: {
     paddingHorizontal: 16,
@@ -525,7 +634,7 @@ const styles = StyleSheet.create({
   sheetBody: {
     paddingHorizontal: 16,
     paddingBottom: 12,
-    gap: 12,
+    gap: 10,
   },
   phaseRow: {
     flexDirection: 'row',
@@ -544,24 +653,48 @@ const styles = StyleSheet.create({
     fontFamily: fonts.extraBold,
     fontSize: 22,
     color: '#111827',
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
   },
-  statusPill: {
-    borderRadius: 999,
-    backgroundColor: '#FFF7ED',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  statusPillText: {
-    fontFamily: fonts.bold,
-    fontSize: 11,
-    color: '#C2410C',
-  },
-  orderNo: {
+  phaseHint: {
+    marginTop: 2,
     fontFamily: fonts.medium,
     fontSize: 13,
     color: '#6B7280',
-    marginTop: -4,
+  },
+  earnPill: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: 'flex-end',
+  },
+  earnKicker: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    color: '#047857',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  earnValue: {
+    marginTop: 1,
+    fontFamily: fonts.extraBold,
+    fontSize: 18,
+    color: '#047857',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  metaChip: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: '#374151',
+    backgroundColor: '#F3F4F6',
+    overflow: 'hidden',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   banner: {
     flexDirection: 'row',
@@ -581,54 +714,103 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
     padding: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#E5E7EB',
   },
-  stopDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#EA4B14',
-    marginTop: 5,
-  },
-  stopDotDrop: {
-    backgroundColor: '#2563EB',
+  stopIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
   },
   stopLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 11,
     color: '#9CA3AF',
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   stopTitle: {
     marginTop: 2,
-    fontFamily: fonts.bold,
-    fontSize: 16,
+    fontFamily: fonts.extraBold,
+    fontSize: 17,
     color: '#111827',
+    letterSpacing: -0.3,
+  },
+  addrRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginTop: 6,
   },
   stopAddr: {
-    marginTop: 4,
+    flex: 1,
     fontFamily: fonts.medium,
     fontSize: 13,
     color: '#4B5563',
     lineHeight: 18,
   },
-  items: {
+  stopAddrMuted: {
     marginTop: 6,
     fontFamily: fonts.medium,
     fontSize: 12,
-    color: '#6B7280',
+    color: '#9CA3AF',
+    lineHeight: 17,
+  },
+  items: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: '#4B5563',
+    lineHeight: 18,
+  },
+  notes: {
+    marginTop: 6,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: '#B45309',
   },
   callBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  nextCard: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  nextKicker: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    color: '#C2410C',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  nextTitle: {
+    marginTop: 2,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    color: '#111827',
+  },
+  nextAddr: {
+    marginTop: 2,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: '#6B7280',
   },
   auxRow: {
     flexDirection: 'row',
@@ -646,7 +828,7 @@ const styles = StyleSheet.create({
   },
   auxText: {
     fontFamily: fonts.bold,
-    fontSize: 13,
+    fontSize: 12,
     color: '#EA4B14',
   },
 });

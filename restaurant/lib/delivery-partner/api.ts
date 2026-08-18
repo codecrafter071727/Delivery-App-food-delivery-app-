@@ -149,25 +149,50 @@ function mapLivePoint(raw: unknown): PartnerLivePoint | undefined {
 }
 
 function mapAddress(raw: unknown): PartnerDeliveryAddress | undefined {
-  const record = asRecord(raw);
-  if (!Object.keys(record).length) {
-    if (typeof raw === 'string' && raw.trim()) {
-      return { line1: raw.trim() };
-    }
-    return undefined;
+  if (typeof raw === 'string' && raw.trim()) {
+    return { line1: raw.trim() };
   }
+  const record = asRecord(raw);
+  if (!Object.keys(record).length) return undefined;
+
+  const nestedAddr = record.address;
+  if (nestedAddr && typeof nestedAddr === 'object' && !Array.isArray(nestedAddr)) {
+    const inner = mapAddress(nestedAddr);
+    const lat =
+      pickNumber(record, ['lat', 'latitude']) ?? inner?.lat;
+    const lng =
+      pickNumber(record, ['lng', 'longitude', 'lon']) ?? inner?.lng;
+    if (!inner && lat == null && lng == null) return undefined;
+    return {
+      label: inner?.label ?? pickString(record, ['label', 'name', 'title']),
+      line1: inner?.line1,
+      line2: inner?.line2,
+      city: inner?.city,
+      pincode: inner?.pincode,
+      lat,
+      lng,
+    };
+  }
+
   const lat = pickNumber(record, ['lat', 'latitude']);
   const lng = pickNumber(record, ['lng', 'longitude', 'lon']);
+  const line1 =
+    pickString(record, [
+      'line1',
+      'addressLine1',
+      'street',
+      'fullAddress',
+      'formattedAddress',
+      'formatted',
+      'displayAddress',
+      'text',
+      'address',
+    ]) ?? undefined;
+  const label = pickString(record, ['label', 'name', 'title', 'restaurantName']);
+  if (!line1 && !label && lat == null && lng == null) return undefined;
   return {
-    label: pickString(record, ['label', 'name', 'title']),
-    line1:
-      pickString(record, [
-        'line1',
-        'addressLine1',
-        'street',
-        'fullAddress',
-        'address',
-      ]) ?? undefined,
+    label,
+    line1,
     line2: pickString(record, ['line2', 'addressLine2', 'area', 'locality']),
     city: pickString(record, ['city']),
     pincode: pickString(record, ['pincode', 'pin', 'postalCode', 'zip']),
@@ -333,10 +358,16 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
   );
   const source = Object.keys(nested).length ? nested : record;
   const restaurant = asRecord(
-    source.restaurant ?? source.outlet ?? source.store
+    source.restaurant ?? source.outlet ?? source.store ?? source.merchant
   );
   const customer = asRecord(
-    source.customer ?? source.user ?? source.buyer
+    source.customer ?? source.user ?? source.buyer ?? source.receiver
+  );
+  const pickupStop = asRecord(
+    source.pickup ?? source.pickupStop ?? source.pickupLocation
+  );
+  const dropStop = asRecord(
+    source.drop ?? source.dropStop ?? source.dropLocation
   );
   const items =
     source.items ?? source.orderItems ?? source.cartItems ?? source.lineItems;
@@ -348,13 +379,17 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
     source.restaurantAddress ??
       source.pickupAddress ??
       restaurant.address ??
-      restaurant.location
+      restaurant.location ??
+      pickupStop.address ??
+      pickupStop
   );
   const deliveryAddress = mapAddress(
     source.deliveryAddress ??
       source.dropAddress ??
       source.shippingAddress ??
-      customer.address
+      customer.address ??
+      dropStop.address ??
+      dropStop
   );
   const customerLiveLocation =
     mapLivePoint(
@@ -382,15 +417,36 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
       pickString(source, ['status', 'deliveryStatus', 'state']) ?? 'assigned'
     ),
     restaurantName:
-      pickString(source, ['restaurantName', 'outletName', 'storeName']) ||
-      pickString(restaurant, ['name', 'restaurantName']),
+      pickString(source, [
+        'restaurantName',
+        'outletName',
+        'storeName',
+        'pickupName',
+        'merchantName',
+      ]) ||
+      pickString(restaurant, [
+        'name',
+        'restaurantName',
+        'title',
+        'displayName',
+        'brandName',
+      ]) ||
+      pickString(pickupStop, ['name', 'label', 'title', 'restaurantName']) ||
+      restaurantAddress?.label,
     restaurantPhone:
       pickString(source, ['restaurantPhone']) ||
-      pickString(restaurant, ['phone', 'mobile', 'contactPhone']),
+      pickString(restaurant, ['phone', 'mobile', 'contactPhone']) ||
+      pickString(pickupStop, ['phone', 'mobile']),
     restaurantAddress,
     customerName:
-      pickString(source, ['customerName', 'receiverName']) ||
-      pickString(customer, ['name', 'fullName', 'firstName']),
+      pickString(source, [
+        'customerName',
+        'receiverName',
+        'dropName',
+      ]) ||
+      pickString(customer, ['name', 'fullName', 'firstName']) ||
+      pickString(dropStop, ['name', 'label', 'title']) ||
+      deliveryAddress?.label,
     customerPhone:
       pickString(source, ['customerPhone', 'receiverPhone']) ||
       pickString(customer, ['phone', 'mobile']),
@@ -2462,9 +2518,31 @@ export function formatDeliveryAddress(
   address?: PartnerDeliveryAddress | null
 ): string {
   if (!address) return '';
-  return [address.line1, address.line2, address.city, address.pincode]
-    .filter(Boolean)
-    .join(', ');
+  const parts = [address.line1, address.line2, address.city, address.pincode]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part));
+  const label = address.label?.trim();
+  if (label && !parts.some((part) => part === label || part.includes(label))) {
+    parts.unshift(label);
+  }
+  return [...new Set(parts)].join(', ');
+}
+
+export function tripOrderCode(delivery: {
+  orderNumber?: string;
+  orderId?: string;
+  id: string;
+}): string {
+  const numbered = delivery.orderNumber?.trim();
+  if (
+    numbered &&
+    numbered.length <= 14 &&
+    !/^[a-f0-9]{24}$/i.test(numbered)
+  ) {
+    return numbered.replace(/^#/, '');
+  }
+  const raw = (delivery.orderId || delivery.id).replace(/^#/, '');
+  return raw.slice(-6).toUpperCase();
 }
 
 export function deliveryStatusLabel(status: string): string {

@@ -54,6 +54,8 @@ type Props = {
   delivery: PartnerDelivery;
   geoBlocked?: boolean;
   geoHint?: string | null;
+  /** Session sheet already has call on the stop card. */
+  hideCallActions?: boolean;
 };
 
 type TripGeo = {
@@ -190,7 +192,12 @@ export function TripLifecycleWithGeo({
  * Swiggy/Zomato-style stop actions after accept: restaurant wait/pickup,
  * on-the-way, drop OTP/POD/signature/deliver, plus cancel + report issue.
  */
-export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
+export function TripLifecycleBar({
+  delivery,
+  geoBlocked,
+  geoHint,
+  hideCallActions = false,
+}: Props) {
   const mutations = useDeliveryOrderMutations();
   const status = normalizeDeliveryStatus(delivery.status);
   const step = resolveTripStep(delivery);
@@ -866,7 +873,7 @@ export function TripLifecycleBar({ delivery, geoBlocked, geoHint }: Props) {
         </View>
       ) : null}
 
-      {postAccept ? (
+      {postAccept && !hideCallActions ? (
         <View style={styles.moreRow}>
           <Pressable
             onPress={onCallCustomer}
