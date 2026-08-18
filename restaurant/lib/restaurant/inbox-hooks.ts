@@ -6,10 +6,8 @@ import {
   useAppIsActive,
 } from '@/lib/live-query';
 import { useMyRestaurantId } from '@/lib/order/hooks';
-import {
-  kitchenInboxApi,
-  loadStoredKitchenDevice,
-} from '@/lib/restaurant/inbox-api';
+import { kitchenInboxApi, loadStoredKitchenDevice } from '@/lib/restaurant/inbox-api';
+import { notificationKeys } from '@/lib/notification/hooks';
 
 export const kitchenInboxKeys = {
   all: ['kitchen-inbox'] as const,
@@ -84,9 +82,14 @@ export function useKitchenDeviceMutations(restaurantId: string) {
     mutationFn: (input: { token: string; deviceId?: string }) =>
       kitchenInboxApi.registerDevice(restaurantId, input),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: kitchenInboxKeys.device(restaurantId),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: kitchenInboxKeys.device(restaurantId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: notificationKeys.devices(),
+        }),
+      ]);
     },
   });
 
@@ -94,9 +97,14 @@ export function useKitchenDeviceMutations(restaurantId: string) {
     mutationFn: (deviceId: string) =>
       kitchenInboxApi.unregisterDevice(restaurantId, deviceId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: kitchenInboxKeys.device(restaurantId),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: kitchenInboxKeys.device(restaurantId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: notificationKeys.devices(),
+        }),
+      ]);
     },
   });
 

@@ -3,10 +3,12 @@ import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
@@ -16,13 +18,27 @@ import { RestaurantPageHeader } from '@/components/dashboard/RestaurantPageHeade
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import {
+  LIVE_INTERVALS,
+  liveRefetchInterval,
+  useAppIsActive,
+} from '@/lib/live-query';
+import {
   useClearAllNotifications,
+  useDeleteNotification,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
-  useDeleteNotification,
+  useNotificationChannelPreferences,
+  useNotificationDevices,
+  useUnreadNotificationCount,
+  useUpdateNotificationChannelPreferences,
 } from '@/lib/notification/hooks';
+import { getApiErrorMessage } from '@/lib/errors';
 import { useKitchenInbox } from '@/lib/restaurant/inbox-hooks';
-import type { AppNotification } from '@/lib/notification/types';
+import type {
+  AppNotification,
+  NotificationChannelPreferences,
+} from '@/lib/notification/types';
+import { useAuthStore } from '@/store/auth-store';
 
 type Filter = 'all' | 'unread';
 
@@ -62,12 +78,21 @@ function openNotificationDeepLink(
 
 export function RestaurantNotificationsScreen() {
   const router = useRouter();
+  const token = useAuthStore((s) => s.token);
+  const isActive = useAppIsActive();
   const [filter, setFilter] = useState<Filter>('all');
   const inbox = useKitchenInbox({
     page: 1,
     limit: 30,
     unread: filter === 'unread' ? true : undefined,
   });
+  const unreadQuery = useUnreadNotificationCount({
+    enabled: Boolean(token),
+    refetchInterval: liveRefetchInterval(LIVE_INTERVALS.notifications, isActive),
+  });
+  const channelPrefs = useNotificationChannelPreferences(Boolean(token));
+  const updateChannels = useUpdateNotificationChannelPreferences();
+  const devices = useNotificationDevices(Boolean(token));
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const clearAll = useClearAllNotifications();
@@ -77,11 +102,32 @@ export function RestaurantNotificationsScreen() {
     () => inbox.data?.notifications ?? [],
     [inbox.data?.notifications]
   );
-  const unread = Math.max(0, inbox.unreadCount);
+  const unread = Math.max(0, unreadQuery.data ?? inbox.unreadCount);
 
   const onRefresh = useCallback(async () => {
-    await inbox.refetch();
-  }, [inbox]);
+    await Promise.all([
+      inbox.refetch(),
+      unreadQuery.refetch(),
+      channelPrefs.refetch(),
+      devices.refetch(),
+    ]);
+  }, [inbox, unreadQuery, channelPrefs, devices]);
+
+  const patchChannel = async (
+    key: keyof NotificationChannelPreferences,
+    value: boolean
+  ) => {
+    const current = channelPrefs.data;
+    if (!current) return;
+    try {
+      await updateChannels.mutateAsync({ ...current, [key]: value });
+    } catch (error) {
+      Alert.alert(
+        'Could not save',
+        getApiErrorMessage(error, 'Try again.')
+      );
+    }
+  };
 
   const openItem = useCallback(
     (item: AppNotification) => {
@@ -195,6 +241,71 @@ export function RestaurantNotificationsScreen() {
             onDelete={() => void remove.mutateAsync(item.id)}
           />
         ))}
+
+        <View style={styles.prefsCard}>
+          <Text style={styles.prefsTitle}>Channel prefs</Text>
+          <Text style={styles.muted}>
+            Notification-service push / SMS / email. Account-level toggles are in
+            Admin → Your account.
+          </Text>
+          {channelPrefs.isLoading && !channelPrefs.data ? (
+            <ActivityIndicator color={authTheme.brand} />
+          ) : channelPrefs.isError && !channelPrefs.data ? (
+            <Pressable onPress={() => void channelPrefs.refetch()}>
+              <Text style={styles.retryTextInline}>
+                {getApiErrorMessage(channelPrefs.error, 'Could not load prefs. Retry')}
+              </Text>
+            </Pressable>
+          ) : (
+            (
+              [
+                ['ordersPush', 'Order push'],
+                ['offersPush', 'Offer push'],
+                ['promoPush', 'Promo push'],
+                ['sms', 'SMS'],
+                ['whatsapp', 'WhatsApp'],
+                ['email', 'Email'],
+              ] as const
+            ).map(([key, label]) => (
+              <View key={key} style={styles.prefRow}>
+                <Text style={styles.prefLabel}>{label}</Text>
+                <Switch
+                  value={channelPrefs.data?.[key] ?? false}
+                  onValueChange={(next) => void patchChannel(key, next)}
+                  disabled={updateChannels.isPending}
+                  trackColor={{ false: '#E2E8F0', true: 'rgba(122,14,34,0.35)' }}
+                  thumbColor={
+                    channelPrefs.data?.[key] ? authTheme.brand : '#F8FAFC'
+                  }
+                />
+              </View>
+            ))
+          )}
+        </View>
+
+        <View style={styles.prefsCard}>
+          <Text style={styles.prefsTitle}>Push devices</Text>
+          {devices.isLoading && !devices.data ? (
+            <ActivityIndicator color={authTheme.brand} />
+          ) : devices.isError && !devices.data ? (
+            <Pressable onPress={() => void devices.refetch()}>
+              <Text style={styles.retryTextInline}>
+                {getApiErrorMessage(devices.error, 'Could not load devices. Retry')}
+              </Text>
+            </Pressable>
+          ) : (devices.data ?? []).length === 0 ? (
+            <Text style={styles.muted}>
+              No FCM/APNs token yet. Enable alerts in Settings → Operations.
+            </Text>
+          ) : (
+            (devices.data ?? []).map((row) => (
+              <Text key={row.deviceId} style={styles.deviceLine}>
+                {(row.app || row.platform || 'device') +
+                  (row.tokenMasked ? ` · ${row.tokenMasked}` : '')}
+              </Text>
+            ))
+          )}
+        </View>
       </ScrollView>
     </View>
   );
@@ -257,4 +368,37 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   retryText: { color: '#FFFFFF', fontSize: 13, fontFamily: fonts.bold },
+  retryTextInline: {
+    color: authTheme.brand,
+    fontSize: 13,
+    fontFamily: fonts.semiBold,
+  },
+  prefsCard: {
+    marginTop: 8,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: authTheme.surface,
+    gap: 8,
+  },
+  prefsTitle: {
+    color: authTheme.text,
+    fontSize: 14,
+    fontFamily: fonts.bold,
+  },
+  prefRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  prefLabel: {
+    color: authTheme.text,
+    fontSize: 14,
+    fontFamily: fonts.semiBold,
+  },
+  deviceLine: {
+    color: authTheme.textMuted,
+    fontSize: 12,
+    fontFamily: fonts.medium,
+  },
 });

@@ -3,7 +3,12 @@ import { Bell } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { authTheme } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
-import { useKitchenUnreadCount } from '@/lib/restaurant/inbox-hooks';
+import {
+  LIVE_INTERVALS,
+  liveRefetchInterval,
+  useAppIsActive,
+} from '@/lib/live-query';
+import { useUnreadNotificationCount } from '@/lib/notification/hooks';
 import { useAuthStore } from '@/store/auth-store';
 
 function initialsFrom(name: string) {
@@ -19,7 +24,12 @@ export function RestaurantHeaderActions({ hideProfile }: { hideProfile?: boolean
   const router = useRouter();
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
-  const unreadQuery = useKitchenUnreadCount();
+  const token = useAuthStore((s) => s.token);
+  const isActive = useAppIsActive();
+  const unreadQuery = useUnreadNotificationCount({
+    enabled: Boolean(token),
+    refetchInterval: liveRefetchInterval(LIVE_INTERVALS.notifications, isActive),
+  });
 
   const unread = Math.max(0, unreadQuery.data ?? 0);
   const badgeLabel = unread > 99 ? '99+' : String(unread);

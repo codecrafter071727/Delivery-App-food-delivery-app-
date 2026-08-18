@@ -15,6 +15,8 @@ export const notificationKeys = {
   list: (params?: { page?: number; limit?: number; unread?: boolean }) =>
     [...notificationKeys.all, 'list', params ?? {}] as const,
   unreadCount: () => [...notificationKeys.all, 'unread-count'] as const,
+  preferences: () => [...notificationKeys.all, 'preferences'] as const,
+  devices: () => [...notificationKeys.all, 'devices'] as const,
 };
 
 function invalidateNotificationQueries(
@@ -292,5 +294,40 @@ export function useClearAllNotifications() {
     onSettled: () => {
       invalidateNotificationQueries(queryClient);
     },
+  });
+}
+
+/** GET /preferences */
+export function useNotificationChannelPreferences(enabled = true) {
+  return useQuery({
+    queryKey: notificationKeys.preferences(),
+    queryFn: () => notificationApi.getPreferences(),
+    enabled,
+    staleTime: 60_000,
+    retry: 1,
+    placeholderData: (previous) => previous,
+  });
+}
+
+/** PUT /preferences */
+export function useUpdateNotificationChannelPreferences() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: notificationApi.updatePreferences,
+    onSuccess: (prefs) => {
+      queryClient.setQueryData(notificationKeys.preferences(), prefs);
+    },
+  });
+}
+
+/** GET /devices */
+export function useNotificationDevices(enabled = true) {
+  return useQuery({
+    queryKey: notificationKeys.devices(),
+    queryFn: () => notificationApi.listDevices(),
+    enabled,
+    staleTime: 30_000,
+    retry: 1,
+    placeholderData: (previous) => previous,
   });
 }
