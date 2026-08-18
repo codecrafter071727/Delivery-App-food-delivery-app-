@@ -20,6 +20,7 @@ type GoogleGeocodeResponse = {
   status: string;
   results?: Array<{
     formatted_address: string;
+    types?: string[];
     geometry: { location: { lat: number; lng: number } };
   }>;
   error_message?: string;
@@ -375,7 +376,18 @@ export const googlePlacesApi = {
       );
 
       if (data.status !== 'OK' || !data.results?.[0]) return null;
-      return data.results[0].formatted_address;
+      const poi = data.results.find((row) =>
+        row.types?.some((type) =>
+          [
+            'establishment',
+            'point_of_interest',
+            'premise',
+            'food',
+            'restaurant',
+          ].includes(type)
+        )
+      );
+      return (poi ?? data.results[0]).formatted_address;
     } catch {
       return null;
     }

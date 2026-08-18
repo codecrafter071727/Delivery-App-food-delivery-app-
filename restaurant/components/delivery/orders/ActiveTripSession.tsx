@@ -31,12 +31,12 @@ import {
 } from '@/components/delivery/orders/TripLifecycleBar';
 import { fonts } from '@/constants/typography';
 import {
-  formatDeliveryAddress,
   isAssignableStatus,
   normalizeDeliveryStatus,
   tripOrderCode,
 } from '@/lib/delivery-partner/api';
 import { isCodPayment } from '@/lib/delivery-partner/finance-types';
+import { useResolvedTripStops } from '@/lib/delivery-partner/trip-stops';
 import {
   useActiveDeliveries,
   useActiveDelivery,
@@ -259,24 +259,35 @@ function ActiveTripBody({
 
   const geo = tracking?.geofence;
   const gate = tripGeofenceState(status, geo);
-  const pickupLabel =
-    formatDeliveryAddress(delivery.restaurantAddress) ||
-    tracking?.pickup?.address?.trim() ||
-    '';
-  const dropLabel =
-    formatDeliveryAddress(delivery.deliveryAddress) ||
-    tracking?.drop?.address?.trim() ||
-    '';
-  const restaurantName =
-    delivery.restaurantName?.trim() ||
-    delivery.restaurantAddress?.label?.trim() ||
-    tracking?.pickup?.address?.split(',')[0]?.trim() ||
-    'Restaurant';
-  const customerName =
-    delivery.customerName?.trim() ||
-    delivery.deliveryAddress?.label?.trim() ||
-    tracking?.drop?.address?.split(',')[0]?.trim() ||
-    'Customer';
+  const stops = useResolvedTripStops({
+    ...delivery,
+    restaurantAddress: {
+      ...delivery.restaurantAddress,
+      line1:
+        delivery.restaurantAddress?.line1 ||
+        tracking?.pickup?.address ||
+        delivery.restaurantAddress?.line1,
+      lat:
+        delivery.restaurantAddress?.lat ??
+        tracking?.pickup?.latitude,
+      lng:
+        delivery.restaurantAddress?.lng ??
+        tracking?.pickup?.longitude,
+    },
+    deliveryAddress: {
+      ...delivery.deliveryAddress,
+      line1:
+        delivery.deliveryAddress?.line1 ||
+        tracking?.drop?.address ||
+        delivery.deliveryAddress?.line1,
+      lat: delivery.deliveryAddress?.lat ?? tracking?.drop?.latitude,
+      lng: delivery.deliveryAddress?.lng ?? tracking?.drop?.longitude,
+    },
+  });
+  const restaurantName = stops.restaurantName;
+  const customerName = stops.customerName;
+  const pickupLabel = stops.pickupAddress;
+  const dropLabel = stops.dropAddress;
   const routePoints = (
     tripRouteQuery.data?.points ??
     routeQuery.data?.points ??
@@ -483,14 +494,16 @@ function ActiveTripBody({
                   <MapPin color="#9CA3AF" size={13} />
                   <Text style={styles.stopAddr}>{stopAddr}</Text>
                 </View>
-              ) : detail.isLoading ? (
-                <Text style={styles.stopAddr}>Loading address…</Text>
               ) : (
-                <Text style={styles.stopAddrMuted}>
-                  Address will show when the trip pin is ready. Use Navigate on
-                  the map.
+                <Text style={styles.stopAddr}>
+                  {showRestaurant
+                    ? 'Looking up restaurant address…'
+                    : 'Looking up drop address…'}
                 </Text>
               )}
+              {!showRestaurant && stops.dropKmLabel ? (
+                <Text style={styles.stopKm}>{stops.dropKmLabel}</Text>
+              ) : null}
               {itemLine ? (
                 <View style={styles.addrRow}>
                   <Package color="#9CA3AF" size={13} />
@@ -513,7 +526,7 @@ function ActiveTripBody({
             </Pressable>
           </View>
 
-          {nextAddr || nextTitle ? (
+          {nextAddr || nextTitle || (showRestaurant && stops.dropKmLabel) ? (
             <View style={styles.nextCard}>
               <Text style={styles.nextKicker}>
                 {showRestaurant ? 'Then drop' : 'Picked up from'}
@@ -521,6 +534,9 @@ function ActiveTripBody({
               <Text style={styles.nextTitle} numberOfLines={1}>
                 {nextTitle}
               </Text>
+              {showRestaurant && stops.dropKmLabel ? (
+                <Text style={styles.nextKm}>{stops.dropKmLabel}</Text>
+              ) : null}
               {nextAddr ? (
                 <Text style={styles.nextAddr} numberOfLines={2}>
                   {nextAddr}
@@ -811,6 +827,18 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 12,
     color: '#6B7280',
+  },
+  nextKm: {
+    marginTop: 2,
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: '#C2410C',
+  },
+  stopKm: {
+    marginTop: 4,
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+    color: '#C2410C',
   },
   auxRow: {
     flexDirection: 'row',

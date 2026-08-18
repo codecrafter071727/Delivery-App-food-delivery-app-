@@ -39,7 +39,6 @@ import {
 } from '@/lib/delivery-partner/go-online-guard';
 import {
   deliveryStatusLabel,
-  formatDeliveryAddress,
   isAssignableStatus,
   isUnpaidTripStatus,
   normalizeDeliveryStatus,
@@ -67,6 +66,7 @@ import {
 import type { OrderTracking } from '@/lib/delivery-partner/tracking-types';
 import { formatTripError } from '@/lib/delivery-partner/rider-ack';
 import type { PartnerDelivery } from '@/lib/delivery-partner/types';
+import { useResolvedTripStops } from '@/lib/delivery-partner/trip-stops';
 
 type TabKey = 'active' | 'history';
 type HistoryFilter = '' | 'delivered' | 'cancelled' | 'reassigned';
@@ -846,8 +846,29 @@ function DeliveryCard({
   const gate = tripGeofenceState(status, geo);
   const geoBlocked = gate.blocked;
   const geoHint = gate.hint;
-  const pickupLabel = formatDeliveryAddress(delivery.restaurantAddress);
-  const dropLabel = formatDeliveryAddress(delivery.deliveryAddress);
+  const stops = useResolvedTripStops({
+    ...delivery,
+    restaurantAddress: {
+      ...delivery.restaurantAddress,
+      line1:
+        delivery.restaurantAddress?.line1 ||
+        tracking?.pickup?.address ||
+        delivery.restaurantAddress?.line1,
+      lat: delivery.restaurantAddress?.lat ?? tracking?.pickup?.latitude,
+      lng: delivery.restaurantAddress?.lng ?? tracking?.pickup?.longitude,
+    },
+    deliveryAddress: {
+      ...delivery.deliveryAddress,
+      line1:
+        delivery.deliveryAddress?.line1 ||
+        tracking?.drop?.address ||
+        delivery.deliveryAddress?.line1,
+      lat: delivery.deliveryAddress?.lat ?? tracking?.drop?.latitude,
+      lng: delivery.deliveryAddress?.lng ?? tracking?.drop?.longitude,
+    },
+  });
+  const pickupLabel = stops.pickupAddress;
+  const dropLabel = stops.dropAddress;
   const amount = money(delivery.amount, delivery.currency);
   const earning = money(delivery.earning, delivery.currency);
   const routePoints = (
@@ -999,7 +1020,19 @@ function DeliveryCard({
       ) : null}
 
       <DeliveryTripMap
-        delivery={delivery}
+        delivery={{
+          ...delivery,
+          restaurantName: stops.restaurantName,
+          customerName: stops.customerName,
+          restaurantAddress: {
+            ...delivery.restaurantAddress,
+            line1: pickupLabel || delivery.restaurantAddress?.line1,
+          },
+          deliveryAddress: {
+            ...delivery.deliveryAddress,
+            line1: dropLabel || delivery.deliveryAddress?.line1,
+          },
+        }}
         tracking={tracking}
         eta={etaQuery.data}
         liveLocation={liveLocationQuery.data}
@@ -1021,13 +1054,17 @@ function DeliveryCard({
           <View style={styles.stopBody}>
             <Text style={styles.stopLabel}>PICKUP</Text>
             <Text style={styles.stopTitle}>
-              {delivery.restaurantName || 'Restaurant'}
+              {stops.restaurantName}
             </Text>
             {pickupLabel ? (
               <Text style={styles.stopAddr} numberOfLines={2}>
                 {pickupLabel}
               </Text>
-            ) : null}
+            ) : (
+              <Text style={styles.stopAddr} numberOfLines={2}>
+                Looking up restaurant address…
+              </Text>
+            )}
             <View style={styles.stopActions}>
               {live ? (
                 <Pressable
@@ -1060,8 +1097,11 @@ function DeliveryCard({
           <View style={styles.stopBody}>
             <Text style={styles.stopLabel}>DROP-OFF</Text>
             <Text style={styles.stopTitle}>
-              {delivery.customerName || 'Customer'}
+              {stops.customerName}
             </Text>
+            {stops.dropKmLabel ? (
+              <Text style={styles.stopKm}>{stops.dropKmLabel}</Text>
+            ) : null}
             {dropLabel ? (
               <Text style={styles.stopAddr} numberOfLines={2}>
                 {dropLabel}
@@ -1665,6 +1705,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6B7280',
     lineHeight: 18,
+  },
+  stopKm: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: '#C2410C',
   },
   stopActions: {
     flexDirection: 'row',

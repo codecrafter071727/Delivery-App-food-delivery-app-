@@ -26,6 +26,12 @@ type OfferListener = (offer: IncomingOffer | null) => void;
 
 let current: IncomingOffer | null = null;
 const listeners = new Set<OfferListener>();
+const remembered = new Map<string, IncomingOffer>();
+
+function rememberOffer(offer: IncomingOffer) {
+  remembered.set(offer.deliveryId, offer);
+  if (offer.orderId) remembered.set(offer.orderId, offer);
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'
@@ -73,6 +79,10 @@ export function parseIncomingOffer(payload: unknown): IncomingOffer | null {
     'expiry',
     'expires',
   ]);
+  const restaurantLoc = asRecord(
+    source.restaurantLocation ?? source.pickupLocation
+  );
+  const dropLoc = asRecord(source.deliveryLocation ?? source.dropLocation);
 
   return {
     deliveryId,
@@ -83,18 +93,24 @@ export function parseIncomingOffer(payload: unknown): IncomingOffer | null {
       'outletName',
       'storeName',
     ]),
-    restaurantLat: pickNumber(source, [
-      'restaurantLat',
-      'pickupLat',
-      'pickupLatitude',
-    ]),
-    restaurantLng: pickNumber(source, [
-      'restaurantLng',
-      'pickupLng',
-      'pickupLongitude',
-    ]),
-    dropLat: pickNumber(source, ['dropLat', 'customerLat', 'deliveryLat']),
-    dropLng: pickNumber(source, ['dropLng', 'customerLng', 'deliveryLng']),
+    restaurantLat:
+      pickNumber(source, [
+        'restaurantLat',
+        'pickupLat',
+        'pickupLatitude',
+      ]) ?? pickNumber(restaurantLoc, ['latitude', 'lat']),
+    restaurantLng:
+      pickNumber(source, [
+        'restaurantLng',
+        'pickupLng',
+        'pickupLongitude',
+      ]) ?? pickNumber(restaurantLoc, ['longitude', 'lng', 'lon']),
+    dropLat:
+      pickNumber(source, ['dropLat', 'customerLat', 'deliveryLat']) ??
+      pickNumber(dropLoc, ['latitude', 'lat']),
+    dropLng:
+      pickNumber(source, ['dropLng', 'customerLng', 'deliveryLng']) ??
+      pickNumber(dropLoc, ['longitude', 'lng', 'lon']),
     deliveryFee: pickNumber(source, [
       'deliveryFee',
       'earning',
@@ -132,8 +148,14 @@ export function subscribeIncomingOffer(listener: OfferListener) {
 }
 
 export function setIncomingOffer(offer: IncomingOffer | null) {
+  if (offer) rememberOffer(offer);
   current = offer;
   emit();
+}
+
+export function getRememberedOffer(deliveryId?: string | null) {
+  if (!deliveryId) return null;
+  return remembered.get(deliveryId) ?? null;
 }
 
 export function clearIncomingOffer(deliveryId?: string) {
@@ -145,6 +167,7 @@ export function clearIncomingOffer(deliveryId?: string) {
 export function patchIncomingOffer(deliveryId: string, patch: Partial<IncomingOffer>) {
   if (!current || current.deliveryId !== deliveryId) return;
   current = { ...current, ...patch };
+  rememberOffer(current);
   emit();
 }
 

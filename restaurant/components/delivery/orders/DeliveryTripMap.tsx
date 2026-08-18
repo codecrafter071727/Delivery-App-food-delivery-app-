@@ -100,16 +100,15 @@ export function DeliveryTripMap({
 
   const status = normalizeDeliveryStatus(tracking?.status || delivery.status);
   const pickupLabel =
-    tracking?.drop?.kind === 'restaurant'
-      ? tracking.drop.address
-      : formatDeliveryAddress(delivery.restaurantAddress) ||
-        delivery.restaurantName ||
-        'Restaurant';
+    tracking?.pickup?.address ||
+    formatDeliveryAddress(delivery.restaurantAddress) ||
+    delivery.restaurantName ||
+    'restaurant';
   const dropLabel =
     tracking?.drop?.address ||
     formatDeliveryAddress(delivery.deliveryAddress) ||
     delivery.customerName ||
-    'Customer';
+    'customer';
 
   const pickup = useMemo<LatLng | null>(() => {
     if (isValidPoint(tracking?.pickup?.latitude, tracking?.pickup?.longitude)) {

@@ -29,6 +29,8 @@ import {
   REJECT_REASON_CODES,
   toRejectReasonCode,
 } from '@/lib/delivery-partner/rider-gateway-types';
+import { useResolvedTripStops } from '@/lib/delivery-partner/trip-stops';
+import type { PartnerDelivery } from '@/lib/delivery-partner/types';
 import { getApiErrorCode } from '@/lib/errors';
 
 const OFFER_GONE_CODES = new Set([
@@ -123,6 +125,33 @@ export function IncomingOfferOverlay() {
     const total = Math.max(1, offer.timeoutSeconds);
     return Math.min(1, seconds / total);
   }, [offer, seconds]);
+
+  const offerAsDelivery = useMemo<PartnerDelivery>(
+    () =>
+      offer
+        ? {
+            id: offer.deliveryId,
+            orderId: offer.orderId,
+            restaurantId: offer.restaurantId,
+            status: 'assigned',
+            restaurantName: offer.restaurantName,
+            restaurantAddress: {
+              lat: offer.restaurantLat,
+              lng: offer.restaurantLng,
+              line1: offer.pickupLabel,
+            },
+            deliveryAddress: {
+              lat: offer.dropLat,
+              lng: offer.dropLng,
+              line1: offer.dropLabel,
+            },
+            distanceKm: offer.estimatedKm,
+            earning: offer.deliveryFee,
+          }
+        : { id: '', status: 'assigned' },
+    [offer]
+  );
+  const stops = useResolvedTripStops(offerAsDelivery);
 
   if (!offer) return null;
 
@@ -330,18 +359,26 @@ export function IncomingOfferOverlay() {
                   <View style={styles.pinCopy}>
                     <Text style={styles.pinLabel}>Pickup</Text>
                     <Text style={styles.pinValue} numberOfLines={2}>
-                      {offer.restaurantName ||
-                        offer.pickupLabel ||
-                        'Restaurant'}
+                      {stops.restaurantName}
                     </Text>
+                    {stops.pickupAddress ? (
+                      <Text style={styles.pinAddr} numberOfLines={2}>
+                        {stops.pickupAddress}
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
                 <View style={styles.pinBlock}>
                   <View style={styles.pinDotDrop} />
                   <View style={styles.pinCopy}>
                     <Text style={styles.pinLabel}>Drop</Text>
+                    {stops.dropKmLabel ? (
+                      <Text style={styles.pinKm}>{stops.dropKmLabel}</Text>
+                    ) : null}
                     <Text style={styles.pinValue} numberOfLines={2}>
-                      {offer.dropLabel || 'Customer location'}
+                      {stops.dropAddress ||
+                        offer.dropLabel ||
+                        'Customer location'}
                     </Text>
                   </View>
                 </View>
@@ -497,6 +534,18 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 15,
     color: '#111827',
+  },
+  pinAddr: {
+    marginTop: 2,
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  pinKm: {
+    marginTop: 2,
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: '#C2410C',
   },
   stops: {
     maxHeight: 220,

@@ -148,6 +148,45 @@ function mapLivePoint(raw: unknown): PartnerLivePoint | undefined {
   };
 }
 
+function coordsFromRecord(record: Record<string, unknown>): {
+  lat?: number;
+  lng?: number;
+} {
+  const lat = pickNumber(record, ['lat', 'latitude']);
+  const lng = pickNumber(record, ['lng', 'longitude', 'lon']);
+  if (lat != null && lng != null) return { lat, lng };
+  const coords = record.coordinates;
+  if (Array.isArray(coords) && coords.length >= 2) {
+    const first = Number(coords[0]);
+    const second = Number(coords[1]);
+    if (Number.isFinite(first) && Number.isFinite(second)) {
+      if (Math.abs(first) > 90 && Math.abs(first) <= 180) {
+        return { lat: second, lng: first };
+      }
+      return { lat: first, lng: second };
+    }
+  }
+  return {};
+}
+
+function mergeDeliveryAddress(
+  primary: unknown,
+  coords: unknown
+): PartnerDeliveryAddress | undefined {
+  const a = mapAddress(primary);
+  const b = mapAddress(coords);
+  if (!a && !b) return undefined;
+  return {
+    label: a?.label || b?.label,
+    line1: a?.line1 || b?.line1,
+    line2: a?.line2 || b?.line2,
+    city: a?.city || b?.city,
+    pincode: a?.pincode || b?.pincode,
+    lat: a?.lat ?? b?.lat,
+    lng: a?.lng ?? b?.lng,
+  };
+}
+
 function mapAddress(raw: unknown): PartnerDeliveryAddress | undefined {
   if (typeof raw === 'string' && raw.trim()) {
     return { line1: raw.trim() };
@@ -158,24 +197,22 @@ function mapAddress(raw: unknown): PartnerDeliveryAddress | undefined {
   const nestedAddr = record.address;
   if (nestedAddr && typeof nestedAddr === 'object' && !Array.isArray(nestedAddr)) {
     const inner = mapAddress(nestedAddr);
-    const lat =
-      pickNumber(record, ['lat', 'latitude']) ?? inner?.lat;
-    const lng =
-      pickNumber(record, ['lng', 'longitude', 'lon']) ?? inner?.lng;
-    if (!inner && lat == null && lng == null) return undefined;
+    const { lat, lng } = coordsFromRecord(record);
+    const mergedLat = lat ?? inner?.lat;
+    const mergedLng = lng ?? inner?.lng;
+    if (!inner && mergedLat == null && mergedLng == null) return undefined;
     return {
       label: inner?.label ?? pickString(record, ['label', 'name', 'title']),
       line1: inner?.line1,
       line2: inner?.line2,
       city: inner?.city,
       pincode: inner?.pincode,
-      lat,
-      lng,
+      lat: mergedLat,
+      lng: mergedLng,
     };
   }
 
-  const lat = pickNumber(record, ['lat', 'latitude']);
-  const lng = pickNumber(record, ['lng', 'longitude', 'lon']);
+  const { lat, lng } = coordsFromRecord(record);
   const line1 =
     pickString(record, [
       'line1',
@@ -352,16 +389,31 @@ export function mapPartnerBatch(raw: unknown): PartnerBatch {
 }
 
 export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
-  const record = asRecord(raw);
-  const nested = asRecord(
-    record.delivery ?? record.assignment ?? record.order ?? record
+  const root = asRecord(raw);
+  const dataLayer = asRecord(
+    root.data && typeof root.data === 'object' && !Array.isArray(root.data)
+      ? root.data
+      : undefined
   );
-  const source = Object.keys(nested).length ? nested : record;
+  const record = Object.keys(dataLayer).length ? dataLayer : root;
+  const order = asRecord(record.order);
+  const deliveryLayer = asRecord(record.delivery ?? record.assignment);
+  const source = { ...order, ...deliveryLayer, ...record };
   const restaurant = asRecord(
-    source.restaurant ?? source.outlet ?? source.store ?? source.merchant
+    source.restaurant ??
+      source.outlet ??
+      source.store ??
+      source.merchant ??
+      record.restaurant ??
+      order.restaurant
   );
   const customer = asRecord(
-    source.customer ?? source.user ?? source.buyer ?? source.receiver
+    source.customer ??
+      source.user ??
+      source.buyer ??
+      source.receiver ??
+      record.customer ??
+      order.customer
   );
   const pickupStop = asRecord(
     source.pickup ?? source.pickupStop ?? source.pickupLocation
@@ -370,26 +422,33 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
     source.drop ?? source.dropStop ?? source.dropLocation
   );
   const items =
-    source.items ?? source.orderItems ?? source.cartItems ?? source.lineItems;
+    source.items ??
+    source.orderItems ??
+    source.cartItems ??
+    source.lineItems ??
+    order.items;
 
   const id =
-    pickString(source, ['_id', 'id', 'deliveryId', 'assignmentId']) ?? '';
+    pickString(source, ['_id', 'id', 'deliveryId', 'assignmentId']) ??
+    pickString(record, ['_id', 'id', 'deliveryId']) ??
+    '';
 
-  const restaurantAddress = mapAddress(
+  const restaurantAddress = mergeDeliveryAddress(
     source.restaurantAddress ??
       source.pickupAddress ??
       restaurant.address ??
-      restaurant.location ??
       pickupStop.address ??
-      pickupStop
+      pickupStop,
+    source.restaurantLocation ?? restaurant.location
   );
-  const deliveryAddress = mapAddress(
+  const deliveryAddress = mergeDeliveryAddress(
     source.deliveryAddress ??
       source.dropAddress ??
       source.shippingAddress ??
       customer.address ??
       dropStop.address ??
-      dropStop
+      dropStop,
+    source.deliveryLocation ?? customer.location
   );
   const customerLiveLocation =
     mapLivePoint(
@@ -413,6 +472,9 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
       'orderCode',
       'displayId',
     ]),
+    restaurantId:
+      pickString(source, ['restaurantId', 'outletId', 'storeId']) ||
+      pickString(restaurant, ['_id', 'id', 'restaurantId']),
     status: normalizeDeliveryStatus(
       pickString(source, ['status', 'deliveryStatus', 'state']) ?? 'assigned'
     ),
@@ -471,7 +533,13 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
     ]),
     settledVia: pickString(source, ['settledVia', 'codSettledVia']) ?? null,
     cashCollected: pickBool(source, ['cashCollected', 'codCollected', 'codCashCollected']),
-    distanceKm: pickNumber(source, ['distanceKm', 'distance', 'tripDistance']),
+    distanceKm: pickNumber(source, [
+      'actualDistance',
+      'distanceKm',
+      'tripDistanceKm',
+      'tripDistance',
+      'distance',
+    ]),
     etaMinutes: pickNumber(source, ['etaMinutes', 'eta', 'estimatedMinutes']),
     earning: (() => {
       const status = normalizeDeliveryStatus(
@@ -481,6 +549,7 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
         'earning',
         'earnings',
         'partnerEarning',
+        'partnerEarnings',
         'deliveryFee',
         'incentive',
       ]);
@@ -2522,7 +2591,12 @@ export function formatDeliveryAddress(
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));
   const label = address.label?.trim();
-  if (label && !parts.some((part) => part === label || part.includes(label))) {
+  const generic = !label || /^(restaurant|customer|pickup|drop|drop-off)$/i.test(label);
+  if (
+    label &&
+    !generic &&
+    !parts.some((part) => part === label || part.includes(label))
+  ) {
     parts.unshift(label);
   }
   return [...new Set(parts)].join(', ');
@@ -2543,6 +2617,47 @@ export function tripOrderCode(delivery: {
   }
   const raw = (delivery.orderId || delivery.id).replace(/^#/, '');
   return raw.slice(-6).toUpperCase();
+}
+
+function haversineKm(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Restaurant → customer trip length in km (not rider-to-pin meters). */
+export function dropDistanceFromRestaurantKm(delivery: PartnerDelivery): number | null {
+  const raw = delivery.distanceKm;
+  if (raw != null && Number.isFinite(raw) && raw > 0) {
+    return raw > 80 ? raw / 1000 : raw;
+  }
+  const a = delivery.restaurantAddress;
+  const b = delivery.deliveryAddress;
+  if (
+    a?.lat != null &&
+    a?.lng != null &&
+    b?.lat != null &&
+    b?.lng != null
+  ) {
+    const km = haversineKm(a.lat, a.lng, b.lat, b.lng);
+    return Number.isFinite(km) && km > 0 ? km : null;
+  }
+  return null;
+}
+
+export function formatKmFromRestaurant(km: number): string {
+  if (km < 0.1) return `${Math.round(km * 1000)} m from restaurant`;
+  const rounded = km < 10 ? km.toFixed(1) : String(Math.round(km));
+  return `${rounded} km from restaurant`;
 }
 
 export function deliveryStatusLabel(status: string): string {

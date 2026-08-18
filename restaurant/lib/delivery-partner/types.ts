@@ -173,6 +173,7 @@ export type PartnerDelivery = {
   id: string;
   orderId?: string;
   orderNumber?: string;
+  restaurantId?: string;
   status: PartnerDeliveryStatus;
   restaurantName?: string;
   restaurantPhone?: string;
