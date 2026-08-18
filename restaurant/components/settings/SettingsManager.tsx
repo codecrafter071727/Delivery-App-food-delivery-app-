@@ -8,6 +8,7 @@ import {
   Settings2,
   Store,
   Trash2,
+  UserRound,
   Users,
 } from 'lucide-react-native';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -617,6 +618,7 @@ function StaffTab() {
 }
 
 function SecurityTab() {
+  const router = useRouter();
   const changePassword = useAuthStore((s) => s.changePassword);
   const isLoading = useAuthStore((s) => s.isLoading);
   const [oldPassword, setOldPassword] = useState('');
@@ -677,6 +679,18 @@ function SecurityTab() {
             });
         }}
       />
+      <Pressable
+        onPress={() => router.push('/account')}
+        style={styles.chainRow}
+      >
+        <UserRound color={authTheme.brand} size={18} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.toggleLabel}>Your account</Text>
+          <Text style={styles.meta}>
+            Name, photo, phone, email, language, sessions, and delete.
+          </Text>
+        </View>
+      </Pressable>
     </View>
   );
 }

@@ -54,7 +54,8 @@ function pathMatchesTab(pathname: string, tab: TabItem) {
       path === '/onboarding' ||
       path === '/chain' ||
       path === '/staff' ||
-      path.startsWith('/staff/')
+      path.startsWith('/staff/') ||
+      path === '/account'
     );
   }
   return path === tab.href;

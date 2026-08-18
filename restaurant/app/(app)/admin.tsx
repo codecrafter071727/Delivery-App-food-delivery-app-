@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -16,6 +17,7 @@ import {
   ShieldAlert,
   ShieldOff,
   Store,
+  UserRound,
   Users,
   type LucideIcon,
 } from 'lucide-react-native';
@@ -28,6 +30,8 @@ import { fonts } from '@/constants/typography';
 import { useDashboardStats } from '@/lib/dashboard/hooks';
 import { useMyRestaurantId } from '@/lib/order/hooks';
 import { getRestaurantVerificationBadge } from '@/lib/restaurant/verification';
+import { displayPlatformName } from '@/lib/user/account-types';
+import { usePlatformMe } from '@/lib/user/account-hooks';
 import { useAuthStore } from '@/store/auth-store';
 
 type AdminRow = {
@@ -117,6 +121,7 @@ export default function AdminScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
+  const me = usePlatformMe(true);
   const logout = useAuthStore((s) => s.logout);
   const logoutAll = useAuthStore((s) => s.logoutAll);
   const resendEmailVerification = useAuthStore((s) => s.resendEmailVerification);
@@ -204,6 +209,14 @@ export default function AdminScreen() {
 
   const accountRows: AdminRow[] = [
     {
+      label: 'Your account',
+      hint: 'Name, photo, phone, email, devices, delete',
+      icon: UserRound,
+      accent: '#0F172A',
+      soft: '#F8F9FA',
+      onPress: () => router.push('/account'),
+    },
+    {
       label: 'Change password',
       hint: 'Update your account password',
       icon: KeyRound,
@@ -255,10 +268,13 @@ export default function AdminScreen() {
     },
   ];
 
+  const liveUser = me.data;
   const displayName =
+    displayPlatformName(liveUser) ||
     [user?.firstName, user?.lastName].filter(Boolean).join(' ') ||
     restaurant.data?.name ||
     'Restaurant owner';
+  const photoUrl = liveUser?.photoUrl || user?.photoUrl;
 
   const restaurantName =
     data?.restaurantName || restaurant.data?.name || 'Your restaurant';
@@ -267,7 +283,7 @@ export default function AdminScreen() {
   const verification = getRestaurantVerificationBadge(
     restaurant.data?.listingStatus ?? restaurant.data?.status
   );
-  const emailVerified = Boolean(user?.emailVerified);
+  const emailVerified = Boolean(liveUser?.emailVerified ?? user?.emailVerified);
   const VerificationIcon =
     verification.key === 'verified'
       ? BadgeCheck
@@ -298,9 +314,18 @@ export default function AdminScreen() {
 
         <View style={styles.profileCard}>
           <View style={styles.profileTop}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initialsFrom(displayName)}</Text>
-            </View>
+            <Pressable
+              onPress={() => router.push('/account')}
+              style={styles.avatar}
+              accessibilityRole="button"
+              accessibilityLabel="Open account"
+            >
+              {photoUrl ? (
+                <Image source={{ uri: photoUrl }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarText}>{initialsFrom(displayName)}</Text>
+              )}
+            </Pressable>
             <View style={styles.profileBody}>
               <Text style={styles.profileName} numberOfLines={1}>
                 {displayName}
@@ -309,9 +334,9 @@ export default function AdminScreen() {
                 {restaurantName}
                 {city ? ` · ${city}` : ''}
               </Text>
-              {user?.email ? (
+              {liveUser?.email || user?.email ? (
                 <Text style={styles.profileEmail} numberOfLines={1}>
-                  {user.email}
+                  {liveUser?.email || user?.email}
                 </Text>
               ) : null}
             </View>
@@ -422,6 +447,11 @@ const styles = StyleSheet.create({
     backgroundColor: authTheme.brandSoft,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: 64,
+    height: 64,
   },
   avatarText: {
     fontFamily: fonts.bold,
