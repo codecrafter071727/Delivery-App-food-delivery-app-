@@ -36,10 +36,7 @@ import { noteRateLimited } from '@/lib/live-query';
  *   POST /restaurants/:id/orders/:orderId/manual-assign { partnerId }
  *   POST /restaurants/:id/orders/:orderId/rate-partner  { stars, comment? }
  */
-const ORDER_SERVICE = '/api/v1/order-service';
-const ORDERS_BASE = `${ORDER_SERVICE}/orders`;
 const RESTAURANT_BASE = '/api/v1/restaurant-service/restaurants';
-
 const REQUEST_TIMEOUT_MS = 12_000;
 
 export type RestaurantOrderAction =
@@ -187,28 +184,12 @@ export type OrderHistoryPage = {
   hasNext: boolean;
 };
 
-export type OwnerOrderIssue = {
-  id: string;
-  orderId?: string;
-  type: string;
-  description: string;
-  status?: string;
-  createdAt?: string;
-};
-
 type Envelope<T> = {
   success?: boolean;
   message?: string;
   data?: T;
 };
 
-type ListFamily = 'orders-query' | 'restaurant-path' | 'orders-filter';
-type DetailFamily = 'restaurant-path' | 'orders-id';
-type MutationFamily = 'restaurant-actions' | 'orders-status';
-
-let lockedListFamily: ListFamily | null = null;
-let lockedDetailFamily: DetailFamily | null = null;
-let lockedMutationFamily: MutationFamily | null = null;
 let emptyStreak = 0;
 
 /** Share recent list results across dashboard + Orders. */
@@ -548,19 +529,6 @@ function actionToStatus(action: RestaurantOrderAction): string {
   return action;
 }
 
-function mapIssue(data: Record<string, unknown>): OwnerOrderIssue {
-  return {
-    id: String(data._id ?? data.id ?? ''),
-    orderId: String(data.orderId ?? '').trim() || undefined,
-    type: String(data.type ?? data.issueType ?? data.category ?? 'other'),
-    description: String(
-      data.description ?? data.message ?? data.details ?? data.comment ?? ''
-    ).trim(),
-    status: String(data.status ?? '').trim() || undefined,
-    createdAt: String(data.createdAt ?? '').trim() || undefined,
-  };
-}
-
 function predictedStatus(action: RestaurantOrderAction): string {
   return normalizeOwnerOrderStatus(actionToStatus(action));
 }
@@ -573,21 +541,31 @@ function sortOrders(orders: OwnerOrder[]): OwnerOrder[] {
   });
 }
 
-function listPath(family: ListFamily, restaurantId: string) {
-  const id = encodeURIComponent(restaurantId);
-  if (family === 'restaurant-path') {
-    return `${RESTAURANT_BASE}/${id}/orders`;
-  }
-  if (family === 'orders-filter') {
-    // Extra order-service shape some gateways expose.
-    return `${ORDERS_BASE}?restaurantId=${id}&limit=100`;
-  }
-  // Primary: same style as the partner website + where customer POST /orders lands.
-  return `${ORDERS_BASE}/restaurant?restaurantId=${id}`;
-}
-
 function kitchenPath(restaurantId: string, suffix: string) {
   return `${RESTAURANT_BASE}/${encodeURIComponent(restaurantId)}${suffix}`;
+}
+
+async function fetchList(restaurantId: string): Promise<OwnerOrder[]> {
+  const response = await api.get<Envelope<unknown>>(
+    kitchenPath(restaurantId, '/orders'),
+    { timeout: REQUEST_TIMEOUT_MS }
+  );
+  return mapOrderRows(response.data?.data ?? response.data);
+}
+
+async function fetchDetail(
+  restaurantId: string,
+  orderId: string
+): Promise<OwnerOrder> {
+  const response = await api.get<Envelope<unknown>>(
+    kitchenPath(restaurantId, `/orders/${encodeURIComponent(orderId)}`),
+    { timeout: REQUEST_TIMEOUT_MS }
+  );
+  const order = mapOwnerOrder(extractOrder(response.data?.data ?? response.data));
+  if (!order.id) {
+    return { ...order, id: orderId, orderNumber: order.orderNumber || orderId };
+  }
+  return order;
 }
 
 function mapOrderRows(raw: unknown): OwnerOrder[] {
@@ -653,47 +631,6 @@ function mapRejectReasons(raw: unknown): RejectReason[] {
       return { code, label: label || code };
     })
     .filter((row): row is RejectReason => Boolean(row));
-}
-
-function detailPath(
-  family: DetailFamily,
-  restaurantId: string,
-  orderId: string
-) {
-  const rid = encodeURIComponent(restaurantId);
-  const oid = encodeURIComponent(orderId);
-  if (family === 'restaurant-path') {
-    return `${RESTAURANT_BASE}/${rid}/orders/${oid}`;
-  }
-  return `${ORDERS_BASE}/${oid}`;
-}
-
-async function fetchList(
-  family: ListFamily,
-  restaurantId: string
-): Promise<OwnerOrder[]> {
-  const response = await api.get<Envelope<unknown>>(
-    listPath(family, restaurantId),
-    { timeout: REQUEST_TIMEOUT_MS }
-  );
-  return mapOrderRows(response.data?.data ?? response.data);
-}
-
-async function fetchDetail(
-  family: DetailFamily,
-  restaurantId: string,
-  orderId: string
-): Promise<OwnerOrder> {
-  const response = await api.get<Envelope<unknown>>(
-    detailPath(family, restaurantId, orderId),
-    { timeout: REQUEST_TIMEOUT_MS }
-  );
-  const order = mapOwnerOrder(extractOrder(response.data?.data ?? response.data));
-  // Some gateways return a thin payload without id — keep the requested id.
-  if (!order.id) {
-    return { ...order, id: orderId, orderNumber: order.orderNumber || orderId };
-  }
-  return order;
 }
 
 /** Prefer list-cache board row when detail endpoint is down. */
@@ -952,9 +889,6 @@ function rememberList(restaurantId: string, orders: OwnerOrder[]) {
 
 /** Force next fetch to rediscover endpoints (used by pull-to-refresh). */
 export function resetOrderApiDiscovery() {
-  lockedListFamily = null;
-  lockedDetailFamily = null;
-  lockedMutationFamily = null;
   emptyStreak = 0;
   listCache = null;
   rateLimitUntil = 0;
@@ -983,8 +917,7 @@ export const restaurantOrderApi = {
     }
 
     try {
-      const orders = await fetchList('restaurant-path', restaurantId);
-      lockedListFamily = 'restaurant-path';
+      const orders = await fetchList(restaurantId);
       emptyStreak = 0;
       rememberList(restaurantId, orders);
       return orders;
@@ -1095,8 +1028,7 @@ export const restaurantOrderApi = {
     orderId: string
   ): Promise<OwnerOrder> => {
     try {
-      const order = await fetchDetail('restaurant-path', restaurantId, orderId);
-      lockedDetailFamily = 'restaurant-path';
+      const order = await fetchDetail(restaurantId, orderId);
       return order;
     } catch (error) {
       if (isRateLimited(error)) markRateLimited(20);
@@ -1123,7 +1055,6 @@ export const restaurantOrderApi = {
         action,
         payload
       );
-      lockedMutationFamily = 'restaurant-actions';
       listCache = null;
       return updated;
     } catch (error) {
@@ -1518,24 +1449,6 @@ export const restaurantOrderApi = {
         }
       }
       throw errorMessage(error, 'Unable to rate rider');
-    }
-  },
-
-  /** GET /orders/:orderId/issues — customer-reported issues */
-  getOrderIssues: async (orderId: string): Promise<OwnerOrderIssue[]> => {
-    try {
-      const response = await api.get<Envelope<unknown>>(
-        `${ORDERS_BASE}/${encodeURIComponent(orderId)}/issues`,
-        { timeout: REQUEST_TIMEOUT_MS }
-      );
-      return extractList(response.data?.data ?? response.data)
-        .map(mapIssue)
-        .filter((issue) => Boolean(issue.id || issue.description));
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 404) {
-        return [];
-      }
-      throw errorMessage(error, 'Unable to load order issues');
     }
   },
 

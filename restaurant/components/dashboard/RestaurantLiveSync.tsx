@@ -1,4 +1,7 @@
+import { useEffect } from 'react';
+
 import { useAuthStore } from '@/store/auth-store';
+import { refreshCsrfToken } from '@/lib/api';
 import { useKitchenGatewaySocket } from '@/lib/gateway/kitchen-socket';
 import {
   LIVE_INTERVALS,
@@ -16,6 +19,11 @@ export function RestaurantLiveSync() {
   const role = useAuthStore((s) => s.user?.role ?? s.role);
   const isActive = useAppIsActive();
   const enabled = Boolean(token) && role === 'restaurant';
+
+  useEffect(() => {
+    if (!enabled) return;
+    void refreshCsrfToken(true).catch(() => undefined);
+  }, [enabled]);
 
   const restaurant = useMyRestaurantId({ enabled });
   const restaurantId = restaurant.data?.id;

@@ -3,7 +3,9 @@ import axios from 'axios';
 import { api } from '@/lib/api';
 import type {
   AppNotification,
+  NotificationChannelPreferences,
   NotificationListResult,
+  NotificationPushDevice,
   PaginationMeta,
   UnreadCountResult,
 } from '@/lib/notification/types';
@@ -237,5 +239,129 @@ export const notificationApi = {
     await request(`${NOTIFICATIONS_BASE}/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
+  },
+
+  /** GET /health */
+  health: async (): Promise<boolean> => {
+    try {
+      const res = await request<Record<string, unknown>>(
+        `${NOTIFICATION_SERVICE}/health`
+      );
+      const status = String(
+        (res.data as Record<string, unknown> | undefined)?.status ?? res.success
+      );
+      return status === 'ok' || status === 'true';
+    } catch {
+      return false;
+    }
+  },
+
+  /** GET /health/ready */
+  ready: async (): Promise<boolean> => {
+    try {
+      await request(`${NOTIFICATION_SERVICE}/health/ready`);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /** GET /devices */
+  listDevices: async (): Promise<NotificationPushDevice[]> => {
+    const res = await request<unknown>(`${NOTIFICATION_SERVICE}/devices`);
+    const record = asRecord(res.data);
+    const rows = Array.isArray(record.devices)
+      ? record.devices
+      : Array.isArray(res.data)
+        ? res.data
+        : [];
+    return rows
+      .map((row) => {
+        const item = asRecord(row);
+        const deviceId = String(item.deviceId ?? item.id ?? '').trim();
+        if (!deviceId) return null;
+        return {
+          deviceId,
+          platform: String(item.platform ?? '') || undefined,
+          app: String(item.app ?? '') || undefined,
+          tokenMasked: String(item.tokenMasked ?? '') || undefined,
+        };
+      })
+      .filter((row): row is NotificationPushDevice => Boolean(row));
+  },
+
+  /** POST /devices/register — kitchen FCM uses app: "kitchen" */
+  registerDevice: async (input: {
+    token: string;
+    platform: string;
+    app: 'kitchen' | 'rider' | 'customer';
+    deviceId?: string;
+    appVersion?: string;
+  }): Promise<NotificationPushDevice> => {
+    const res = await request<Record<string, unknown>>(
+      `${NOTIFICATION_SERVICE}/devices/register`,
+      {
+        method: 'POST',
+        body: {
+          token: input.token,
+          platform: input.platform,
+          app: input.app,
+          ...(input.deviceId ? { deviceId: input.deviceId } : {}),
+          ...(input.appVersion ? { appVersion: input.appVersion } : {}),
+        },
+      }
+    );
+    const item = asRecord(res.data);
+    const deviceId = String(item.deviceId ?? item.id ?? '').trim();
+    if (!deviceId) throw new Error('Device registered but the response was empty.');
+    return {
+      deviceId,
+      platform: String(item.platform ?? input.platform) || undefined,
+      app: String(item.app ?? input.app) || undefined,
+      tokenMasked: String(item.tokenMasked ?? '') || undefined,
+    };
+  },
+
+  /** DELETE /devices/:deviceId */
+  unregisterDevice: async (deviceId: string): Promise<void> => {
+    await request(
+      `${NOTIFICATION_SERVICE}/devices/${encodeURIComponent(deviceId)}`,
+      { method: 'DELETE' }
+    );
+  },
+
+  /** GET /preferences */
+  getPreferences: async (): Promise<NotificationChannelPreferences> => {
+    const res = await request<Record<string, unknown>>(
+      `${NOTIFICATION_SERVICE}/preferences`
+    );
+    const item = asRecord(res.data);
+    return {
+      ordersPush: item.ordersPush !== false,
+      offersPush: item.offersPush !== false,
+      promoPush: item.promoPush !== false,
+      sms: item.sms !== false,
+      whatsapp: item.whatsapp === true,
+      email: item.email !== false,
+    };
+  },
+
+  /** PUT /preferences */
+  updatePreferences: async (
+    patch: Partial<NotificationChannelPreferences>
+  ): Promise<NotificationChannelPreferences> => {
+    const res = await request<Record<string, unknown>>(
+      `${NOTIFICATION_SERVICE}/preferences`,
+      { method: 'PUT', body: patch }
+    );
+    const item = asRecord(res.data);
+    return {
+      ordersPush: item.ordersPush !== false,
+      offersPush: item.offersPush !== false,
+      promoPush: item.promoPush !== false,
+      sms: item.sms !== false,
+      whatsapp: item.whatsapp === true,
+      email: item.email !== false,
+    };
   },
 };

@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { api } from '@/lib/api';
+import { notificationApi } from '@/lib/notification/api';
 import type { AppNotification, NotificationListResult } from '@/lib/notification/types';
 import { storageDeleteItem, storageGetItem, storageSetItem } from '@/lib/storage';
 
@@ -250,6 +251,17 @@ export const kitchenInboxApi = {
       );
       const mapped = mapDevice(asRecord(res.data?.data) ?? {});
       if (!mapped) throw new Error('Device registered but the response was empty.');
+      try {
+        await notificationApi.registerDevice({
+          token: input.token,
+          platform: kitchenPushPlatform(),
+          app: 'kitchen',
+          deviceId: input.deviceId ?? mapped.deviceId,
+          appVersion: kitchenAppVersion().slice(0, 32),
+        });
+      } catch {
+        // Outlet register already proxies internally; direct register is best-effort.
+      }
       await saveStoredKitchenDevice({ ...mapped, restaurantId });
       return mapped;
     } catch (error) {
@@ -265,6 +277,11 @@ export const kitchenInboxApi = {
       await api.delete(
         `${RESTAURANT_BASE}/${restaurantId}/devices/${encodeURIComponent(deviceId)}`
       );
+      try {
+        await notificationApi.unregisterDevice(deviceId);
+      } catch {
+        // Already removed on the outlet path.
+      }
       const stored = await loadStoredKitchenDevice();
       if (stored?.deviceId === deviceId) await clearStoredKitchenDevice();
     } catch (error) {

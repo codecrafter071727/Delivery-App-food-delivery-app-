@@ -15,6 +15,12 @@ import { DeliveryNotificationRow } from '@/components/delivery/notifications/Not
 import { RestaurantPageHeader } from '@/components/dashboard/RestaurantPageHeader';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
+import {
+  useClearAllNotifications,
+  useMarkAllNotificationsRead,
+  useMarkNotificationRead,
+  useDeleteNotification,
+} from '@/lib/notification/hooks';
 import { useKitchenInbox } from '@/lib/restaurant/inbox-hooks';
 import type { AppNotification } from '@/lib/notification/types';
 
@@ -62,6 +68,10 @@ export function RestaurantNotificationsScreen() {
     limit: 30,
     unread: filter === 'unread' ? true : undefined,
   });
+  const markRead = useMarkNotificationRead();
+  const markAll = useMarkAllNotificationsRead();
+  const clearAll = useClearAllNotifications();
+  const remove = useDeleteNotification();
 
   const items = useMemo(
     () => inbox.data?.notifications ?? [],
@@ -73,6 +83,14 @@ export function RestaurantNotificationsScreen() {
     await inbox.refetch();
   }, [inbox]);
 
+  const openItem = useCallback(
+    (item: AppNotification) => {
+      if (!item.isRead) void markRead.mutateAsync(item.id);
+      openNotificationDeepLink(router, item);
+    },
+    [markRead, router]
+  );
+
   return (
     <View style={styles.screen}>
       <RestaurantPageHeader
@@ -80,6 +98,27 @@ export function RestaurantNotificationsScreen() {
         subtitle={unread > 0 ? `${unread} unread` : 'All caught up'}
         showBack
       />
+
+      {unread > 0 || items.length > 0 ? (
+        <View style={styles.actions}>
+          {unread > 0 ? (
+            <Pressable
+              onPress={() => void markAll.mutateAsync()}
+              style={styles.actionChip}
+            >
+              <Text style={styles.actionText}>Mark all read</Text>
+            </Pressable>
+          ) : null}
+          {items.length > 0 ? (
+            <Pressable
+              onPress={() => void clearAll.mutateAsync()}
+              style={styles.actionChip}
+            >
+              <Text style={styles.actionText}>Clear</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={styles.filters}>
         {(['all', 'unread'] as const).map((key) => {
@@ -152,7 +191,8 @@ export function RestaurantNotificationsScreen() {
           <DeliveryNotificationRow
             key={item.id}
             notification={item}
-            onPress={() => openNotificationDeepLink(router, item)}
+            onPress={() => openItem(item)}
+            onDelete={() => void remove.mutateAsync(item.id)}
           />
         ))}
       </ScrollView>
@@ -167,6 +207,23 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 10,
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  actionChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: authTheme.surface,
+  },
+  actionText: {
+    color: authTheme.brand,
+    fontSize: 12,
+    fontFamily: fonts.semiBold,
   },
   filterChip: {
     paddingHorizontal: 14,

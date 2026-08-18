@@ -90,3 +90,20 @@ export const NOTIFICATION_PREFERENCE_META: {
     description: 'App and account notices',
   },
 ];
+
+/** GET/PUT /preferences — notification-service channel DTO. */
+export type NotificationChannelPreferences = {
+  ordersPush: boolean;
+  offersPush: boolean;
+  promoPush: boolean;
+  sms: boolean;
+  whatsapp: boolean;
+  email: boolean;
+};
+
+export type NotificationPushDevice = {
+  deviceId: string;
+  platform?: string;
+  app?: string;
+  tokenMasked?: string;
+};

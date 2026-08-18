@@ -748,33 +748,6 @@ export const restaurantSettingsApi = {
     }
   },
 
-  /** GET /restaurants */
-  listRestaurants: async (filters?: Record<string, string | number | boolean>) => {
-    const res = await request<unknown>(RESTAURANT_BASE, {
-      params: filters,
-    });
-    return extractList(res.data)
-      .map(mapRestaurantDetail)
-      .filter((row) => row.id);
-  },
-
-  /** GET /restaurants/nearby */
-  listNearby: async (lat: number, lng: number, radiusKm?: number) => {
-    const res = await request<unknown>(`${RESTAURANT_BASE}/nearby`, {
-      params: {
-        lat,
-        lng,
-        latitude: lat,
-        longitude: lng,
-        radius: radiusKm,
-        radiusKm,
-      },
-    });
-    return extractList(res.data)
-      .map(mapRestaurantDetail)
-      .filter((row) => row.id);
-  },
-
   /** GET /restaurants/:restaurantId */
   getRestaurant: async (restaurantId: string): Promise<RestaurantDetail> => {
     const res = await request<Record<string, unknown>>(

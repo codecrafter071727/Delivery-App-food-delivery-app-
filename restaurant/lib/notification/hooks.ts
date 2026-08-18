@@ -25,6 +25,10 @@ function invalidateNotificationQueries(
     queryKey: notificationKeys.all,
     refetchType: 'none',
   });
+  void queryClient.invalidateQueries({
+    queryKey: ['kitchen-inbox'],
+    refetchType: 'none',
+  });
 }
 
 /** GET /notifications — cache updated by delivery notification sync + mutations. */

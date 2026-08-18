@@ -69,8 +69,6 @@ export const restaurantOrderKeys = {
     [...restaurantOrderKeys.restaurant(restaurantId), 'handover', orderId] as const,
   rider: (restaurantId: string, orderId: string) =>
     [...restaurantOrderKeys.restaurant(restaurantId), 'rider', orderId] as const,
-  issues: (orderId: string) =>
-    [...restaurantOrderKeys.all, 'issues', orderId] as const,
 };
 
 /** Patch dashboard pending/active counts from the live orders board (no extra API). */
@@ -426,19 +424,6 @@ export function useRestaurantOrder(
           : undefined
       ) ?? previous;
     },
-  });
-}
-
-/** GET /orders/:orderId/issues */
-export function useOrderIssues(orderId?: string, enabled = true) {
-  return useQuery({
-    queryKey: restaurantOrderKeys.issues(orderId ?? ''),
-    queryFn: () => restaurantOrderApi.getOrderIssues(orderId!),
-    enabled: enabled && Boolean(orderId),
-    staleTime: 20_000,
-    refetchOnWindowFocus: true,
-    retry: false,
-    placeholderData: (previous) => previous,
   });
 }
 
