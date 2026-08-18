@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X } from 'lucide-react-native';
 
 import { fonts } from '@/constants/typography';
-import { deliveryStatusLabel, isUnpaidTripStatus, tripCreditsEarnings } from '@/lib/delivery-partner/api';
+import { deliveryStatusLabel, isUnpaidTripStatus, normalizeDeliveryStatus, tripCreditsEarnings } from '@/lib/delivery-partner/api';
 import {
   useDeliveryDetail,
   useDeliveryEvents,
@@ -145,7 +145,11 @@ export function TripDetailSheet({
                     </Text>
                   ) : money(delivery.earning, delivery.currency) ? (
                     <Text style={styles.earn}>
-                      {tripCreditsEarnings(delivery.status) ? 'Earned' : 'Est.'}{' '}
+                      {normalizeDeliveryStatus(delivery.status) === 'returned'
+                        ? 'RTO fee '
+                        : tripCreditsEarnings(delivery.status)
+                          ? 'Earned '
+                          : 'Est. '}
                       {money(delivery.earning, delivery.currency)}
                     </Text>
                   ) : null}

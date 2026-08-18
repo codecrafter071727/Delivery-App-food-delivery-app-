@@ -465,14 +465,16 @@ export function DeliveryTripMap({
         >
           <Navigation color="#fff" size={14} />
           <Text style={styles.navBtnText} numberOfLines={1}>
-            Navigate to{' '}
+            Navigate{' '}
             {navRoute?.leg === 'return' || status === 'returning_to_restaurant'
-              ? delivery.restaurantName || 'restaurant'
-              : status === 'picked_up' ||
+              ? 'back to restaurant'
+              : `to ${
+                  status === 'picked_up' ||
                   status === 'out_for_delivery' ||
                   status === 'at_customer'
-                ? delivery.customerName || 'customer'
-                : delivery.restaurantName || 'restaurant'}
+                    ? delivery.customerName || 'customer'
+                    : delivery.restaurantName || 'restaurant'
+                }`}
           </Text>
         </Pressable>
       ) : null}

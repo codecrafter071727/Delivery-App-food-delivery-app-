@@ -153,15 +153,24 @@ export function applyRiderSocketEvent(
     case 'earnings:updated':
     case 'wallet:credited': {
       const amount = pickNumber(record, ['delta', 'amount']);
+      const source = (pickString(record, ['source']) ?? '').toLowerCase();
+      const rto = source === 'rto';
       pushLiveToast({
-        title: event === 'wallet:credited' ? 'Wallet credited' : 'Earnings updated',
+        title: rto
+          ? 'RTO fee credited'
+          : event === 'wallet:credited'
+            ? 'Wallet credited'
+            : 'Earnings updated',
         body:
           amount != null
-            ? `₹${Math.round(amount)} added to today's earnings`
+            ? rto
+              ? `₹${Math.round(amount)} return fee added to your wallet`
+              : `₹${Math.round(amount)} added to today's earnings`
             : 'Your IST ledger just updated',
         tone: 'success',
       });
       invalidate(queryClient, partnerAnalyticsKeys.all);
+      invalidate(queryClient, [...deliveryPartnerKeys.all, 'finance']);
       break;
     }
     case 'chat:new-message': {

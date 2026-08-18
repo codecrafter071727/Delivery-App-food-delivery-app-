@@ -5,10 +5,12 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 
-import { deliveryPartnerApi } from '@/lib/delivery-partner/api';
+import { deliveryPartnerApi, normalizeDeliveryStatus } from '@/lib/delivery-partner/api';
+import { announceOrderReturned } from '@/lib/delivery-partner/rider-ack';
 import type {
   CancelDeliveryPayload,
   ConfirmBatchSequencePayload,
+  CompleteReturnPayload,
   CustomerUnreachablePayload,
   DeliverOrderPayload,
   DeliveryChatTo,
@@ -134,14 +136,24 @@ export function useActiveDeliveries(
   });
 }
 
-export function useDeliveryDetail(deliveryId?: string, enabled = true) {
+export function useDeliveryDetail(
+  deliveryId?: string,
+  enabled = true,
+  options?: { live?: boolean; intervalMs?: number }
+) {
   const id = deliveryId?.trim() ?? '';
+  const isActive = useAppIsActive();
+  const intervalMs = options?.intervalMs ?? 4_000;
   return useQuery({
     queryKey: deliveryPartnerKeys.delivery(id),
     queryFn: () => deliveryPartnerApi.getDelivery(id),
     enabled: enabled && Boolean(id),
-    staleTime: 8_000,
+    staleTime: options?.live ? intervalMs / 2 : 8_000,
     gcTime: 5 * 60_000,
+    refetchInterval: options?.live
+      ? liveRefetchInterval(intervalMs, isActive)
+      : false,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     retry: keepRetrying,
@@ -246,6 +258,41 @@ export function useSendTripChat() {
       to: DeliveryChatTo;
       text: string;
     }) => deliveryPartnerApi.sendTripChat(deliveryId, { to, text }),
+    onSuccess: (message) => {
+      queryClient.setQueryData(
+        deliveryPartnerKeys.chat(message.deliveryId),
+        (current) => {
+          if (!current || typeof current !== 'object') return current;
+          const thread = current as {
+            messages?: typeof message[];
+            count?: number;
+          };
+          const existing = thread.messages ?? [];
+          if (existing.some((row) => row.id === message.id)) return current;
+          return {
+            ...thread,
+            count: (thread.count ?? existing.length) + 1,
+            messages: [...existing, message],
+          };
+        }
+      );
+    },
+  });
+}
+
+export function useSendQuickReply() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      deliveryId,
+      templateId,
+      to,
+    }: {
+      deliveryId: string;
+      templateId: string;
+      to?: DeliveryChatTo;
+    }) =>
+      deliveryPartnerApi.sendQuickReply({ deliveryId, templateId, to }),
     onSuccess: (message) => {
       queryClient.setQueryData(
         deliveryPartnerKeys.chat(message.deliveryId),
@@ -385,15 +432,25 @@ export function useDeliveryOrderMutations() {
   };
 
   const applyDeliveryResult = (delivery: PartnerDelivery) => {
-    const status = delivery.status.toLowerCase();
+    const status = normalizeDeliveryStatus(delivery.status);
     if (
       status === 'delivered' ||
       status === 'rejected' ||
-      status === 'cancelled'
+      status === 'cancelled' ||
+      status === 'returned' ||
+      status === 'failed' ||
+      status === 'reassigned'
     ) {
       queryClient.setQueryData(deliveryPartnerKeys.active(), null);
+      if (status === 'returned') {
+        announceOrderReturned(delivery.id, delivery.rtoFee);
+      }
     } else if (delivery.id) {
       queryClient.setQueryData(deliveryPartnerKeys.active(), delivery);
+      queryClient.setQueryData(
+        deliveryPartnerKeys.delivery(delivery.id),
+        delivery
+      );
     }
   };
 
@@ -541,9 +598,14 @@ export function useDeliveryOrderMutations() {
       const previous = queryClient.getQueryData<PartnerDelivery | null>(
         deliveryPartnerKeys.active()
       );
-      patchActiveCache(queryClient, (cur) =>
-        cur ? { ...cur, status: 'arrived' } : cur ?? null
-      );
+      const currentStatus = previous
+        ? normalizeDeliveryStatus(previous.status)
+        : '';
+      if (currentStatus !== 'returning_to_restaurant') {
+        patchActiveCache(queryClient, (cur) =>
+          cur ? { ...cur, status: 'arrived' } : cur ?? null
+        );
+      }
       return { previous };
     },
     onError: (_e, _v, ctx) => {
@@ -776,6 +838,20 @@ export function useDeliveryOrderMutations() {
     },
   });
 
+  const completeReturn = useMutation({
+    mutationFn: ({
+      deliveryId,
+      payload,
+    }: {
+      deliveryId: string;
+      payload: CompleteReturnPayload;
+    }) => deliveryPartnerApi.completeReturn(deliveryId, payload),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
   const failTrip = useMutation({
     mutationFn: ({
       deliveryId,
@@ -822,6 +898,7 @@ export function useDeliveryOrderMutations() {
     uploadPod,
     customerUnreachable,
     returnToRestaurant,
+    completeReturn,
     failTrip,
     callCustomer,
     callRestaurant,

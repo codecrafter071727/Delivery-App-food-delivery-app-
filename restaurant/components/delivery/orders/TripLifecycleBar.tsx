@@ -18,10 +18,15 @@ import {
   nextDeliveryAction,
   normalizeDeliveryStatus,
   resolveTripStep,
+  type TripWorkflowAction,
 } from '@/lib/delivery-partner/api';
 import { isCodPayment } from '@/lib/delivery-partner/finance-types';
 import { useDeliveryOrderMutations } from '@/lib/delivery-partner/hooks';
-import { formatTripError } from '@/lib/delivery-partner/rider-ack';
+import {
+  formatRtoError,
+  formatTripError,
+} from '@/lib/delivery-partner/rider-ack';
+import { getApiErrorCode } from '@/lib/errors';
 import {
   useOrderTracking,
   useTrackingStatus,
@@ -47,6 +52,7 @@ type SheetKey =
   | 'deliver'
   | 'rto'
   | 'return'
+  | 'return_otp'
   | 'fail'
   | null;
 
@@ -65,17 +71,28 @@ type TripGeo = {
   dropMeters?: number;
 } | null;
 
-export function tripGeofenceState(status: string, geo?: TripGeo) {
-  const action = nextDeliveryAction(status);
+export function tripGeofenceState(
+  status: string,
+  geo?: TripGeo,
+  step?: TripWorkflowAction
+) {
+  const action = step ?? nextDeliveryAction(status);
   // Missing tracking payload ≠ outside geofence. Still allow the tap so we can
   // ping GPS; the server returns GEOFENCE_NOT_MET if they are too far.
   if (!geo) return { blocked: false, hint: null as string | null };
-  if (action === 'arrived' || action === 'pickup') {
+  if (
+    action === 'arrived' ||
+    action === 'pickup' ||
+    action === 'return_store' ||
+    action === 'complete_return'
+  ) {
     const blocked = !geo.atPickup;
     return {
       blocked,
       hint: blocked
-        ? `Get within ${geo.pickupMeters ?? 150}m of the restaurant.`
+        ? action === 'return_store' || action === 'complete_return'
+          ? 'You must be at the restaurant (150 m).'
+          : `Get within ${geo.pickupMeters ?? 150}m of the restaurant.`
         : null,
     };
   }
@@ -85,15 +102,6 @@ export function tripGeofenceState(status: string, geo?: TripGeo) {
       blocked,
       hint: blocked
         ? `Get within ${geo.dropMeters ?? 100}m of the customer.`
-        : null,
-    };
-  }
-  if (action === 'return_store') {
-    const blocked = !geo.atPickup;
-    return {
-      blocked,
-      hint: blocked
-        ? `Get within ${geo.pickupMeters ?? 150}m of the restaurant to return.`
         : null,
     };
   }
@@ -178,7 +186,11 @@ export function TripLifecycleWithGeo({
     live && Boolean(delivery.id)
   );
   const geo = (trackingQuery.data ?? statusQuery.data)?.geofence;
-  const gate = tripGeofenceState(status, geo);
+  const gate = tripGeofenceState(
+    status,
+    geo,
+    resolveTripStep(delivery)
+  );
   return (
     <TripLifecycleBar
       delivery={delivery}
@@ -204,7 +216,10 @@ export function TripLifecycleBar({
   const atRestaurant = status === 'arrived';
   const atDrop = status === 'at_customer';
   const postAccept = status !== 'assigned';
-  const canCancel = delivery.canCancel !== false && postAccept;
+  const canCancel =
+    delivery.canCancel !== false &&
+    postAccept &&
+    status !== 'returning_to_restaurant';
   const canIssue = delivery.canReportIssue !== false && postAccept;
   const settledUpi = (delivery.settledVia ?? '').toLowerCase() === 'upi';
   const showCodUpi =
@@ -254,18 +269,37 @@ export function TripLifecycleBar({
     mutations.reportIssue.isPending ||
     mutations.customerUnreachable.isPending ||
     mutations.returnToRestaurant.isPending ||
+    mutations.completeReturn.isPending ||
     mutations.failTrip.isPending ||
     mutations.callCustomer.isPending ||
     mutations.callRestaurant.isPending;
 
   const disabled = mutating || Boolean(busy);
+  const rtoStep =
+    status === 'returning_to_restaurant' ||
+    step === 'return_store' ||
+    step === 'complete_return';
 
   const run = async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
     setBusy(label);
     try {
       return await fn();
     } catch (error) {
-      Alert.alert('Could not complete', formatTripError(error, label));
+      const code = getApiErrorCode(error);
+      const rtoError =
+        rtoStep ||
+        (code != null &&
+          (code.startsWith('RTO_') ||
+            code === 'RETURN_HANDOVER_REQUIRED' ||
+            code === 'RIDER_NOT_ARRIVED_FOR_RETURN' ||
+            (code === 'GEOFENCE_NOT_MET' &&
+              status === 'returning_to_restaurant')));
+      Alert.alert(
+        'Could not complete',
+        rtoError
+          ? formatRtoError(error, rtoRemainingSeconds(delivery))
+          : formatTripError(error, label)
+      );
       throw error;
     } finally {
       setBusy(null);
@@ -273,10 +307,24 @@ export function TripLifecycleBar({
   };
 
   const onArrived = () =>
-    void run('Marking arrived…', () =>
-      mutations.arrived.mutateAsync(delivery.id)
+    void run(
+      status === 'returning_to_restaurant'
+        ? 'Confirming you’re back at the restaurant…'
+        : 'Marking arrived…',
+      () => mutations.arrived.mutateAsync(delivery.id)
     )
-      .then(() => {
+      .then((next) => {
+        const nextStatus = normalizeDeliveryStatus(next.status);
+        const nextStep = resolveTripStep(next);
+        if (
+          nextStatus === 'returning_to_restaurant' ||
+          nextStep === 'complete_return' ||
+          next.nextAction === 'await_return_handover'
+        ) {
+          setOtp('');
+          setSheet('return_otp');
+          return;
+        }
         setOtp('');
         setChecklistOk(true);
         setPickupPhotoUri(null);
@@ -512,12 +560,35 @@ export function TripLifecycleBar({
       );
       setSheet(null);
       setNote('');
+      const fee = delivery.rtoFee;
       Alert.alert(
         'Returning to restaurant',
-        'Navigate back to the store. This trip will not pay a delivery earning until the order is handed back.'
+        fee && fee > 0
+          ? `Take the food back to the restaurant. Do not collect cash. You’ll earn ₹${Math.round(fee)} for returning this order.`
+          : 'Take the food back to the restaurant. Do not collect cash.'
       );
     } catch {
       // alerted
+    }
+  };
+
+  const submitCompleteReturn = async () => {
+    const code = otp.trim();
+    if (!/^\d{4}$/.test(code)) {
+      Alert.alert('OTP required', 'Enter the 4-digit kitchen return OTP.');
+      return;
+    }
+    try {
+      await run('Handing order back to kitchen…', () =>
+        mutations.completeReturn.mutateAsync({
+          deliveryId: delivery.id,
+          payload: { method: 'otp', otp: code },
+        })
+      );
+      setSheet(null);
+      setOtp('');
+    } catch {
+      // alerted — keep OTP so they can retry
     }
   };
 
@@ -823,7 +894,7 @@ export function TripLifecycleBar({
           >
             <Text style={styles.secondaryText}>Customer refused</Text>
           </Pressable>
-          {delivery.canReturnToRestaurant || rtoLeft === 0 ? (
+          {delivery.canReturnToRestaurant ? (
             <Pressable
               onPress={() => {
                 setNote('');
@@ -835,19 +906,10 @@ export function TripLifecycleBar({
             >
               <Text style={styles.primaryText}>Return to restaurant</Text>
             </Pressable>
-          ) : null}
-          {delivery.canFail ? (
-            <Pressable
-              onPress={() => {
-                setNote('');
-                setFailCode('customer_unreachable');
-                setSheet('fail');
-              }}
-              disabled={disabled}
-              style={styles.secondary}
-            >
-              <Text style={styles.secondaryText}>Mark delivery failed</Text>
-            </Pressable>
+          ) : rtoLeft != null && rtoLeft > 0 ? (
+            <Text style={styles.waitText}>
+              Wait {formatClock(rtoLeft)} before returning.
+            </Text>
           ) : null}
         </View>
       ) : null}
@@ -855,8 +917,48 @@ export function TripLifecycleBar({
       {status === 'returning_to_restaurant' ? (
         <View style={styles.group}>
           <Text style={styles.waitText}>
-            Returning this order to the restaurant. Follow the return route.
+            Take the food back to the restaurant. Do not collect cash.
           </Text>
+          {delivery.rtoFee && delivery.rtoFee > 0 ? (
+            <Text style={styles.waitText}>
+              You’ll earn ₹{Math.round(delivery.rtoFee)} for returning this
+              order.
+            </Text>
+          ) : null}
+          {step === 'return_store' ? (
+            <Pressable
+              onPress={onArrived}
+              disabled={primaryDisabled}
+              style={[styles.primary, primaryDisabled && styles.disabled]}
+            >
+              <Text style={styles.primaryText}>
+                I’ve arrived at the restaurant
+              </Text>
+            </Pressable>
+          ) : null}
+          {step === 'complete_return' ? (
+            <>
+              <Text style={styles.waitText}>
+                Ask kitchen for the return OTP, or wait if they tap Receive.
+              </Text>
+              <TextInput
+                value={otp}
+                onChangeText={setOtp}
+                placeholder="Kitchen return OTP"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="number-pad"
+                style={styles.input}
+                maxLength={4}
+              />
+              <Pressable
+                onPress={() => void submitCompleteReturn()}
+                disabled={disabled}
+                style={[styles.primary, disabled && styles.disabled]}
+              >
+                <Text style={styles.primaryText}>Confirm return OTP</Text>
+              </Pressable>
+            </>
+          ) : null}
           <Pressable
             onPress={() => {
               setNote('');
@@ -867,7 +969,7 @@ export function TripLifecycleBar({
             style={styles.secondary}
           >
             <Text style={styles.secondaryText}>
-              Couldn’t return — mark failed
+              Restaurant closed — won’t take bag
             </Text>
           </Pressable>
         </View>
@@ -1062,6 +1164,45 @@ export function TripLifecycleBar({
       </Modal>
 
       <Modal
+        visible={sheet === 'return_otp'}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSheet(null)}
+      >
+        <View style={styles.backdrop}>
+          <View style={styles.card}>
+            <View style={styles.header}>
+              <Text style={styles.title}>Show this to kitchen</Text>
+              <Pressable onPress={() => setSheet(null)} hitSlop={8}>
+                <X color="#6B7280" size={20} />
+              </Pressable>
+            </View>
+            <Text style={styles.sub}>
+              Ask kitchen for the return OTP, or wait if they tap Receive. This
+              is not the customer drop OTP.
+            </Text>
+            <TextInput
+              value={otp}
+              onChangeText={setOtp}
+              placeholder="4-digit kitchen return OTP"
+              placeholderTextColor="#9CA3AF"
+              keyboardType="number-pad"
+              style={styles.input}
+              maxLength={4}
+              autoFocus
+            />
+            <Pressable
+              onPress={() => void submitCompleteReturn()}
+              disabled={disabled}
+              style={[styles.primary, disabled && styles.disabled]}
+            >
+              <Text style={styles.primaryText}>Confirm return OTP</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={sheet === 'cancel' || sheet === 'issue'}
         transparent
         animationType="fade"
@@ -1159,7 +1300,7 @@ export function TripLifecycleBar({
                 ? 'Attempt 2 starts a 5-minute wait. Then you can return the order.'
                 : sheet === 'return'
                   ? 'Customer refused returns immediately. Other reasons need two contact attempts and the timer.'
-                  : 'Use this only if the order cannot be delivered or returned.'}
+                  : 'Only if the restaurant will not take the bag. There is no RTO fee on failed.'}
             </Text>
             {sheet === 'rto' ? (
               <View style={styles.chips}>
@@ -1185,7 +1326,14 @@ export function TripLifecycleBar({
               </View>
             ) : (
               <View style={styles.chips}>
-                {(sheet === 'return' ? RETURN_REASON_CODES : FAIL_REASON_CODES).map(
+                {(sheet === 'return'
+                  ? RETURN_REASON_CODES
+                  : FAIL_REASON_CODES.filter((row) =>
+                      status === 'returning_to_restaurant'
+                        ? row.code === 'restaurant_closed'
+                        : true
+                    )
+                ).map(
                   (row) => {
                     const selected =
                       sheet === 'return'

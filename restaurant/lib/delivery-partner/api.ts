@@ -21,6 +21,7 @@ import { normalizeDutyStatus } from '@/lib/delivery-partner/availability-types';
 import type {
   CancelDeliveryPayload,
   ConfirmBatchSequencePayload,
+  CompleteReturnPayload,
   CustomerUnreachablePayload,
   DeliverOrderPayload,
   DeliveryChatMessage,
@@ -253,6 +254,22 @@ function formatItemsSummary(raw: unknown): string | undefined {
     .join(', ');
 }
 
+function timelineStepLabel(row: Record<string, unknown>): string {
+  const key = (pickString(row, ['key', 'id', 'status']) ?? '')
+    .trim()
+    .toLowerCase();
+  const labels: Record<string, string> = {
+    returning: 'Returning to restaurant',
+    return_arrived: 'Arrived at restaurant',
+    returned: 'Returned to restaurant',
+  };
+  const fromApi = pickString(row, ['label', 'title', 'name']);
+  if (fromApi && fromApi !== 'Step' && fromApi.toLowerCase() !== key) {
+    return fromApi;
+  }
+  return labels[key] ?? fromApi ?? 'Step';
+}
+
 function mapTimeline(raw: unknown): DeliveryTimeline {
   const record = asRecord(raw);
   const nested = asRecord(record.timeline ?? record.data ?? record);
@@ -263,7 +280,7 @@ function mapTimeline(raw: unknown): DeliveryTimeline {
         const row = asRecord(item);
         return {
           key: pickString(row, ['key', 'id', 'status']) ?? '',
-          label: pickString(row, ['label', 'title', 'name']) ?? 'Step',
+          label: timelineStepLabel(row),
           at: pickString(row, ['at', 'timestamp', 'time']) ?? null,
           completed: pickBool(row, ['completed', 'done', 'isCompleted']) ?? false,
         };
@@ -545,6 +562,7 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
       const status = normalizeDeliveryStatus(
         pickString(source, ['status', 'deliveryStatus', 'state']) ?? 'assigned'
       );
+      const rtoFee = pickNumber(source, ['rtoFee']);
       const quoted = pickNumber(source, [
         'earning',
         'earnings',
@@ -558,6 +576,9 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
         'creditedAmount',
         'partnerEarnings',
       ]);
+      if (status === 'returning_to_restaurant' || status === 'returned') {
+        if (rtoFee != null && rtoFee > 0) return rtoFee;
+      }
       if (isUnpaidTripStatus(status)) {
         return credited && credited > 0 ? credited : undefined;
       }
@@ -568,6 +589,10 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
     acceptedAt: pickString(source, ['acceptedAt']),
     arrivedAt: pickString(source, ['arrivedAt']),
     pickedUpAt: pickString(source, ['pickedUpAt', 'pickupAt']),
+    arrivedAtCustomer: pickString(source, [
+      'arrivedAtCustomer',
+      'reachedCustomerAt',
+    ]),
     deliveredAt: pickString(source, ['deliveredAt']),
     createdAt: pickString(source, ['createdAt']),
     updatedAt: pickString(source, ['updatedAt']),
@@ -600,7 +625,14 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
     ]),
     rtoTimerEndsAt: pickString(source, ['rtoTimerEndsAt']),
     rtoRemainingSeconds: pickNumber(source, ['rtoRemainingSeconds']),
+    canStartRto: pickBool(source, ['canStartRto']),
     canReturnToRestaurant: pickBool(source, ['canReturnToRestaurant']),
+    returnArrivedAt: pickString(source, ['returnArrivedAt']),
+    returnVerified: pickBool(source, ['returnVerified']),
+    returnVerifiedAt: pickString(source, ['returnVerifiedAt']),
+    returnedAt: pickString(source, ['returnedAt']),
+    rtoFee: pickNumber(source, ['rtoFee']) ?? 0,
+    incentiveBonus: pickNumber(source, ['incentiveBonus']),
     canFail: pickBool(source, ['canFail']),
     failedAt: pickString(source, ['failedAt']),
     failReasonCode: pickString(source, ['failReasonCode']),
@@ -954,16 +986,16 @@ export function isAssignableStatus(status: string) {
   return s === 'assigned';
 }
 
-/** Wallet credit only happens on delivered. Failed / returned / cancelled pay ₹0. */
+/** Wallet credit on delivered (trip pay) or returned (RTO fee). */
 export function tripCreditsEarnings(status?: string) {
-  return normalizeDeliveryStatus(status ?? '') === 'delivered';
+  const s = normalizeDeliveryStatus(status ?? '');
+  return s === 'delivered' || s === 'returned';
 }
 
 export function isUnpaidTripStatus(status?: string) {
   const s = normalizeDeliveryStatus(status ?? '');
   return (
     s === 'failed' ||
-    s === 'returned' ||
     s === 'cancelled' ||
     s === 'rejected' ||
     s === 'reassigned'
@@ -978,6 +1010,7 @@ export type TripWorkflowAction =
   | 'reached_customer'
   | 'deliver'
   | 'return_store'
+  | 'complete_return'
   | null;
 
 export function nextDeliveryAction(status: string): TripWorkflowAction {
@@ -1006,11 +1039,22 @@ export function resolveTripStep(delivery: PartnerDelivery): TripWorkflowAction {
       return 'reached_customer';
     case 'deliver':
       return 'deliver';
+    case 'arrive_return':
     case 'return_store':
       return 'return_store';
+    case 'await_return_handover':
+      return 'complete_return';
     default:
-      return nextDeliveryAction(delivery.status);
+      break;
   }
+  const s = normalizeDeliveryStatus(delivery.status);
+  if (s === 'returning_to_restaurant') {
+    if (delivery.returnArrivedAt || delivery.returnVerified) {
+      return 'complete_return';
+    }
+    return 'return_store';
+  }
+  return nextDeliveryAction(delivery.status);
 }
 
 async function request<T>(
@@ -2394,6 +2438,92 @@ export const deliveryPartnerApi = {
     return mapPartnerDelivery(res.data ?? res);
   },
 
+  /**
+   * POST /partners/me/deliveries/:id/complete-return
+   * Socket `delivery:complete-return`. Rider method is OTP only (kitchen tap skips OTP).
+   */
+  completeReturn: async (
+    deliveryId: string,
+    payload: CompleteReturnPayload
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const otp = payload.otp.trim();
+    if (!/^\d{4}$/.test(otp)) {
+      throw new PartnerApiError(
+        'Enter the 4-digit kitchen return OTP.',
+        'OTP_REQUIRED'
+      );
+    }
+    await pingLiveGpsBeforeTripAction();
+    const body = { method: 'otp' as const, otp };
+
+    const resolveIfKitchenDone = async (): Promise<PartnerDelivery | null> => {
+      try {
+        const active = await deliveryPartnerApi.getActiveDelivery();
+        if (active && active.id === id) {
+          return normalizeDeliveryStatus(active.status) === 'returned'
+            ? active
+            : null;
+        }
+      } catch {
+        // fall through to GET :id
+      }
+      try {
+        const detail = await deliveryPartnerApi.getDelivery(id);
+        return normalizeDeliveryStatus(detail.status) === 'returned'
+          ? detail
+          : null;
+      } catch {
+        return null;
+      }
+    };
+
+    if (isRiderSocketConnected()) {
+      try {
+        const data = await emitRiderEvent('delivery:complete-return', {
+          deliveryId: id,
+          method: 'otp',
+          otp,
+        });
+        return mapPartnerDelivery(data);
+      } catch (error) {
+        const code = getApiErrorCode(error);
+        if (
+          code === 'INVALID_OTP' ||
+          code === 'OTP_REQUIRED' ||
+          code === 'GEOFENCE_NOT_MET' ||
+          code === 'RIDER_NOT_ARRIVED_FOR_RETURN'
+        ) {
+          throw error;
+        }
+        const already = await resolveIfKitchenDone();
+        if (already) return already;
+        if (!canFallbackToRest(error)) throw error;
+      }
+    }
+
+    try {
+      const res = await request<unknown>(
+        `${ME_BASE}/deliveries/${encodeURIComponent(id)}/complete-return`,
+        { method: 'POST', body }
+      );
+      return mapPartnerDelivery(res.data ?? res);
+    } catch (error) {
+      const code = getApiErrorCode(error);
+      if (
+        code === 'INVALID_OTP' ||
+        code === 'OTP_REQUIRED' ||
+        code === 'GEOFENCE_NOT_MET' ||
+        code === 'RIDER_NOT_ARRIVED_FOR_RETURN'
+      ) {
+        throw error;
+      }
+      const already = await resolveIfKitchenDone();
+      if (already) return already;
+      throw error;
+    }
+  },
+
   /** POST /partners/me/deliveries/:id/failed */
   markFailed: async (
     deliveryId: string,
@@ -2474,6 +2604,34 @@ export const deliveryPartnerApi = {
         text,
         createdAt: new Date().toISOString(),
       };
+    }
+    return mapped;
+  },
+
+  /** POST /api/v1/delivery-service/communication/quick-reply — no /partners/me twin. */
+  sendQuickReply: async (payload: {
+    deliveryId: string;
+    templateId: string;
+    to?: DeliveryChatTo;
+  }): Promise<DeliveryChatMessage> => {
+    const deliveryId = payload.deliveryId.trim();
+    const res = await request<unknown>(
+      '/api/v1/delivery-service/communication/quick-reply',
+      {
+        method: 'POST',
+        body: {
+          deliveryId,
+          templateId: payload.templateId,
+          to: payload.to,
+        },
+      }
+    );
+    const mapped = mapDeliveryChatMessage(res.data ?? res, deliveryId);
+    if (!mapped) {
+      throw new PartnerApiError(
+        'Could not send that quick reply.',
+        'TEMPLATE_NOT_FOUND'
+      );
     }
     return mapped;
   },
@@ -2670,7 +2828,7 @@ export function deliveryStatusLabel(status: string): string {
     out_for_delivery: 'Out for delivery',
     at_customer: 'At customer',
     returning_to_restaurant: 'Returning to restaurant',
-    returned: 'Returned to store',
+    returned: 'Returned to restaurant',
     failed: 'Delivery failed',
     delivered: 'Delivered',
     rejected: 'Declined',

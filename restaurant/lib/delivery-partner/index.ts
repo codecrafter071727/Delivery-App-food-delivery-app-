@@ -29,6 +29,8 @@ export {
   deliveryStatusLabel,
   normalizeDeliveryStatus,
   isAssignableStatus,
+  isUnpaidTripStatus,
+  tripCreditsEarnings,
   nextDeliveryAction,
   resolveTripStep,
   mapPartnerBatch,
@@ -91,7 +93,9 @@ export {
   toRejectReasonCode,
 } from '@/lib/delivery-partner/rider-gateway-types';
 export {
+  announceOrderReturned,
   canFallbackToRest,
+  formatRtoError,
   formatTripError,
   socketErrorCopy,
 } from '@/lib/delivery-partner/rider-ack';

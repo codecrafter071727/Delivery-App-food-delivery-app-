@@ -24,11 +24,15 @@ import {
   type RiderChatMessage,
 } from '@/lib/delivery-partner/chat-store';
 import {
+  useSendQuickReply,
   useSendTripChat,
   useTripChat,
 } from '@/lib/delivery-partner/hooks';
 import { emitRiderEvent, isRiderSocketConnected } from '@/lib/delivery-partner/rider-gateway';
 import { formatTripError } from '@/lib/delivery-partner/rider-ack';
+
+const RETURNING_BAG =
+  'I am back with the order. Please confirm return OTP.';
 
 const QUICK_REPLIES: Record<'customer' | 'restaurant', string[]> = {
   customer: ['I am at the gate', 'Please share the OTP', 'Coming in 2 mins'],
@@ -39,15 +43,24 @@ type Props = {
   visible: boolean;
   deliveryId: string;
   orderId?: string;
+  returning?: boolean;
   onClose: () => void;
 };
 
 /**
  * In-trip chat: GET/POST /partners/me/deliveries/:id/chat + live socket.
  */
-export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) {
+export function TripChatSheet({
+  visible,
+  deliveryId,
+  orderId,
+  returning = false,
+  onClose,
+}: Props) {
   const insets = useSafeAreaInsets();
-  const [to, setTo] = useState<'customer' | 'restaurant'>('customer');
+  const [to, setTo] = useState<'customer' | 'restaurant'>(
+    returning ? 'restaurant' : 'customer'
+  );
   const [text, setText] = useState('');
   const [messages, setMessages] = useState<RiderChatMessage[]>([]);
   const [peerTyping, setPeerTyping] = useState(false);
@@ -56,7 +69,12 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
   const typingOnRef = useRef(false);
   const thread = useTripChat(deliveryId, visible && Boolean(deliveryId));
   const sendChat = useSendTripChat();
+  const sendQuick = useSendQuickReply();
   const closed = Boolean(thread.data?.closed);
+
+  useEffect(() => {
+    if (returning) setTo('restaurant');
+  }, [returning]);
 
   useEffect(() => {
     if (!visible) return;
@@ -96,7 +114,7 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
     }).catch(() => undefined);
   };
 
-  const send = async (preset?: string) => {
+  const send = async (preset?: string, templateId?: string) => {
     const trimmed = (preset ?? text).trim();
     if (!trimmed) return;
     setSending(true);
@@ -104,11 +122,17 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
     emitTyping(false);
     try {
       let mapped = mapRiderChatMessage(
-        await sendChat.mutateAsync({
-          deliveryId,
-          to,
-          text: trimmed,
-        })
+        templateId
+          ? await sendQuick.mutateAsync({
+              deliveryId,
+              templateId,
+              to,
+            })
+          : await sendChat.mutateAsync({
+              deliveryId,
+              to,
+              text: trimmed,
+            })
       );
       if (!mapped) {
         mapped = {
@@ -124,6 +148,22 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
       appendRiderChat(mapped);
       setText('');
     } catch (err) {
+      if (templateId) {
+        try {
+          const mapped = mapRiderChatMessage(
+            await sendChat.mutateAsync({
+              deliveryId,
+              to,
+              text: trimmed,
+            })
+          );
+          if (mapped) appendRiderChat(mapped);
+          setText('');
+          return;
+        } catch {
+          // fall through
+        }
+      }
       if (isRiderSocketConnected()) {
         try {
           const ack = await emitRiderEvent('chat:new-message', {
@@ -242,10 +282,18 @@ export function TripChatSheet({ visible, deliveryId, orderId, onClose }: Props) 
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {!closed ? (
             <View style={styles.quickRow}>
-              {QUICK_REPLIES[to].map((line) => (
+              {(to === 'restaurant' && returning
+                ? [RETURNING_BAG, ...QUICK_REPLIES.restaurant]
+                : QUICK_REPLIES[to]
+              ).map((line) => (
                 <Pressable
                   key={line}
-                  onPress={() => void send(line)}
+                  onPress={() =>
+                    void send(
+                      line,
+                      line === RETURNING_BAG ? 'returning_bag' : undefined
+                    )
+                  }
                   disabled={sending}
                   style={styles.quick}
                 >

@@ -147,9 +147,28 @@ export type PartnerDeliveryStatus =
   | 'picked_up'
   | 'out_for_delivery'
   | 'at_customer'
+  | 'returning_to_restaurant'
+  | 'returned'
   | 'delivered'
   | 'cancelled'
+  | 'reassigned'
+  | 'failed'
   | string;
+
+/** Backend `nextAction` on PartnerDeliveryDto — drive the primary CTA from this. */
+export type PartnerNextAction =
+  | 'arrive_restaurant'
+  | 'pickup'
+  | 'arrive_customer'
+  | 'deliver'
+  | 'arrive_return'
+  | 'await_return_handover'
+  | 'return_store'
+  | 'wait'
+  | 'confirm_ready'
+  | 'start_trip'
+  | string
+  | null;
 
 export type PartnerDeliveryAddress = {
   label?: string;
@@ -198,11 +217,12 @@ export type PartnerDelivery = {
   acceptedAt?: string;
   arrivedAt?: string;
   pickedUpAt?: string;
+  arrivedAtCustomer?: string;
   deliveredAt?: string;
   createdAt?: string;
   updatedAt?: string;
   batchId?: string;
-  nextAction?: string;
+  nextAction?: PartnerNextAction;
   canReject?: boolean;
   canCancel?: boolean;
   canReportIssue?: boolean;
@@ -219,7 +239,15 @@ export type PartnerDelivery = {
   contactAttemptCount?: number;
   rtoTimerEndsAt?: string;
   rtoRemainingSeconds?: number;
+  canStartRto?: boolean;
   canReturnToRestaurant?: boolean;
+  returnArrivedAt?: string;
+  returnVerified?: boolean;
+  returnVerifiedAt?: string;
+  returnedAt?: string;
+  /** Quoted/paid RTO fee. 0 until returning/returned. */
+  rtoFee?: number;
+  incentiveBonus?: number;
   canFail?: boolean;
   failedAt?: string;
   failReasonCode?: string;
@@ -379,6 +407,11 @@ export type ReturnReasonCode = (typeof RETURN_REASON_CODES)[number]['code'];
 export type ReturnToRestaurantPayload = {
   reasonCode: ReturnReasonCode;
   reason?: string;
+};
+
+export type CompleteReturnPayload = {
+  method?: 'otp';
+  otp: string;
 };
 
 export const FAIL_REASON_CODES = [

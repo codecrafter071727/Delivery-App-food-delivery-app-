@@ -8,7 +8,7 @@ import {
   User,
   Wallet,
 } from 'lucide-react-native';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -31,8 +31,10 @@ import {
 } from '@/components/delivery/orders/TripLifecycleBar';
 import { fonts } from '@/constants/typography';
 import {
+  deliveryPartnerApi,
   isAssignableStatus,
   normalizeDeliveryStatus,
+  resolveTripStep,
   tripOrderCode,
 } from '@/lib/delivery-partner/api';
 import { isCodPayment } from '@/lib/delivery-partner/finance-types';
@@ -45,6 +47,7 @@ import {
   useTripNavRoute,
 } from '@/lib/delivery-partner/hooks';
 import { formatLocationError } from '@/lib/delivery-partner/tracking-api';
+import { announceOrderReturned } from '@/lib/delivery-partner/rider-ack';
 import {
   useLiveLocation,
   useLocationHistory,
@@ -81,8 +84,9 @@ function tripPhase(status: string) {
   return 'restaurant' as const;
 }
 
-function phaseCopy(status: string) {
-  const s = normalizeDeliveryStatus(status);
+function phaseCopy(delivery: PartnerDelivery) {
+  const s = normalizeDeliveryStatus(delivery.status);
+  const step = resolveTripStep(delivery);
   if (s === 'accepted') return { kicker: 'Pickup', title: 'Head to restaurant' };
   if (s === 'arrived') return { kicker: 'Pickup', title: 'Collect the order' };
   if (s === 'picked_up' || s === 'out_for_delivery') {
@@ -90,7 +94,16 @@ function phaseCopy(status: string) {
   }
   if (s === 'at_customer') return { kicker: 'Drop', title: 'Complete delivery' };
   if (s === 'returning_to_restaurant') {
-    return { kicker: 'Return', title: 'Return to restaurant' };
+    if (step === 'complete_return') {
+      return {
+        kicker: 'Return',
+        title: 'Ask kitchen for the return OTP, or wait if they tap Receive.',
+      };
+    }
+    return {
+      kicker: 'Return',
+      title: 'Take the food back to the restaurant. Do not collect cash.',
+    };
   }
   return { kicker: 'Trip', title: s.replace(/_/g, ' ') };
 }
@@ -113,6 +126,9 @@ function mergeDelivery(
     itemCount: extra.itemCount ?? base.itemCount,
     amount: extra.amount ?? base.amount,
     earning: extra.earning ?? base.earning,
+    rtoFee: extra.rtoFee ?? base.rtoFee,
+    nextAction: extra.nextAction ?? base.nextAction,
+    returnArrivedAt: extra.returnArrivedAt ?? base.returnArrivedAt,
     paymentMethod: extra.paymentMethod || base.paymentMethod,
     notes: extra.notes || base.notes,
   };
@@ -145,6 +161,25 @@ export function ActiveTripSession() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [minimized, setMinimized] = useState(false);
+  const prevTripsRef = useRef<PartnerDelivery[]>([]);
+
+  useEffect(() => {
+    const prev = prevTripsRef.current;
+    prevTripsRef.current = trips;
+    const prevReturn = prev.find(
+      (row) =>
+        normalizeDeliveryStatus(row.status) === 'returning_to_restaurant'
+    );
+    if (!prevReturn || trips.some((row) => row.id === prevReturn.id)) return;
+    void deliveryPartnerApi
+      .getDelivery(prevReturn.id)
+      .then((detail) => {
+        if (normalizeDeliveryStatus(detail.status) === 'returned') {
+          announceOrderReturned(detail.id, detail.rtoFee);
+        }
+      })
+      .catch(() => undefined);
+  }, [trips]);
 
   useEffect(() => {
     if (!trips.length) {
@@ -193,11 +228,14 @@ function ActiveTripBody({
   onMinimize: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const detail = useDeliveryDetail(seed.id, true);
+  const detail = useDeliveryDetail(seed.id, true, {
+    live: true,
+    intervalMs: 3_000,
+  });
   const delivery = mergeDelivery(seed, detail.data);
   const status = normalizeDeliveryStatus(delivery.status);
   const phase = tripPhase(status);
-  const copy = phaseCopy(status);
+  const copy = phaseCopy(delivery);
   const live = true;
   const trackingQuery = useOrderTracking({
     orderId: delivery.orderId,
@@ -225,6 +263,12 @@ function ActiveTripBody({
   );
   const [chatOpen, setChatOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    if (normalizeDeliveryStatus(delivery.status) === 'returned') {
+      announceOrderReturned(delivery.id, delivery.rtoFee);
+    }
+  }, [delivery.id, delivery.status, delivery.rtoFee]);
 
   const tracking: OrderTracking | null = (() => {
     const base = trackingQuery.data ?? statusQuery.data;
@@ -258,7 +302,7 @@ function ActiveTripBody({
   })();
 
   const geo = tracking?.geofence;
-  const gate = tripGeofenceState(status, geo);
+  const gate = tripGeofenceState(status, geo, resolveTripStep(delivery));
   const stops = useResolvedTripStops({
     ...delivery,
     restaurantAddress: {
@@ -349,13 +393,20 @@ function ActiveTripBody({
     ? 'restaurant'
     : 'customer';
   const sheetMax = Math.round(Dimensions.get('window').height * 0.56);
-  const earn = money(delivery.earning, delivery.currency);
+  const earnAmount =
+    phase === 'return' && delivery.rtoFee && delivery.rtoFee > 0
+      ? delivery.rtoFee
+      : delivery.earning;
+  const earn = money(earnAmount, delivery.currency);
   const amount = money(delivery.amount, delivery.currency);
-  const payLabel = isCodPayment(delivery.paymentMethod)
-    ? 'COD'
-    : delivery.paymentMethod
-      ? 'Prepaid'
-      : null;
+  const payLabel =
+    phase === 'return'
+      ? 'No COD'
+      : isCodPayment(delivery.paymentMethod)
+        ? 'COD'
+        : delivery.paymentMethod
+          ? 'Prepaid'
+          : null;
   const orderCode = tripOrderCode(delivery);
   const itemLine = delivery.itemsSummary
     ? `${delivery.itemCount ? `${delivery.itemCount} item${delivery.itemCount === 1 ? '' : 's'} · ` : ''}${delivery.itemsSummary}`
@@ -446,7 +497,9 @@ function ActiveTripBody({
             </View>
             {earn ? (
               <View style={styles.earnPill}>
-                <Text style={styles.earnKicker}>Est. earn</Text>
+                <Text style={styles.earnKicker}>
+                  {phase === 'return' ? 'RTO fee' : 'Est. earn'}
+                </Text>
                 <Text style={styles.earnValue}>{earn}</Text>
               </View>
             ) : null}
@@ -484,7 +537,11 @@ function ActiveTripBody({
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.stopLabel}>
-                {showRestaurant ? 'Pickup restaurant' : 'Drop customer'}
+                {phase === 'return'
+                  ? 'Return restaurant'
+                  : showRestaurant
+                    ? 'Pickup restaurant'
+                    : 'Drop customer'}
               </Text>
               <Text style={styles.stopTitle} numberOfLines={2}>
                 {stopTitle}
@@ -526,7 +583,8 @@ function ActiveTripBody({
             </Pressable>
           </View>
 
-          {nextAddr || nextTitle || (showRestaurant && stops.dropKmLabel) ? (
+          {phase !== 'return' &&
+          (nextAddr || nextTitle || (showRestaurant && stops.dropKmLabel)) ? (
             <View style={styles.nextCard}>
               <Text style={styles.nextKicker}>
                 {showRestaurant ? 'Then drop' : 'Picked up from'}
@@ -579,6 +637,7 @@ function ActiveTripBody({
           visible
           deliveryId={delivery.id}
           orderId={delivery.orderId}
+          returning={phase === 'return'}
           onClose={() => setChatOpen(false)}
         />
       ) : null}

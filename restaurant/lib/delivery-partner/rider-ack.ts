@@ -1,3 +1,5 @@
+import { Alert } from 'react-native';
+
 import { PartnerApiError, getApiErrorCode, getApiErrorMessage } from '@/lib/errors';
 
 const FALLBACK_CODES = new Set([
@@ -61,7 +63,7 @@ export function socketErrorCopy(code?: string): string | undefined {
     case 'UPLOAD_FAILED':
       return 'Could not upload the photo. Try again.';
     case 'INVALID_OTP':
-      return 'That OTP is incorrect. Ask the customer to share it again.';
+      return 'That OTP is incorrect. Try again.';
     case 'PROOF_REQUIRED':
       return 'Add the delivery OTP or a proof photo to complete.';
     case 'RTO_ATTEMPTS_MAX':
@@ -72,6 +74,12 @@ export function socketErrorCopy(code?: string): string | undefined {
       return 'Start the 5-minute wait after the second attempt.';
     case 'RTO_TIMER_ACTIVE':
       return 'Wait for the 5-minute timer to finish, then return the order.';
+    case 'RETURN_HANDOVER_REQUIRED':
+      return 'Hand the bag to kitchen first.';
+    case 'RIDER_NOT_ARRIVED_FOR_RETURN':
+      return 'Tap I’ve arrived at the restaurant first.';
+    case 'OTP_REQUIRED':
+      return 'Enter the 4-digit kitchen return OTP.';
     case 'MASKED_CALL_UNAVAILABLE':
       return 'Masked calling is not set up. Use in-trip chat instead.';
     case 'MASKED_CALL_FAILED':
@@ -170,4 +178,40 @@ export function socketErrorCopy(code?: string): string | undefined {
 export function formatTripError(error: unknown, fallback: string): string {
   const code = getApiErrorCode(error);
   return socketErrorCopy(code) || getApiErrorMessage(error, fallback);
+}
+
+export function formatRtoError(
+  error: unknown,
+  remainingSeconds?: number | null
+): string {
+  const code = getApiErrorCode(error);
+  if (code === 'GEOFENCE_NOT_MET' || code === 'OUTSIDE_GEOFENCE') {
+    return 'You must be at the restaurant (150 m).';
+  }
+  if (code === 'RTO_TIMER_ACTIVE') {
+    const wait =
+      remainingSeconds != null && remainingSeconds > 0
+        ? `${remainingSeconds}s`
+        : 'the timer';
+    return `Wait ${wait} before returning.`;
+  }
+  if (code === 'INVALID_OTP') return 'Wrong code — retry.';
+  if (code === 'RETURN_HANDOVER_REQUIRED') {
+    return 'Hand the bag to kitchen first.';
+  }
+  return formatTripError(error, 'Could not complete this return step.');
+}
+
+const announcedReturns = new Set<string>();
+
+/** One success alert per trip after kitchen tap or rider OTP. */
+export function announceOrderReturned(deliveryId: string, rtoFee?: number) {
+  const id = deliveryId.trim();
+  if (!id || announcedReturns.has(id)) return;
+  announcedReturns.add(id);
+  const earned =
+    rtoFee != null && Number.isFinite(rtoFee) && rtoFee > 0
+      ? ` You earned ₹${Math.round(rtoFee)}.`
+      : '';
+  Alert.alert('Order returned', `Order returned to restaurant.${earned}`);
 }

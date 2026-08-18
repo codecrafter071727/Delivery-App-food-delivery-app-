@@ -25,6 +25,7 @@ export type RiderOutboundEvent =
   | 'delivery:picked-up'
   | 'delivery:reached-customer'
   | 'delivery:completed'
+  | 'delivery:complete-return'
   | 'chat:new-message'
   | 'typing';
 

@@ -42,6 +42,7 @@ import {
   isAssignableStatus,
   isUnpaidTripStatus,
   normalizeDeliveryStatus,
+  resolveTripStep,
 } from '@/lib/delivery-partner/api';
 import {
   useActiveDeliveries,
@@ -69,7 +70,7 @@ import type { PartnerDelivery } from '@/lib/delivery-partner/types';
 import { useResolvedTripStops } from '@/lib/delivery-partner/trip-stops';
 
 type TabKey = 'active' | 'history';
-type HistoryFilter = '' | 'delivered' | 'cancelled' | 'reassigned';
+type HistoryFilter = '' | 'delivered' | 'cancelled' | 'reassigned' | 'returned';
 
 import { REJECT_REASON_CODES, toRejectReasonCode } from '@/lib/delivery-partner/rider-gateway-types';
 
@@ -628,6 +629,7 @@ export function PartnerOrdersManager() {
                 [
                   { key: '', label: 'All' },
                   { key: 'delivered', label: 'Delivered' },
+                  { key: 'returned', label: 'Returned' },
                   { key: 'cancelled', label: 'Cancelled' },
                   { key: 'reassigned', label: 'Declined' },
                 ] as const
@@ -747,6 +749,10 @@ export function PartnerOrdersManager() {
           visible
           deliveryId={chatDelivery.id}
           orderId={chatDelivery.orderId}
+          returning={
+            normalizeDeliveryStatus(chatDelivery.status) ===
+            'returning_to_restaurant'
+          }
           onClose={() => setChatDelivery(null)}
         />
       ) : null}
@@ -843,7 +849,7 @@ function DeliveryCard({
   })();
 
   const geo = tracking?.geofence;
-  const gate = tripGeofenceState(status, geo);
+  const gate = tripGeofenceState(status, geo, resolveTripStep(delivery));
   const geoBlocked = gate.blocked;
   const geoHint = gate.hint;
   const stops = useResolvedTripStops({
@@ -1278,6 +1284,10 @@ function HistoryRow({
           style={styles.historyStatus}
         >
           {deliveryStatusLabel(delivery.status)}
+          {normalizeDeliveryStatus(delivery.status) === 'returned' &&
+          delivery.rtoFee
+            ? ` · RTO ₹${Math.round(delivery.rtoFee)}`
+            : ''}
         </Text>
       </View>
       <Text style={styles.historyAmount}>
