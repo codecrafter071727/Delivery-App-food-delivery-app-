@@ -97,9 +97,10 @@ export const dashboardApi = {
       'liveOrders',
     ]);
 
-    const grossRevenue = analytics?.totalRevenue ?? null;
+    // Business snapshot: today's delivered sales + completed order count only.
+    const grossRevenue = analytics?.revenueToday ?? null;
     const avgDeliveryMinutes = null;
-    const totalOrders = analytics?.totalOrders ?? null;
+    const totalOrders = analytics?.ordersToday ?? null;
     const rating =
       analytics?.avgRating && analytics.avgRating > 0
         ? analytics.avgRating

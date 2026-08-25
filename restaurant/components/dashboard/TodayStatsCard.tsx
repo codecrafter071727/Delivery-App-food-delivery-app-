@@ -47,12 +47,18 @@ export function TodayStatsCard({ restaurantId, metrics, onRatingPress }: Props) 
           <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
             {hasRevenue ? formatCurrency(metrics.grossRevenue as number) : '—'}
           </Text>
+          <Text style={styles.meta} numberOfLines={1}>
+            Delivered today
+          </Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.stat}>
-          <Text style={styles.label}>Orders</Text>
+          <Text style={styles.label}>Completed</Text>
           <Text style={styles.value}>
             {hasOrders ? Math.round(metrics.totalOrders as number) : '—'}
+          </Text>
+          <Text style={styles.meta} numberOfLines={1}>
+            Orders delivered
           </Text>
         </View>
         <View style={styles.divider} />
