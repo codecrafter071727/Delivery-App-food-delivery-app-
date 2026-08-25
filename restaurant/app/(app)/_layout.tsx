@@ -6,6 +6,7 @@ import { authTheme } from '@/constants/auth-theme';
 import { RestaurantLiveSync } from '@/components/dashboard/RestaurantLiveSync';
 import { KitchenConfigGate } from '@/components/dashboard/KitchenConfigGate';
 import { KitchenPushSync } from '@/components/dashboard/KitchenPushSync';
+import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import {
   portalMismatchRedirect,
   resolvePostAuthRoute,
@@ -45,12 +46,6 @@ export default function AppLayout() {
       return;
     }
 
-    if (effectiveRole === 'delivery') {
-      resolvedForToken.current = token;
-      setGate('ready');
-      return;
-    }
-
     let active = true;
     setGate('loading');
 
@@ -59,12 +54,13 @@ export default function AppLayout() {
         if (!active) return;
         resolvedForToken.current = token;
         if (route === '/restaurant-setup') setGate('restaurant-setup');
+        else if (route === DELIVERY_ROUTES.setup) setGate('delivery-setup');
         else setGate('ready');
       })
       .catch(() => {
         if (!active) return;
         resolvedForToken.current = token;
-        setGate('restaurant-setup');
+        setGate(effectiveRole === 'delivery' ? 'delivery-setup' : 'restaurant-setup');
       });
 
     return () => {
@@ -76,30 +72,41 @@ export default function AppLayout() {
     if (gate !== 'loading' || !token) return;
     const timer = setTimeout(() => {
       resolvedForToken.current = token;
-      setGate('ready');
+      // Don't force "ready" for delivery — missing profile must stay on setup.
+      setGate(effectiveRole === 'delivery' ? 'delivery-setup' : 'ready');
     }, 10000);
     return () => clearTimeout(timer);
-  }, [gate, token]);
+  }, [gate, token, effectiveRole]);
 
   useEffect(() => {
     if (!isHydrated || !token) return;
-    if (gate !== 'restaurant-setup') return;
-    if (effectiveRole === 'delivery') return;
+    if (gate !== 'restaurant-setup' && gate !== 'delivery-setup') return;
 
     const onRestaurantSetup = segments.includes('restaurant-setup');
-    if (onRestaurantSetup) return;
+    const onDeliverySetup =
+      segments.includes('delivery-setup') ||
+      (segments.includes('delivery') && segments.includes('setup'));
+
+    if (gate === 'restaurant-setup' && effectiveRole === 'restaurant' && onRestaurantSetup) {
+      return;
+    }
+    if (gate === 'delivery-setup' && effectiveRole === 'delivery' && onDeliverySetup) {
+      return;
+    }
 
     let active = true;
     void resolvePostAuthRoute(effectiveRole)
       .then((route) => {
         if (!active) return;
         resolvedForToken.current = token;
-        setGate(route === '/restaurant-setup' ? 'restaurant-setup' : 'ready');
+        if (route === '/restaurant-setup') setGate('restaurant-setup');
+        else if (route === DELIVERY_ROUTES.setup) setGate('delivery-setup');
+        else setGate('ready');
       })
       .catch(() => {
         if (!active) return;
         resolvedForToken.current = token;
-        setGate('ready');
+        setGate(effectiveRole === 'delivery' ? 'delivery-setup' : 'ready');
       });
 
     return () => {
@@ -115,7 +122,6 @@ export default function AppLayout() {
     const go = (href: string) => {
       redirectingRef.current = true;
       router.replace(href as never);
-      // Allow future redirects after navigation settles
       setTimeout(() => {
         redirectingRef.current = false;
       }, 400);
@@ -137,6 +143,14 @@ export default function AppLayout() {
 
     const portalRedirect = portalMismatchRedirect(effectiveRole, segments);
     if (portalRedirect) {
+      // While finishing delivery partner registration, stay on setup.
+      if (
+        effectiveRole === 'delivery' &&
+        gate === 'delivery-setup' &&
+        onDeliverySetup
+      ) {
+        return;
+      }
       go(portalRedirect);
       return;
     }
@@ -151,8 +165,43 @@ export default function AppLayout() {
       return;
     }
 
-    if (effectiveRole === 'delivery' && onDeliverySetup) {
-      go('/delivery');
+    if (
+      effectiveRole === 'delivery' &&
+      gate === 'delivery-setup' &&
+      !onDeliverySetup
+    ) {
+      // Setup wizard finished (or user left setup) — re-check partner profile.
+      if (redirectingRef.current) return;
+      redirectingRef.current = true;
+      void resolvePostAuthRoute('delivery')
+        .then((route) => {
+          if (route === DELIVERY_ROUTES.setup) {
+            setGate('delivery-setup');
+            router.replace(DELIVERY_ROUTES.setup as never);
+          } else {
+            resolvedForToken.current = token;
+            setGate('ready');
+            router.replace(DELIVERY_ROUTES.home as never);
+          }
+        })
+        .catch(() => {
+          setGate('delivery-setup');
+          router.replace(DELIVERY_ROUTES.setup as never);
+        })
+        .finally(() => {
+          setTimeout(() => {
+            redirectingRef.current = false;
+          }, 400);
+        });
+      return;
+    }
+
+    if (
+      effectiveRole === 'delivery' &&
+      gate === 'ready' &&
+      onDeliverySetup
+    ) {
+      go(DELIVERY_ROUTES.home);
       return;
     }
 

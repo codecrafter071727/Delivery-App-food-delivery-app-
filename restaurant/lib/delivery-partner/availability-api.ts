@@ -532,7 +532,8 @@ export function applyDutyStatusToProfile(
 export const DUTY_ERROR_COPY: Record<string, string> = {
   PARTNER_NOT_ACTIVE:
     'Could not go online. Check GPS and try again.',
-  PARTNER_NOT_FOUND: 'No delivery partner profile found. Complete registration first.',
+  PARTNER_NOT_FOUND:
+    'No delivery partner profile for this login. Open Delivery setup, finish registration, then try again. If you already registered, log out and sign in with the same delivery account.',
   PARTNER_SUSPENDED: 'Your account is suspended. Contact support.',
   PARTNER_BLOCKED: 'Your account is blocked. Contact support.',
   ACTIVE_DELIVERY: 'Complete your active delivery before changing duty status.',

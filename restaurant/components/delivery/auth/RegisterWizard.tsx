@@ -227,36 +227,49 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
         });
       }
 
-      const profile = await deliveryPartnerApi.register({
-        firstName: form.firstName.trim(),
-        lastName: form.lastName.trim() || undefined,
-        phone: form.phone.trim(),
-        email:
-          (form.email || authUser?.email || '').trim().toLowerCase() ||
-          undefined,
-        address: form.address.trim() || undefined,
-        city: form.city.trim() || undefined,
-        state: form.state.trim() || undefined,
-        vehicleType: form.vehicleType,
-        vehicleNumber: form.vehicleNumber.trim() || undefined,
-        aadharNumber: form.aadharNumber.trim() || undefined,
-        acceptedTerms: form.acceptedTerms,
-        inviteToken: inviteToken || undefined,
-      });
+      try {
+        const profile = await deliveryPartnerApi.register({
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim() || undefined,
+          phone: form.phone.trim(),
+          email:
+            (form.email || authUser?.email || '').trim().toLowerCase() ||
+            undefined,
+          address: form.address.trim() || undefined,
+          city: form.city.trim() || undefined,
+          state: form.state.trim() || undefined,
+          vehicleType: form.vehicleType,
+          vehicleNumber: form.vehicleNumber.trim() || undefined,
+          aadharNumber: form.aadharNumber.trim() || undefined,
+          acceptedTerms: form.acceptedTerms,
+          inviteToken: inviteToken || undefined,
+        });
 
-      await markDeliveryPartnerSetupComplete(profile.id);
+        await markDeliveryPartnerSetupComplete(profile.id);
 
-      if (profileOnly) {
-        router.replace(DELIVERY_ROUTES.home);
-        return;
+        if (profileOnly) {
+          router.replace(DELIVERY_ROUTES.home);
+          return;
+        }
+
+        const email = form.email.trim().toLowerCase();
+        await useAuthStore.getState().clearSession();
+        router.replace({
+          pathname: '/login',
+          params: { registered: '1', email, role: 'delivery' },
+        });
+      } catch (regErr) {
+        // Profile already linked to this account — treat as done.
+        const existing = await deliveryPartnerApi.getMe().catch(() => null);
+        if (existing?.id) {
+          await markDeliveryPartnerSetupComplete(existing.id);
+          if (profileOnly) {
+            router.replace(DELIVERY_ROUTES.home);
+            return;
+          }
+        }
+        throw regErr;
       }
-
-      const email = form.email.trim().toLowerCase();
-      await useAuthStore.getState().clearSession();
-      router.replace({
-        pathname: '/login',
-        params: { registered: '1', email, role: 'delivery' },
-      });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Could not complete registration'

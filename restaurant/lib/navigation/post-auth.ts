@@ -150,17 +150,19 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 export async function resolvePostAuthRoute(
   role: PartnerRole
 ): Promise<PostAuthRoute> {
-  // Delivery partners always land on the delivery home after login.
+  // Delivery partners need a delivery-service partner profile before home/duty.
   if (role === 'delivery') {
     try {
       const me = await withTimeout(deliveryPartnerApi.getMe(), 8000);
       if (me?.id) {
         await markDeliveryPartnerSetupComplete(me.id);
+        return DELIVERY_ROUTES.home;
       }
     } catch {
-      // Profile check is optional — never block the home screen.
+      // Fall through to setup when profile is missing or the check fails.
     }
-    return DELIVERY_ROUTES.home;
+    await clearDeliveryPartnerSetupFlag();
+    return DELIVERY_ROUTES.setup;
   }
 
   try {
