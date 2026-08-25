@@ -440,6 +440,10 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
     packagingCharge,
     tax,
     discount,
+    bill:
+      data.bill && typeof data.bill === 'object'
+        ? (data.bill as import('@/lib/order/restaurant-bill').CentralBillPayload)
+        : null,
     specialInstructions:
       String(
         data.specialInstructions ?? data.instructions ?? data.notes ?? ''

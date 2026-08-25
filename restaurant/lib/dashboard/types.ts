@@ -46,6 +46,8 @@ export type OwnerOrder = {
   delayMinutes?: number;
   acceptBy?: string;
   promisedReadyAt?: string;
+  /** Centralized bill from order-service (`bill.restaurant` for kitchen). */
+  bill?: import('@/lib/order/restaurant-bill').CentralBillPayload | null;
   /** Rider trip status from `delivery:status` (order status stays OFD until receive). */
   deliveryTripStatus?: string;
 };

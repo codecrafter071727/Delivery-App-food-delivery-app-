@@ -714,9 +714,10 @@ export function OrderDetailScreen({ orderId }: Props) {
                       </Text>
                     </View>
                     <Text style={styles.summaryHint}>
-                      Delivery fee and platform fees are hidden — only your food
-                      charges + taxes. After delivery, {bill.commissionPercent}%
-                      goes to the platform; the rest credits your wallet.
+                      Your bill is item total + packaging
+                      {bill.tax > 0 ? ' + tax' : ''}. Delivery and tip stay with
+                      the customer / rider. After delivery, {bill.commissionPercent}%
+                      platform fee is deducted — the rest is your earning.
                     </Text>
                     <View style={styles.summaryRow}>
                       <Text style={styles.summaryLabel}>

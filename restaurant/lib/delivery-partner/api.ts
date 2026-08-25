@@ -53,6 +53,7 @@ import type {
   UpdatePartnerProfilePayload,
   UploadPartnerDocumentPayload,
   PartnerGpsCoords,
+  TripOrderContext,
 } from '@/lib/delivery-partner/types';
 import {
   normalizeDocStatus,
@@ -268,6 +269,86 @@ function timelineStepLabel(row: Record<string, unknown>): string {
     return fromApi;
   }
   return labels[key] ?? fromApi ?? 'Step';
+}
+
+function mapTripOrderContext(raw: unknown): TripOrderContext {
+  const row = asRecord(raw);
+  const itemsRaw = row.items;
+  const items = Array.isArray(itemsRaw)
+    ? itemsRaw.map((item) => {
+        const i = asRecord(item);
+        return {
+          name: pickString(i, ['name']) ?? 'Item',
+          quantity: pickNumber(i, ['quantity']) ?? 1,
+          price: pickNumber(i, ['price']) ?? 0,
+          itemTotal: pickNumber(i, ['itemTotal']) ?? 0,
+        };
+      })
+    : [];
+  return {
+    orderId: pickString(row, ['orderId']) ?? '',
+    orderNumber: pickString(row, ['orderNumber']) ?? '',
+    orderStatus: pickString(row, ['orderStatus']) ?? '',
+    restaurantId: pickString(row, ['restaurantId']) ?? '',
+    restaurantName: pickString(row, ['restaurantName']) ?? '',
+    restaurantPhone: pickString(row, ['restaurantPhone']) ?? null,
+    customerName: pickString(row, ['customerName']) ?? null,
+    customerPhone: pickString(row, ['customerPhone']) ?? null,
+    deliveryAddress: pickString(row, ['deliveryAddress']) ?? null,
+    items,
+    subtotal: pickNumber(row, ['subtotal']) ?? 0,
+    packagingCharge: pickNumber(row, ['packagingCharge']) ?? 0,
+    platformFee: pickNumber(row, ['platformFee']) ?? 0,
+    deliveryFee: pickNumber(row, ['deliveryFee']) ?? 0,
+    taxAmount: pickNumber(row, ['taxAmount']) ?? 0,
+    discount: pickNumber(row, ['discount']) ?? 0,
+    couponDiscount: pickNumber(row, ['couponDiscount']) ?? 0,
+    tipAmount: pickNumber(row, ['tipAmount']) ?? 0,
+    grandTotal: pickNumber(row, ['grandTotal']) ?? 0,
+    paymentMethod: pickString(row, ['paymentMethod']) ?? null,
+    paymentStatus: pickString(row, ['paymentStatus']) ?? null,
+    walletUsed: pickNumber(row, ['walletUsed']) ?? 0,
+    bill: (() => {
+      const bill = asRecord(row.bill);
+      if (!Object.keys(bill).length) return null;
+      const customer = asRecord(bill.customer);
+      const partner = asRecord(bill.partner);
+      const mapLines = (raw: unknown) =>
+        Array.isArray(raw)
+          ? raw.map((line) => {
+              const l = asRecord(line);
+              return {
+                key: pickString(l, ['key']) ?? '',
+                label: pickString(l, ['label']) ?? '',
+                amount: pickNumber(l, ['amount']) ?? 0,
+                sign: (pickString(l, ['sign']) === 'subtract' ? 'subtract' : 'add') as
+                  | 'add'
+                  | 'subtract',
+              };
+            })
+          : [];
+      return {
+        currency: pickString(bill, ['currency']) ?? 'INR',
+        customer: {
+          itemTotal: pickNumber(customer, ['itemTotal']) ?? 0,
+          packagingCharge: pickNumber(customer, ['packagingCharge']) ?? 0,
+          platformFee: pickNumber(customer, ['platformFee']) ?? 0,
+          deliveryFee: pickNumber(customer, ['deliveryFee']) ?? 0,
+          taxAmount: pickNumber(customer, ['taxAmount']) ?? 0,
+          tipAmount: pickNumber(customer, ['tipAmount']) ?? 0,
+          discount: pickNumber(customer, ['discount']) ?? 0,
+          grandTotal: pickNumber(customer, ['grandTotal']) ?? 0,
+          lines: mapLines(customer.lines),
+        },
+        partner: {
+          deliveryFee: pickNumber(partner, ['deliveryFee']) ?? 0,
+          tipAmount: pickNumber(partner, ['tipAmount']) ?? 0,
+          codCollect: pickNumber(partner, ['codCollect']),
+          lines: mapLines(partner.lines),
+        },
+      };
+    })(),
+  };
 }
 
 function mapTimeline(raw: unknown): DeliveryTimeline {
@@ -1949,6 +2030,15 @@ export const deliveryPartnerApi = {
       `${ME_BASE}/deliveries/${encodeURIComponent(id)}`
     );
     return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** GET /partners/me/deliveries/:deliveryId/order-context */
+  getDeliveryOrderContext: async (deliveryId: string): Promise<TripOrderContext> => {
+    const id = deliveryId.trim();
+    const res = await request<unknown>(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/order-context`
+    );
+    return mapTripOrderContext(res.data ?? res);
   },
 
   /** GET /partners/me/deliveries/:deliveryId/timeline */

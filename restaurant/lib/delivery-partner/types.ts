@@ -265,6 +265,59 @@ export type DeliveryHistoryResult = {
   hasNext: boolean;
 };
 
+export type TripOrderContextItem = {
+  name: string;
+  quantity: number;
+  price: number;
+  itemTotal: number;
+};
+
+/** GET /partners/me/deliveries/:id/order-context — full bill for trip detail. */
+export type TripOrderContext = {
+  orderId: string;
+  orderNumber: string;
+  orderStatus: string;
+  restaurantId: string;
+  restaurantName: string;
+  restaurantPhone: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  deliveryAddress: string | null;
+  items: TripOrderContextItem[];
+  subtotal: number;
+  packagingCharge: number;
+  platformFee: number;
+  deliveryFee: number;
+  taxAmount: number;
+  discount: number;
+  couponDiscount: number;
+  tipAmount: number;
+  grandTotal: number;
+  paymentMethod: string | null;
+  paymentStatus: string | null;
+  walletUsed: number;
+  bill: {
+    currency: string;
+    partner: {
+      deliveryFee: number;
+      tipAmount: number;
+      codCollect: number | null;
+      lines: Array<{ key: string; label: string; amount: number; sign: 'add' | 'subtract' }>;
+    };
+    customer: {
+      itemTotal: number;
+      packagingCharge: number;
+      platformFee: number;
+      deliveryFee: number;
+      taxAmount: number;
+      tipAmount: number;
+      discount: number;
+      grandTotal: number;
+      lines: Array<{ key: string; label: string; amount: number; sign: 'add' | 'subtract' }>;
+    };
+  } | null;
+};
+
 export type DeliveryTimelineStep = {
   key: string;
   label: string;

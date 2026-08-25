@@ -1,6 +1,8 @@
-import type { OwnerOrder } from '@/lib/dashboard/types';
+/**
+ * Kitchen bill helpers — prefer server `order.bill.restaurant` (centralized).
+ * Local math is fallback for older payloads without `bill`.
+ */
 
-/** Fixed platform take on restaurant food + tax (matches payment-service default). */
 export const PLATFORM_COMMISSION_PERCENT = 12;
 
 export type RestaurantBill = {
@@ -8,29 +10,64 @@ export type RestaurantBill = {
   packaging: number;
   tax: number;
   discount: number;
-  /** What kitchen sold (no delivery / platform fees). */
   restaurantCharges: number;
   commissionPercent: number;
   commissionAmount: number;
-  /** Amount that lands in restaurant wallet after delivery. */
   youEarn: number;
+};
+
+export type CentralBillPayload = {
+  restaurant?: {
+    itemTotal?: number;
+    packagingCharge?: number;
+    taxAmount?: number;
+    discount?: number;
+    restaurantCharges?: number;
+    commissionPercent?: number;
+    commissionAmount?: number;
+    youEarn?: number;
+  };
+  customer?: Record<string, unknown>;
+  partner?: Record<string, unknown>;
+};
+
+type OrderLike = {
+  subtotal?: number;
+  tax?: number;
+  discount?: number;
+  packagingCharge?: number;
+  items?: Array<{ price?: number; quantity?: number }>;
+  bill?: CentralBillPayload | null;
 };
 
 function money(n: number): number {
   return Math.round(Math.max(0, n) * 100) / 100;
 }
 
+function fromServer(bill: NonNullable<CentralBillPayload['restaurant']>): RestaurantBill {
+  return {
+    itemTotal: money(Number(bill.itemTotal) || 0),
+    packaging: money(Number(bill.packagingCharge) || 0),
+    tax: money(Number(bill.taxAmount) || 0),
+    discount: money(Number(bill.discount) || 0),
+    restaurantCharges: money(Number(bill.restaurantCharges) || 0),
+    commissionPercent: Number(bill.commissionPercent) || PLATFORM_COMMISSION_PERCENT,
+    commissionAmount: money(Number(bill.commissionAmount) || 0),
+    youEarn: money(Number(bill.youEarn) || 0),
+  };
+}
+
 /**
- * Kitchen-facing bill: restaurant charges + taxes only.
- * Delivery fee / tip / platform fees are never shown to the outlet.
+ * Kitchen-facing bill: item total + packaging (+ tax) then 12% platform fee → you earn.
  */
 export function buildRestaurantBill(
-  order: Pick<
-    OwnerOrder,
-    'subtotal' | 'tax' | 'discount' | 'items' | 'packagingCharge'
-  >,
+  order: OrderLike,
   commissionPercent = PLATFORM_COMMISSION_PERCENT,
 ): RestaurantBill {
+  if (order.bill?.restaurant) {
+    return fromServer(order.bill.restaurant);
+  }
+
   const fromItems = (order.items ?? []).reduce(
     (sum, item) => sum + (item.price ?? 0) * (item.quantity || 1),
     0,
@@ -58,7 +95,12 @@ export function buildRestaurantBill(
   };
 }
 
-/** List / card total for kitchen — never customer grand total with delivery. */
-export function resolveRestaurantOrderTotal(order: OwnerOrder): number {
+/** List / card total for kitchen — restaurant charges before commission. */
+export function resolveRestaurantOrderTotal(order: OrderLike): number {
   return buildRestaurantBill(order).restaurantCharges;
+}
+
+/** Net earning after 12% — business snapshot / delivered earnings. */
+export function resolveRestaurantYouEarn(order: OrderLike): number {
+  return buildRestaurantBill(order).youEarn;
 }

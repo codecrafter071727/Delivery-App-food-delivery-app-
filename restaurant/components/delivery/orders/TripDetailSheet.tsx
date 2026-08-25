@@ -16,6 +16,7 @@ import {
   useDeliveryDetail,
   useDeliveryEvents,
   useDeliveryTimeline,
+  useTripOrderContext,
 } from '@/lib/delivery-partner/hooks';
 import { formatTripError } from '@/lib/delivery-partner/rider-ack';
 import { useTripEarnings } from '@/lib/delivery-partner/finance-hooks';
@@ -78,6 +79,7 @@ export function TripDetailSheet({
       Boolean(deliveryId) &&
       tripCreditsEarnings((detail.data ?? fallback)?.status)
   );
+  const orderCtx = useTripOrderContext(deliveryId ?? undefined, enabled);
 
   const delivery = detail.data ?? fallback ?? null;
   const loading = detail.isLoading && !delivery;
@@ -196,6 +198,80 @@ export function TripDetailSheet({
                 <Pressable onPress={() => void tripEarn.refetch()} style={styles.inlineError}>
                   <Text style={styles.inlineErrorText}>
                     {formatTripError(tripEarn.error, 'Could not load trip earnings. Retry')}
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              {orderCtx.isLoading && !orderCtx.data ? (
+                <ActivityIndicator color="#EA4B14" style={{ marginVertical: 8 }} />
+              ) : orderCtx.data ? (
+                <View style={styles.summary}>
+                  <Text style={styles.sectionTitle}>Order bill</Text>
+                  <Text style={styles.muted}>
+                    {orderCtx.data.restaurantName}
+                    {orderCtx.data.customerName ? ` → ${orderCtx.data.customerName}` : ''}
+                  </Text>
+                  {orderCtx.data.customerPhone ? (
+                    <Text style={styles.muted}>Customer {orderCtx.data.customerPhone}</Text>
+                  ) : null}
+                  {orderCtx.data.items.slice(0, 4).map((item, idx) => (
+                    <Text key={`${item.name}-${idx}`} style={styles.muted}>
+                      {item.quantity}× {item.name} · {money(item.itemTotal, 'INR')}
+                    </Text>
+                  ))}
+                  {orderCtx.data.items.length > 4 ? (
+                    <Text style={styles.muted}>
+                      +{orderCtx.data.items.length - 4} more items
+                    </Text>
+                  ) : null}
+                  {(orderCtx.data.bill?.partner.lines?.length
+                    ? orderCtx.data.bill.partner.lines
+                    : [
+                        {
+                          key: 'deliveryFee',
+                          label: 'Delivery fee',
+                          amount: orderCtx.data.deliveryFee,
+                          sign: 'add' as const,
+                        },
+                        ...(orderCtx.data.tipAmount > 0
+                          ? [
+                              {
+                                key: 'tip',
+                                label: 'Customer tip',
+                                amount: orderCtx.data.tipAmount,
+                                sign: 'add' as const,
+                              },
+                            ]
+                          : []),
+                      ]
+                  ).map((line) => (
+                    <Text key={line.key} style={styles.muted}>
+                      {line.label}{' '}
+                      {line.sign === 'subtract' ? '−' : ''}
+                      {money(line.amount, 'INR')}
+                    </Text>
+                  ))}
+                  <Text style={styles.earn}>
+                    Customer total {money(orderCtx.data.grandTotal, 'INR')}
+                  </Text>
+                  <Text style={styles.muted}>
+                    Payment{' '}
+                    {orderCtx.data.paymentMethod === 'cod'
+                      ? delivery?.settledVia === 'upi'
+                        ? 'COD · UPI collected'
+                        : delivery?.settledVia === 'cash' || delivery?.cashCollected
+                          ? 'COD · cash collected'
+                          : 'COD · collect on delivery'
+                      : orderCtx.data.paymentMethod?.replace(/_/g, ' ') ?? 'prepaid'}
+                    {orderCtx.data.paymentStatus
+                      ? ` · ${orderCtx.data.paymentStatus.replace(/_/g, ' ')}`
+                      : ''}
+                  </Text>
+                </View>
+              ) : orderCtx.isError ? (
+                <Pressable onPress={() => void orderCtx.refetch()} style={styles.inlineError}>
+                  <Text style={styles.inlineErrorText}>
+                    {formatTripError(orderCtx.error, 'Could not load order bill. Retry')}
                   </Text>
                 </Pressable>
               ) : null}
