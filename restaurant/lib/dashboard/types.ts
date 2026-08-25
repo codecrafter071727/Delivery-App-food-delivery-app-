@@ -36,6 +36,8 @@ export type OwnerOrder = {
   packagingCharge?: number;
   tax?: number;
   discount?: number;
+  /** Customer payable total when kitchen fields are thin (KDS cards). */
+  grandTotal?: number;
   specialInstructions?: string;
   deliveryAddress?: OwnerOrderAddress;
   rejectionReason?: string;

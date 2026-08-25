@@ -174,10 +174,16 @@ export function addressText(order: OwnerOrder) {
 
 /** Prefer restaurant food+tax total for kitchen UI (never delivery/platform fees). */
 export function resolveOrderTotal(order: OwnerOrder) {
-  const kitchen = resolveRestaurantOrderTotal(order);
+  const kitchen = resolveRestaurantOrderTotal({
+    ...order,
+    grandTotal: order.grandTotal ?? order.total,
+  });
   if (kitchen > 0) return kitchen;
   if (order.total != null && Number.isFinite(order.total) && order.total > 0) {
     return order.total;
+  }
+  if (order.grandTotal != null && Number.isFinite(order.grandTotal) && order.grandTotal > 0) {
+    return order.grandTotal;
   }
   const fromItems = order.items.reduce(
     (sum, item) => sum + (item.price ?? 0) * (item.quantity || 1),

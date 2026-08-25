@@ -8,7 +8,7 @@ import {
   formatOrderTime,
   summarizeItems,
 } from '@/lib/dashboard/format';
-import { displayStatus, statusTone } from '@/lib/order/ui';
+import { displayStatus, resolveOrderTotal, statusTone } from '@/lib/order/ui';
 import type { OwnerOrder } from '@/lib/dashboard/types';
 
 type Props = {
@@ -59,8 +59,8 @@ export function PendingOrdersSection({
         ) : (
           orders.map((order, index) => {
             const tone = statusTone(order.status);
-            const hasTotal =
-              order.total != null && Number.isFinite(order.total);
+            const amount = resolveOrderTotal(order);
+            const hasTotal = Number.isFinite(amount) && amount > 0;
 
             return (
               <Pressable
@@ -94,7 +94,7 @@ export function PendingOrdersSection({
 
                   <View style={styles.listRightCol}>
                     <Text style={styles.listAmount}>
-                      {hasTotal ? formatCurrency(order.total as number) : '—'}
+                      {hasTotal ? formatCurrency(amount) : '—'}
                     </Text>
                     <View
                       style={[

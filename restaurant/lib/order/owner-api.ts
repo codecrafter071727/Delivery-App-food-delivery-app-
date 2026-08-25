@@ -230,9 +230,19 @@ function extractList(data: unknown): Record<string, unknown>[] {
   if (Array.isArray(data)) return data as Record<string, unknown>[];
   if (!data || typeof data !== 'object') return [];
   const record = data as Record<string, unknown>;
+  // A single order document must never be treated as a list of line-items.
+  if (
+    record.orderNumber != null
+    || record.orderId != null
+    || record.status != null
+    || record.grandTotal != null
+    || record.subtotal != null
+    || record.bill != null
+  ) {
+    return [record];
+  }
   const nested =
     record.orders ??
-    record.items ??
     record.results ??
     record.docs ??
     record.pendingOrders ??
@@ -240,7 +250,8 @@ function extractList(data: unknown): Record<string, unknown>[] {
     record.list ??
     record.content ??
     record.rows ??
-    record.data;
+    record.data ??
+    record.items;
   if (Array.isArray(nested)) return nested as Record<string, unknown>[];
   return nested && typeof nested === 'object' ? extractList(nested) : [];
 }
@@ -368,6 +379,15 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
     data.gstTotal
   );
   const discount = optionalNumber(data.discount, data.discountAmount, data.couponDiscount);
+  const serverBill =
+    data.bill && typeof data.bill === 'object'
+      ? (data.bill as import('@/lib/order/restaurant-bill').CentralBillPayload)
+      : null;
+  const billRestaurant = serverBill?.restaurant;
+  const billCharges = optionalNumber(
+    billRestaurant?.restaurantCharges,
+    billRestaurant?.itemTotal,
+  );
 
   const explicitTotal = optionalNumber(
     data.grandTotal,
@@ -385,15 +405,17 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
     0
   );
   const total =
-    restaurantParts > 0
-      ? restaurantParts
-      : explicitTotal != null && explicitTotal > 0
-        ? explicitTotal
-        : partsTotal > 0
-          ? partsTotal
-          : itemsTotal > 0
-            ? itemsTotal
-            : explicitTotal;
+    billCharges != null && billCharges > 0
+      ? billCharges
+      : restaurantParts > 0
+        ? restaurantParts
+        : explicitTotal != null && explicitTotal > 0
+          ? explicitTotal
+          : partsTotal > 0
+            ? partsTotal
+            : itemsTotal > 0
+              ? itemsTotal
+              : explicitTotal;
 
   return {
     id: String(data._id ?? data.id ?? data.orderId ?? ''),
@@ -440,10 +462,8 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
     packagingCharge,
     tax,
     discount,
-    bill:
-      data.bill && typeof data.bill === 'object'
-        ? (data.bill as import('@/lib/order/restaurant-bill').CentralBillPayload)
-        : null,
+    grandTotal: explicitTotal,
+    bill: serverBill,
     specialInstructions:
       String(
         data.specialInstructions ?? data.instructions ?? data.notes ?? ''

@@ -1,6 +1,6 @@
 /**
- * Kitchen bill helpers — prefer server `order.bill.restaurant` (centralized).
- * Local math is fallback for older payloads without `bill`.
+ * Kitchen bill helpers — prefer server `order.bill.restaurant` when it has real amounts.
+ * Falls back to local math (incl. grandTotal) so ₹0 never masks a real order.
  */
 
 export const PLATFORM_COMMISSION_PERCENT = 12;
@@ -36,7 +36,9 @@ type OrderLike = {
   tax?: number;
   discount?: number;
   packagingCharge?: number;
-  items?: Array<{ price?: number; quantity?: number }>;
+  total?: number;
+  grandTotal?: number;
+  items?: Array<{ price?: number; quantity?: number; itemTotal?: number }>;
   bill?: CentralBillPayload | null;
 };
 
@@ -57,6 +59,20 @@ function fromServer(bill: NonNullable<CentralBillPayload['restaurant']>): Restau
   };
 }
 
+function serverBillUsable(
+  bill: NonNullable<CentralBillPayload['restaurant']> | undefined,
+): bill is NonNullable<CentralBillPayload['restaurant']> {
+  if (!bill || typeof bill !== 'object') return false;
+  const charges = Number(bill.restaurantCharges);
+  const items = Number(bill.itemTotal);
+  const earn = Number(bill.youEarn);
+  return (
+    (Number.isFinite(charges) && charges > 0)
+    || (Number.isFinite(items) && items > 0)
+    || (Number.isFinite(earn) && earn > 0)
+  );
+}
+
 /**
  * Kitchen-facing bill: item total + packaging (+ tax) then 12% platform fee → you earn.
  */
@@ -64,27 +80,38 @@ export function buildRestaurantBill(
   order: OrderLike,
   commissionPercent = PLATFORM_COMMISSION_PERCENT,
 ): RestaurantBill {
-  if (order.bill?.restaurant) {
-    return fromServer(order.bill.restaurant);
+  if (serverBillUsable(order.bill?.restaurant)) {
+    return fromServer(order.bill!.restaurant!);
   }
 
-  const fromItems = (order.items ?? []).reduce(
-    (sum, item) => sum + (item.price ?? 0) * (item.quantity || 1),
-    0,
-  );
+  const fromItems = (order.items ?? []).reduce((sum, item) => {
+    if (item.itemTotal != null && Number.isFinite(item.itemTotal)) {
+      return sum + Number(item.itemTotal);
+    }
+    return sum + (item.price ?? 0) * (item.quantity || 1);
+  }, 0);
   const itemTotal = money(
     order.subtotal != null && order.subtotal > 0 ? order.subtotal : fromItems,
   );
   const packaging = money(Number(order.packagingCharge ?? 0));
   const tax = money(Number(order.tax ?? 0));
   const discount = money(Number(order.discount ?? 0));
-  const restaurantCharges = money(itemTotal + packaging + tax - discount);
+  let restaurantCharges = money(itemTotal + packaging + tax - discount);
+
+  // Last resort: customer grand total when kitchen fields were stripped (e.g. KDS card).
+  if (restaurantCharges <= 0) {
+    const fallback = Number(order.total ?? order.grandTotal ?? 0);
+    if (Number.isFinite(fallback) && fallback > 0) {
+      restaurantCharges = money(fallback);
+    }
+  }
+
   const pct = Number.isFinite(commissionPercent) ? commissionPercent : PLATFORM_COMMISSION_PERCENT;
   const rate = pct > 1 ? pct / 100 : pct;
   const commissionAmount = money(restaurantCharges * rate);
   const youEarn = money(restaurantCharges - commissionAmount);
   return {
-    itemTotal,
+    itemTotal: itemTotal > 0 ? itemTotal : restaurantCharges,
     packaging,
     tax,
     discount,
