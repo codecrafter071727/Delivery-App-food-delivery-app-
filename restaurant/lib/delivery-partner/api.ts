@@ -1738,10 +1738,14 @@ export const deliveryPartnerApi = {
       const mapped = mapPartner(res.data ?? res);
       return mapped.id ? mapped : null;
     } catch (error) {
+      const code = getApiErrorCode(error);
+      const status =
+        axios.isAxiosError(error) ? error.response?.status : undefined;
       const message = error instanceof Error ? error.message.toLowerCase() : '';
       if (
+        code === 'PARTNER_NOT_FOUND' ||
+        status === 404 ||
         message.includes('not found') ||
-        message.includes('404') ||
         message.includes('no partner') ||
         message.includes('not registered')
       ) {

@@ -522,13 +522,97 @@ export function DeliveryHomeScreen() {
   })();
 
   if (me.isError && !me.data) {
+    const detail = formatDutyError(
+      me.error,
+      getApiErrorMessage(me.error, 'Could not reach delivery-service.')
+    );
+    const code = getApiErrorCode(me.error);
+    const forbidden =
+      code === 'FORBIDDEN' ||
+      detail.toLowerCase().includes('permission') ||
+      detail.toLowerCase().includes('forbidden');
+
     return (
-      <View style={[styles.root, styles.centered, { padding: 24, gap: 12 }]}>
-        <Text style={{ fontFamily: fonts.semiBold, color: authTheme.text }}>
-          Couldn’t load your duty profile.
+      <View style={[styles.root, styles.centered, { padding: 24, gap: 14 }]}>
+        <Text
+          style={{
+            fontFamily: fonts.semiBold,
+            color: authTheme.text,
+            fontSize: 17,
+            textAlign: 'center',
+          }}
+        >
+          Couldn’t load your duty profile
+        </Text>
+        <Text
+          style={{
+            fontFamily: fonts.medium,
+            color: authTheme.textMuted,
+            fontSize: 13,
+            lineHeight: 20,
+            textAlign: 'center',
+          }}
+        >
+          {forbidden
+            ? 'This login is not a delivery partner session. Log out and sign in with Delivery role + the rider account that appears in admin.'
+            : detail}
         </Text>
         <Pressable onPress={() => void me.refetch()}>
           <Text style={styles.link}>Retry</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.replace(DELIVERY_ROUTES.setup as never)}
+        >
+          <Text style={styles.link}>Account help</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            void useAuthStore.getState().clearSession().then(() => {
+              router.replace({
+                pathname: '/login',
+                params: { role: 'delivery' },
+              } as never);
+            });
+          }}
+        >
+          <Text style={styles.link}>Log out</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (!loading && !me.data) {
+    return (
+      <View style={[styles.root, styles.centered, { padding: 24, gap: 14 }]}>
+        <Text
+          style={{
+            fontFamily: fonts.semiBold,
+            color: authTheme.text,
+            fontSize: 17,
+            textAlign: 'center',
+          }}
+        >
+          No rider linked to this login
+        </Text>
+        <Text
+          style={{
+            fontFamily: fonts.medium,
+            color: authTheme.textMuted,
+            fontSize: 13,
+            lineHeight: 20,
+            textAlign: 'center',
+          }}
+        >
+          If admin already shows you as an active rider, do not sign up again.
+          Log out and use that same delivery email/phone.
+        </Text>
+        <Pressable onPress={() => void me.refetch()}>
+          <Text style={styles.link}>Retry</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.replace(DELIVERY_ROUTES.setup as never)}
+        >
+          <Text style={styles.link}>Account help</Text>
         </Pressable>
       </View>
     );
