@@ -1,6 +1,7 @@
 import type { OwnerOrder } from '@/lib/dashboard/types';
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/errors';
 import type { RestaurantOrderAction } from '@/lib/order/owner-api';
+import { resolveRestaurantOrderTotal } from '@/lib/order/restaurant-bill';
 import {
   Check,
   ChefHat,
@@ -171,17 +172,13 @@ export function addressText(order: OwnerOrder) {
   );
 }
 
-/** Prefer API total; if missing/0, derive from parts or line items. */
+/** Prefer restaurant food+tax total for kitchen UI (never delivery/platform fees). */
 export function resolveOrderTotal(order: OwnerOrder) {
+  const kitchen = resolveRestaurantOrderTotal(order);
+  if (kitchen > 0) return kitchen;
   if (order.total != null && Number.isFinite(order.total) && order.total > 0) {
     return order.total;
   }
-  const parts =
-    (order.subtotal ?? 0) +
-    (order.tax ?? 0) +
-    (order.deliveryFee ?? 0) -
-    (order.discount ?? 0);
-  if (parts > 0) return parts;
   const fromItems = order.items.reduce(
     (sum, item) => sum + (item.price ?? 0) * (item.quantity || 1),
     0

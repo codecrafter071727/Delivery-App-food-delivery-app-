@@ -69,3 +69,27 @@ export type RestaurantCommission = {
   feeSchedule: CommissionFeeRow[];
   source: 'restaurant_override' | 'platform_default' | string;
 };
+
+export type RestaurantWallet = {
+  restaurantId: string;
+  balance: number;
+  currency: string;
+  lifetimeCredited: number;
+  lifetimeDebited: number;
+  lastCreditedAt: string | null;
+  commissionPercent: number;
+};
+
+export type RestaurantWalletTxn = {
+  id: string;
+  orderId?: string | null;
+  orderNumber?: string | null;
+  type: string;
+  amount: number;
+  balanceAfter: number;
+  grossAmount?: number | null;
+  commissionAmount?: number | null;
+  commissionRate?: number | null;
+  description: string;
+  createdAt?: string;
+};

@@ -55,6 +55,7 @@ import {
   useUpdateRestaurantOrderStatus,
 } from '@/lib/order/hooks';
 import type { KotPrintResult, RestaurantOrderAction } from '@/lib/order/owner-api';
+import { buildRestaurantBill } from '@/lib/order/restaurant-bill';
 import {
   addressText,
   canReject,
@@ -678,65 +679,59 @@ export function OrderDetailScreen({ orderId }: Props) {
                 <Text style={styles.cardTitle}>Order Summary</Text>
               </View>
               {(() => {
-                const subtotal = order.subtotal;
-                const deliveryFee = order.deliveryFee ?? 0;
-                const discount = order.discount ?? 0;
-                // If API omits tax but total is higher, derive the gap so the math is clear.
-                const derivedTax =
-                  order.tax != null && order.tax > 0
-                    ? order.tax
-                    : subtotal != null && total > 0
-                      ? Math.round(
-                          (total - subtotal - deliveryFee + discount) * 100
-                        ) / 100
-                      : 0;
-                const tax =
-                  order.tax != null && order.tax > 0
-                    ? order.tax
-                    : derivedTax > 0.009
-                      ? derivedTax
-                      : null;
+                const bill = buildRestaurantBill(order);
+                const delivered =
+                  String(order.status ?? '').toLowerCase() === 'delivered';
 
                 return (
                   <>
-                    {subtotal != null ? (
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Item total</Text>
+                      <Text style={styles.summaryValue}>{money(bill.itemTotal)}</Text>
+                    </View>
+                    {bill.packaging > 0 ? (
                       <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Subtotal</Text>
-                        <Text style={styles.summaryValue}>{money(subtotal)}</Text>
+                        <Text style={styles.summaryLabel}>Packaging</Text>
+                        <Text style={styles.summaryValue}>{money(bill.packaging)}</Text>
                       </View>
                     ) : null}
-                    {tax != null ? (
+                    {bill.tax > 0 ? (
                       <View style={styles.summaryRow}>
                         <Text style={styles.summaryLabel}>Tax / GST</Text>
-                        <Text style={styles.summaryValue}>{money(tax)}</Text>
+                        <Text style={styles.summaryValue}>{money(bill.tax)}</Text>
                       </View>
                     ) : null}
-                    {order.deliveryFee != null ? (
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Delivery fee</Text>
-                        <Text style={styles.summaryValue}>
-                          {money(order.deliveryFee)}
-                        </Text>
-                      </View>
-                    ) : null}
-                    {discount > 0 ? (
+                    {bill.discount > 0 ? (
                       <View style={styles.summaryRow}>
                         <Text style={styles.summaryLabel}>Discount</Text>
-                        <Text style={styles.summaryValue}>-{money(discount)}</Text>
+                        <Text style={styles.summaryValue}>-{money(bill.discount)}</Text>
                       </View>
                     ) : null}
                     <View style={[styles.summaryRow, styles.summaryTotal]}>
-                      <Text style={styles.totalLabel}>Total</Text>
-                      <Text style={styles.totalValue}>{money(total)}</Text>
-                    </View>
-                    {subtotal != null && tax != null ? (
-                      <Text style={styles.summaryHint}>
-                        Total = subtotal {money(subtotal)}
-                        {tax > 0 ? ` + tax ${money(tax)}` : ''}
-                        {deliveryFee > 0 ? ` + delivery ${money(deliveryFee)}` : ''}
-                        {discount > 0 ? ` − discount ${money(discount)}` : ''}
+                      <Text style={styles.totalLabel}>Restaurant total</Text>
+                      <Text style={styles.totalValue}>
+                        {money(bill.restaurantCharges)}
                       </Text>
-                    ) : null}
+                    </View>
+                    <Text style={styles.summaryHint}>
+                      Delivery fee and platform fees are hidden — only your food
+                      charges + taxes. After delivery, {bill.commissionPercent}%
+                      goes to the platform; the rest credits your wallet.
+                    </Text>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>
+                        Platform fee ({bill.commissionPercent}%)
+                      </Text>
+                      <Text style={styles.summaryValue}>
+                        −{money(bill.commissionAmount)}
+                      </Text>
+                    </View>
+                    <View style={[styles.summaryRow, styles.summaryTotal]}>
+                      <Text style={styles.totalLabel}>
+                        {delivered ? 'Credited to wallet' : 'You earn after delivery'}
+                      </Text>
+                      <Text style={styles.totalValue}>{money(bill.youEarn)}</Text>
+                    </View>
                     {order.paymentMethod ? (
                       <View style={styles.summaryRow}>
                         <Text style={styles.summaryLabel}>Payment method</Text>

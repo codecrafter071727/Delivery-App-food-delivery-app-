@@ -26,16 +26,20 @@ import {
   useRestaurantInvoices,
   useRestaurantPayout,
   useRestaurantPayouts,
+  useRestaurantWallet,
+  useRestaurantWalletTransactions,
 } from '@/lib/restaurant/finance-hooks';
 import type {
   PayoutStatus,
   RestaurantInvoice,
   RestaurantPayout,
+  RestaurantWalletTxn,
 } from '@/lib/restaurant/finance-types';
 
-type TabKey = 'payouts' | 'invoices' | 'fees';
+type TabKey = 'wallet' | 'payouts' | 'invoices' | 'fees';
 
 const TABS: { key: TabKey; label: string }[] = [
+  { key: 'wallet', label: 'Wallet' },
   { key: 'payouts', label: 'Settlements' },
   { key: 'invoices', label: 'Invoices' },
   { key: 'fees', label: 'Fees' },
@@ -133,25 +137,43 @@ function InvoiceCard({ invoice }: { invoice: RestaurantInvoice }) {
 }
 
 export function FinanceManager() {
-  const [tab, setTab] = useState<TabKey>('payouts');
+  const [tab, setTab] = useState<TabKey>('wallet');
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  const wallet = useRestaurantWallet();
+  const walletTxns = useRestaurantWalletTransactions(tab === 'wallet' ? page : 1);
   const payouts = useRestaurantPayouts(tab === 'payouts' ? page : 1);
   const invoices = useRestaurantInvoices(tab === 'invoices' ? page : 1);
   const commission = useRestaurantCommission();
   const detail = useRestaurantPayout(selectedId);
 
   const listQuery =
-    tab === 'invoices' ? invoices : tab === 'fees' ? commission : payouts;
+    tab === 'wallet'
+      ? walletTxns
+      : tab === 'invoices'
+        ? invoices
+        : tab === 'fees'
+          ? commission
+          : payouts;
   const restaurantName =
-    payouts.restaurantName || invoices.restaurantName || commission.restaurantName;
-  const loading = listQuery.isLoading && !listQuery.data;
-  const refreshing = listQuery.isRefetching;
+    wallet.restaurantName
+    || payouts.restaurantName
+    || invoices.restaurantName
+    || commission.restaurantName;
+  const loading =
+    (tab === 'wallet'
+      ? wallet.isLoading && !wallet.data
+      : listQuery.isLoading && !listQuery.data);
+  const refreshing =
+    tab === 'wallet'
+      ? wallet.isRefetching || walletTxns.isRefetching
+      : listQuery.isRefetching;
   const hasNext =
     tab === 'fees' ? false : (listQuery.data as { hasNext?: boolean } | undefined)?.hasNext ?? false;
   const payoutList = payouts.data?.items ?? [];
   const invoiceList = invoices.data?.items ?? [];
+  const txnList: RestaurantWalletTxn[] = walletTxns.data?.items ?? [];
 
   const switchTab = (next: TabKey) => {
     setTab(next);
@@ -161,14 +183,23 @@ export function FinanceManager() {
   const selectedSummary = payoutList.find((row) => row.id === selectedId);
   const payout: RestaurantPayout | undefined = detail.data ?? selectedSummary;
 
+  const onRefresh = () => {
+    if (tab === 'wallet') {
+      void wallet.refetch();
+      void walletTxns.refetch();
+      return;
+    }
+    void listQuery.refetch();
+  };
+
   return (
     <View style={styles.screen}>
       <RestaurantPageHeader
-        title="Payouts"
+        title="Finance"
         subtitle={
           restaurantName
-            ? `${restaurantName} · weekly settlements`
-            : 'Settlements and GST invoices'
+            ? `${restaurantName} · wallet after 12% platform fee`
+            : 'Wallet, settlements, and fees'
         }
         showBack
         hideProfile
@@ -182,7 +213,7 @@ export function FinanceManager() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => void listQuery.refetch()}
+            onRefresh={onRefresh}
             tintColor={authTheme.brand}
             colors={[authTheme.brand]}
           />
@@ -198,7 +229,12 @@ export function FinanceManager() {
                 onPress={() => switchTab(item.key)}
                 style={[styles.tab, on && styles.tabActive]}
               >
-                {item.key === 'payouts' ? (
+                {item.key === 'wallet' ? (
+                  <Banknote
+                    color={on ? '#FFFFFF' : authTheme.textMuted}
+                    size={14}
+                  />
+                ) : item.key === 'payouts' ? (
                   <Banknote
                     color={on ? '#FFFFFF' : authTheme.textMuted}
                     size={14}
@@ -228,7 +264,7 @@ export function FinanceManager() {
           </View>
         ) : null}
 
-        {!loading && listQuery.isError ? (
+        {!loading && listQuery.isError && tab !== 'wallet' ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Couldn’t load {tab}</Text>
             <Text style={styles.muted}>
@@ -239,6 +275,79 @@ export function FinanceManager() {
             <Pressable style={styles.retry} onPress={() => void listQuery.refetch()}>
               <Text style={styles.retryText}>Retry</Text>
             </Pressable>
+          </View>
+        ) : null}
+
+        {!loading && tab === 'wallet' ? (
+          <View style={styles.list}>
+            <View style={styles.walletCard}>
+              <Text style={styles.walletLabel}>Available balance</Text>
+              <Text style={styles.walletBalance}>
+                {formatCurrency(wallet.data?.balance ?? 0)}
+              </Text>
+              <Text style={styles.muted}>
+                After each delivered order, {wallet.data?.commissionPercent ?? 12}%
+                platform fee is deducted from food + tax; the rest credits here.
+              </Text>
+              <View style={styles.walletMeta}>
+                <Text style={styles.muted}>
+                  Lifetime in {formatCurrency(wallet.data?.lifetimeCredited ?? 0)}
+                </Text>
+              </View>
+            </View>
+            {wallet.isError || walletTxns.isError ? (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Couldn’t load wallet</Text>
+                <Text style={styles.muted}>
+                  {(wallet.error || walletTxns.error) instanceof Error
+                    ? ((wallet.error || walletTxns.error) as Error).message
+                    : 'Please try again'}
+                </Text>
+                <Pressable style={styles.retry} onPress={onRefresh}>
+                  <Text style={styles.retryText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : txnList.length ? (
+              txnList.map((txn) => (
+                <View key={txn.id} style={styles.card}>
+                  <View style={styles.cardTop}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.period}>
+                        {txn.orderNumber
+                          ? `Order #${txn.orderNumber}`
+                          : txn.description || 'Wallet credit'}
+                      </Text>
+                      <Text style={styles.meta}>{formatDate(txn.createdAt)}</Text>
+                    </View>
+                    <Text style={styles.net}>{formatCurrency(txn.amount)}</Text>
+                  </View>
+                  {txn.grossAmount != null && txn.commissionAmount != null ? (
+                    <View style={styles.breakdown}>
+                      <Line
+                        label="Restaurant charges"
+                        value={formatCurrency(txn.grossAmount)}
+                      />
+                      <Line
+                        label="Platform fee"
+                        value={formatCurrency(txn.commissionAmount)}
+                      />
+                      <Line
+                        label="Balance after"
+                        value={formatCurrency(txn.balanceAfter)}
+                      />
+                    </View>
+                  ) : null}
+                </View>
+              ))
+            ) : (
+              <View style={styles.empty}>
+                <Banknote color={authTheme.textDim} size={36} />
+                <Text style={styles.emptyTitle}>No credits yet</Text>
+                <Text style={styles.muted}>
+                  Complete a delivery and your net earnings appear here.
+                </Text>
+              </View>
+            )}
           </View>
         ) : null}
 
@@ -440,6 +549,25 @@ const styles = StyleSheet.create({
   },
   tabTextActive: { color: '#FFFFFF' },
   list: { gap: 10 },
+  walletCard: {
+    backgroundColor: '#FFF7F8',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(122, 14, 34, 0.1)',
+    padding: 16,
+    gap: 8,
+  },
+  walletLabel: {
+    fontSize: 13,
+    fontFamily: fonts.semiBold,
+    color: authTheme.textMuted,
+  },
+  walletBalance: {
+    fontSize: 28,
+    fontFamily: fonts.bold,
+    color: authTheme.brand,
+  },
+  walletMeta: { marginTop: 4 },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,

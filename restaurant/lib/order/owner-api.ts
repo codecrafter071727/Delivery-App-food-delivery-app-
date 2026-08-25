@@ -354,6 +354,11 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
   const items = mapItems(data.items ?? data.orderItems ?? data.cartItems);
   const subtotal = optionalNumber(data.subtotal, data.itemTotal);
   const deliveryFee = optionalNumber(data.deliveryFee, data.deliveryCharge);
+  const packagingCharge = optionalNumber(
+    data.packagingCharge,
+    data.packagingFee,
+    data.packaging,
+  );
   const tax = optionalNumber(
     data.tax,
     data.taxes,
@@ -362,7 +367,7 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
     data.gstAmount,
     data.gstTotal
   );
-  const discount = optionalNumber(data.discount, data.discountAmount);
+  const discount = optionalNumber(data.discount, data.discountAmount, data.couponDiscount);
 
   const explicitTotal = optionalNumber(
     data.grandTotal,
@@ -370,7 +375,9 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
     data.payableAmount,
     data.total
   );
-  // Some APIs return total: 0 while subtotal/tax are set — prefer derived amount.
+  // Kitchen display total = food + packaging + tax − discount (no delivery / tip).
+  const restaurantParts =
+    (subtotal ?? 0) + (packagingCharge ?? 0) + (tax ?? 0) - (discount ?? 0);
   const partsTotal =
     (subtotal ?? 0) + (tax ?? 0) + (deliveryFee ?? 0) - (discount ?? 0);
   const itemsTotal = items.reduce(
@@ -378,13 +385,15 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
     0
   );
   const total =
-    explicitTotal != null && explicitTotal > 0
-      ? explicitTotal
-      : partsTotal > 0
-        ? partsTotal
-        : itemsTotal > 0
-          ? itemsTotal
-          : explicitTotal;
+    restaurantParts > 0
+      ? restaurantParts
+      : explicitTotal != null && explicitTotal > 0
+        ? explicitTotal
+        : partsTotal > 0
+          ? partsTotal
+          : itemsTotal > 0
+            ? itemsTotal
+            : explicitTotal;
 
   return {
     id: String(data._id ?? data.id ?? data.orderId ?? ''),
@@ -428,6 +437,7 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
     paymentStatus: String(data.paymentStatus ?? '').trim() || undefined,
     subtotal,
     deliveryFee,
+    packagingCharge,
     tax,
     discount,
     specialInstructions:

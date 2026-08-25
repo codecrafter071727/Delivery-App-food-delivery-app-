@@ -6,6 +6,8 @@ import type {
   RestaurantCommission,
   RestaurantInvoice,
   RestaurantPayout,
+  RestaurantWallet,
+  RestaurantWalletTxn,
 } from '@/lib/restaurant/finance-types';
 
 const RESTAURANT_BASE = '/api/v1/restaurant-service/restaurants';
@@ -251,6 +253,64 @@ export const restaurantFinanceApi = {
       };
     } catch (error) {
       throwFinanceError(error, 'Failed to load commission');
+    }
+  },
+
+  getWallet: async (restaurantId: string): Promise<RestaurantWallet> => {
+    try {
+      const res = await api.get<Envelope<unknown>>(
+        `${RESTAURANT_BASE}/${restaurantId}/wallet`
+      );
+      const raw = asRecord(res.data?.data) ?? asRecord(res.data) ?? {};
+      return {
+        restaurantId: String(raw.restaurantId ?? restaurantId),
+        balance: pickNumber(raw, ['balance']),
+        currency: String(raw.currency ?? 'INR'),
+        lifetimeCredited: pickNumber(raw, ['lifetimeCredited']),
+        lifetimeDebited: pickNumber(raw, ['lifetimeDebited']),
+        lastCreditedAt: raw.lastCreditedAt ? String(raw.lastCreditedAt) : null,
+        commissionPercent: pickNumber(raw, ['commissionPercent']) || 12,
+      };
+    } catch (error) {
+      throwFinanceError(error, 'Failed to load wallet');
+    }
+  },
+
+  listWalletTransactions: async (
+    restaurantId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<FinancePage<RestaurantWalletTxn>> => {
+    try {
+      const res = await api.get<Envelope<unknown>>(
+        `${RESTAURANT_BASE}/${restaurantId}/wallet/transactions`,
+        { params: { page: params?.page ?? 1, limit: params?.limit ?? 20 } }
+      );
+      return unwrapPaged(res.data, (raw) => {
+        const id = String(raw.id ?? raw._id ?? '').trim();
+        if (!id) return null;
+        return {
+          id,
+          orderId: raw.orderId ? String(raw.orderId) : null,
+          orderNumber: raw.orderNumber ? String(raw.orderNumber) : null,
+          type: String(raw.type ?? 'order_credit'),
+          amount: pickNumber(raw, ['amount']),
+          balanceAfter: pickNumber(raw, ['balanceAfter']),
+          grossAmount:
+            raw.grossAmount != null ? pickNumber(raw, ['grossAmount']) : null,
+          commissionAmount:
+            raw.commissionAmount != null
+              ? pickNumber(raw, ['commissionAmount'])
+              : null,
+          commissionRate:
+            raw.commissionRate != null
+              ? pickNumber(raw, ['commissionRate'])
+              : null,
+          description: String(raw.description ?? ''),
+          createdAt: raw.createdAt ? String(raw.createdAt) : undefined,
+        };
+      });
+    } catch (error) {
+      throwFinanceError(error, 'Failed to load wallet ledger');
     }
   },
 };

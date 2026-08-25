@@ -33,6 +33,7 @@ export type OwnerOrder = {
   paymentStatus?: string;
   subtotal?: number;
   deliveryFee?: number;
+  packagingCharge?: number;
   tax?: number;
   discount?: number;
   specialInstructions?: string;

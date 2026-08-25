@@ -20,6 +20,10 @@ export const financeKeys = {
     [...financeKeys.restaurant(restaurantId), 'invoices', page] as const,
   commission: (restaurantId: string) =>
     [...financeKeys.restaurant(restaurantId), 'commission'] as const,
+  wallet: (restaurantId: string) =>
+    [...financeKeys.restaurant(restaurantId), 'wallet'] as const,
+  walletTxns: (restaurantId: string, page: number) =>
+    [...financeKeys.restaurant(restaurantId), 'wallet-txns', page] as const,
 };
 
 export function useRestaurantPayouts(page = 1) {
@@ -89,6 +93,54 @@ export function useRestaurantCommission() {
     queryFn: () => restaurantFinanceApi.getCommission(restaurantId),
     enabled: Boolean(restaurantId),
     staleTime: 60_000,
+    refetchInterval: liveRefetchInterval(LIVE_INTERVALS.analytics, isActive),
+    refetchIntervalInBackground: false,
+    placeholderData: (previous) => previous,
+  });
+
+  return {
+    ...query,
+    restaurantId,
+    restaurantName: restaurantQuery.data?.name,
+  };
+}
+
+export function useRestaurantWallet() {
+  const restaurantQuery = useMyRestaurantId();
+  const restaurantId = restaurantQuery.data?.id ?? '';
+  const isActive = useAppIsActive();
+
+  const query = useQuery({
+    queryKey: financeKeys.wallet(restaurantId),
+    queryFn: () => restaurantFinanceApi.getWallet(restaurantId),
+    enabled: Boolean(restaurantId),
+    staleTime: 20_000,
+    refetchInterval: liveRefetchInterval(LIVE_INTERVALS.analytics, isActive),
+    refetchIntervalInBackground: false,
+    placeholderData: (previous) => previous,
+  });
+
+  return {
+    ...query,
+    restaurantId,
+    restaurantName: restaurantQuery.data?.name,
+  };
+}
+
+export function useRestaurantWalletTransactions(page = 1) {
+  const restaurantQuery = useMyRestaurantId();
+  const restaurantId = restaurantQuery.data?.id ?? '';
+  const isActive = useAppIsActive();
+
+  const query = useQuery({
+    queryKey: financeKeys.walletTxns(restaurantId, page),
+    queryFn: () =>
+      restaurantFinanceApi.listWalletTransactions(restaurantId, {
+        page,
+        limit: 20,
+      }),
+    enabled: Boolean(restaurantId),
+    staleTime: 20_000,
     refetchInterval: liveRefetchInterval(LIVE_INTERVALS.analytics, isActive),
     refetchIntervalInBackground: false,
     placeholderData: (previous) => previous,
