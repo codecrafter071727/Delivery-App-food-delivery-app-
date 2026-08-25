@@ -343,7 +343,7 @@ function mapTripOrderContext(raw: unknown): TripOrderContext {
         partner: {
           deliveryFee: pickNumber(partner, ['deliveryFee']) ?? 0,
           tipAmount: pickNumber(partner, ['tipAmount']) ?? 0,
-          codCollect: pickNumber(partner, ['codCollect']),
+          codCollect: pickNumber(partner, ['codCollect']) ?? null,
           lines: mapLines(partner.lines),
         },
       };

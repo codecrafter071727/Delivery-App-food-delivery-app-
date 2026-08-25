@@ -227,8 +227,9 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
         });
       }
 
+      let profile;
       try {
-        const profile = await deliveryPartnerApi.register({
+        profile = await deliveryPartnerApi.register({
           firstName: form.firstName.trim(),
           lastName: form.lastName.trim() || undefined,
           phone: form.phone.trim(),
@@ -244,32 +245,26 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
           acceptedTerms: form.acceptedTerms,
           inviteToken: inviteToken || undefined,
         });
-
-        await markDeliveryPartnerSetupComplete(profile.id);
-
-        if (profileOnly) {
-          router.replace(DELIVERY_ROUTES.home);
-          return;
-        }
-
-        const email = form.email.trim().toLowerCase();
-        await useAuthStore.getState().clearSession();
-        router.replace({
-          pathname: '/login',
-          params: { registered: '1', email, role: 'delivery' },
-        });
       } catch (regErr) {
         // Profile already linked to this account — treat as done.
         const existing = await deliveryPartnerApi.getMe().catch(() => null);
-        if (existing?.id) {
-          await markDeliveryPartnerSetupComplete(existing.id);
-          if (profileOnly) {
-            router.replace(DELIVERY_ROUTES.home);
-            return;
-          }
-        }
-        throw regErr;
+        if (!existing?.id) throw regErr;
+        profile = existing;
       }
+
+      await markDeliveryPartnerSetupComplete(profile.id);
+
+      if (profileOnly) {
+        router.replace(DELIVERY_ROUTES.home);
+        return;
+      }
+
+      const email = form.email.trim().toLowerCase();
+      await useAuthStore.getState().clearSession();
+      router.replace({
+        pathname: '/login',
+        params: { registered: '1', email, role: 'delivery' },
+      });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Could not complete registration'

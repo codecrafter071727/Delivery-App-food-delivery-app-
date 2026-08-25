@@ -440,7 +440,7 @@ function ActiveTripBody({
           historyPolyline={historyQuery.data?.polyline}
           historyPoints={historyPoints}
           navRoute={tripRouteQuery.data}
-          onTrackingPatch={(patch) =>
+          onTrackingPatch={(patch: Partial<OrderTracking>) =>
             setTrackingPatch((prev) => ({ ...prev, ...patch }))
           }
         />
