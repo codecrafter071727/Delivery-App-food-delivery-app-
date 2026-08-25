@@ -150,7 +150,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 export async function resolvePostAuthRoute(
   role: PartnerRole
 ): Promise<PostAuthRoute> {
-  // Delivery partners need a delivery-service partner profile before home/duty.
+  // Delivery partners need a delivery-service partner profile before duty APIs work.
+  // Never force "sign up again" on a flaky network — only when GET /partners/me is a real 404.
   if (role === 'delivery') {
     try {
       const me = await withTimeout(deliveryPartnerApi.getMe(), 8000);
@@ -158,11 +159,13 @@ export async function resolvePostAuthRoute(
         await markDeliveryPartnerSetupComplete(me.id);
         return DELIVERY_ROUTES.home;
       }
+      // Confirmed missing for this login (admin rider may still exist on another userId).
+      await clearDeliveryPartnerSetupFlag();
+      return DELIVERY_ROUTES.setup;
     } catch {
-      // Fall through to setup when profile is missing or the check fails.
+      // Timeout / gateway blip — stay on home; duty will surface a real error if needed.
+      return DELIVERY_ROUTES.home;
     }
-    await clearDeliveryPartnerSetupFlag();
-    return DELIVERY_ROUTES.setup;
   }
 
   try {

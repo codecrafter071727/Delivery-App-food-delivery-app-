@@ -60,7 +60,8 @@ export default function AppLayout() {
       .catch(() => {
         if (!active) return;
         resolvedForToken.current = token;
-        setGate(effectiveRole === 'delivery' ? 'delivery-setup' : 'restaurant-setup');
+        // Delivery: don't force signup on resolver failure — home is safer.
+        setGate(effectiveRole === 'delivery' ? 'ready' : 'restaurant-setup');
       });
 
     return () => {
@@ -72,8 +73,8 @@ export default function AppLayout() {
     if (gate !== 'loading' || !token) return;
     const timer = setTimeout(() => {
       resolvedForToken.current = token;
-      // Don't force "ready" for delivery — missing profile must stay on setup.
-      setGate(effectiveRole === 'delivery' ? 'delivery-setup' : 'ready');
+      // Don't force delivery signup on a slow profile check.
+      setGate('ready');
     }, 10000);
     return () => clearTimeout(timer);
   }, [gate, token, effectiveRole]);
@@ -106,7 +107,7 @@ export default function AppLayout() {
       .catch(() => {
         if (!active) return;
         resolvedForToken.current = token;
-        setGate(effectiveRole === 'delivery' ? 'delivery-setup' : 'ready');
+        setGate('ready');
       });
 
     return () => {

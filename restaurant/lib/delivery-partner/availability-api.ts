@@ -533,7 +533,12 @@ export const DUTY_ERROR_COPY: Record<string, string> = {
   PARTNER_NOT_ACTIVE:
     'Could not go online. Check GPS and try again.',
   PARTNER_NOT_FOUND:
-    'No delivery partner profile for this login. Open Delivery setup, finish registration, then try again. If you already registered, log out and sign in with the same delivery account.',
+    'No rider profile linked to this login. If admin already shows you as active, log out and sign in with that same delivery account — do not create a second rider.',
+  PARTNER_PHONE_TAKEN:
+    'This phone already belongs to another rider login. Sign in with that account instead of registering again.',
+  PARTNER_EMAIL_TAKEN:
+    'This email already belongs to another rider login. Sign in with that account instead of registering again.',
+  PARTNER_EXISTS: 'Your rider profile is already linked. Pull to refresh or reopen the app.',
   PARTNER_SUSPENDED: 'Your account is suspended. Contact support.',
   PARTNER_BLOCKED: 'Your account is blocked. Contact support.',
   ACTIVE_DELIVERY: 'Complete your active delivery before changing duty status.',
