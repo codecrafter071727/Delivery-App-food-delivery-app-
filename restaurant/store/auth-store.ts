@@ -69,6 +69,15 @@ async function persistSession(token: string, user: AuthUser) {
   await setStoredRole(user.role);
 }
 
+/**
+ * Portal toggle wins for local routing. Session JWT may still be
+ * restaurant_owner while the user opens the Delivery home (shared Expo app).
+ */
+function withPortalRole(user: AuthUser, portal?: PartnerRole): AuthUser {
+  if (!portal) return user;
+  return { ...user, role: portal };
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: null,
@@ -116,11 +125,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return;
       }
 
-      // Re-hydrate in-memory session from durable storage.
+      // Prefer remembered portal toggle when it disagrees with API role
+      // (shared restaurant + delivery Expo app).
+      const portalRole = storedRole ?? user.role ?? 'restaurant';
+      const nextUser =
+        storedRole && user.role !== storedRole
+          ? { ...user, role: storedRole }
+          : user;
       set({
         token,
-        user,
-        role: user.role ?? storedRole ?? 'restaurant',
+        user: nextUser,
+        role: portalRole,
         isHydrated: true,
       });
     } catch {
@@ -154,7 +169,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     try {
       const response = await authApi.register(payload);
-      await get().setSession(response.token, response.user);
+      await get().setSession(
+        response.token,
+        withPortalRole(response.user, payload.role)
+      );
     } catch (error) {
       throwAuth(error, 'Registration failed');
     } finally {
@@ -166,7 +184,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     try {
       const response = await authApi.login(payload);
-      await get().setSession(response.token, response.user);
+      await get().setSession(
+        response.token,
+        withPortalRole(response.user, payload.role)
+      );
     } catch (error) {
       throwAuth(error, 'Login failed');
     } finally {
@@ -200,7 +221,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     try {
       const response = await authApi.verifyOtp(payload);
-      await get().setSession(response.token, response.user);
+      await get().setSession(
+        response.token,
+        withPortalRole(response.user, payload.role)
+      );
     } catch (error) {
       throwAuth(error, 'OTP verification failed');
     } finally {
@@ -212,7 +236,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     try {
       const response = await authApi.loginGoogle(payload);
-      await get().setSession(response.token, response.user);
+      await get().setSession(
+        response.token,
+        withPortalRole(response.user, payload.role)
+      );
     } catch (error) {
       throwAuth(error, 'Google sign-in failed');
     } finally {
@@ -224,7 +251,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     try {
       const response = await authApi.loginApple(payload);
-      await get().setSession(response.token, response.user);
+      await get().setSession(
+        response.token,
+        withPortalRole(response.user, payload.role)
+      );
     } catch (error) {
       throwAuth(error, 'Apple sign-in failed');
     } finally {

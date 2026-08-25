@@ -4,14 +4,34 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { fonts } from '@/constants/typography';
 import { formatCurrency } from '@/lib/delivery-partner/analytics-api';
 import { useCodLimitStatus } from '@/lib/delivery-partner/finance-hooks';
+import { useDeliveryPartnerMe } from '@/lib/delivery-partner/hooks';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
+import { getApiErrorCode } from '@/lib/errors';
 
 /** Live COD cap from GET /partners/me/cod/limit-status */
 export function CodLimitBanner() {
   const router = useRouter();
-  const query = useCodLimitStatus(true);
+  const me = useDeliveryPartnerMe(true);
+  const ready = Boolean(me.data?.id) && !me.isError;
+  const query = useCodLimitStatus(ready);
   const data = query.data;
+
+  if (!ready) return null;
+
   if (query.isError && !data) {
+    const code = getApiErrorCode(query.error);
+    const msg = String(
+      (query.error as { message?: string } | null)?.message ?? ''
+    ).toLowerCase();
+    if (
+      code === 'FORBIDDEN' ||
+      code === 'PARTNER_NOT_FOUND' ||
+      code === 'UNAUTHORIZED' ||
+      msg.includes('permission') ||
+      msg.includes('forbidden')
+    ) {
+      return null;
+    }
     return (
       <View style={[styles.bar, styles.barWarn]}>
         <Text style={styles.text}>Could not load COD limit.</Text>
@@ -41,7 +61,7 @@ export function CodLimitBanner() {
         hitSlop={8}
         style={styles.cta}
       >
-        <Text style={styles.ctaText}>Remit</Text>
+        <Text style={styles.ctaText}>{blocked ? 'Remit' : 'Details'}</Text>
       </Pressable>
     </View>
   );
@@ -49,34 +69,39 @@ export function CodLimitBanner() {
 
 const styles = StyleSheet.create({
   bar: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 20,
-    marginBottom: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 12,
-    gap: 8,
+    gap: 10,
   },
   barWarn: {
     backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FDBA74',
   },
   barBlocked: {
     backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
   text: {
     flex: 1,
+    fontFamily: fonts.medium,
     fontSize: 12,
-    fontFamily: fonts.semiBold,
-    color: '#1F2937',
+    lineHeight: 17,
+    color: '#7C2D12',
   },
   cta: {
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 4,
   },
   ctaText: {
+    fontFamily: fonts.semiBold,
     fontSize: 12,
-    fontFamily: fonts.bold,
-    color: '#EA4B14',
+    color: '#C2410C',
   },
 });
