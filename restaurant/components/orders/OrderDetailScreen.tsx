@@ -40,7 +40,6 @@ import {
 } from '@/components/orders/KitchenTicketSheets';
 import { KitchenOrderChat } from '@/components/orders/KitchenOrderChat';
 import { KitchenRiderCard } from '@/components/orders/KitchenRiderCard';
-import { AssignPartnerModal } from '@/components/partners/AssignPartnerModal';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { getApiErrorMessage } from '@/lib/errors';
@@ -127,7 +126,6 @@ export function OrderDetailScreen({ orderId }: Props) {
   const reasonsQuery = useRejectReasons(restaurantId);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [acceptOpen, setAcceptOpen] = useState(false);
-  const [assignOpen, setAssignOpen] = useState(false);
   const [prepOpen, setPrepOpen] = useState(false);
   const [delayOpen, setDelayOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -279,12 +277,6 @@ export function OrderDetailScreen({ orderId }: Props) {
         order.status === 'preparing' ||
         order.status === 'ready' ||
         order.status === 'out_for_delivery')
-  );
-  const canAssign = Boolean(
-    order?.fulfillmentTone === 'delivery' &&
-      (order.status === 'accepted' ||
-        order.status === 'preparing' ||
-        order.status === 'ready')
   );
   const canRate = Boolean(
     !rated &&
@@ -760,12 +752,10 @@ export function OrderDetailScreen({ orderId }: Props) {
                 rider={rider}
                 loading={riderQuery.isLoading}
                 error={riderQuery.error}
-                canAssign={canAssign}
                 canRate={canRate}
                 callBusy={ticket.callCustomer.isPending}
                 onRetry={() => void riderQuery.refetch()}
                 onCallCustomer={() => void callCustomer()}
-                onAssign={() => setAssignOpen(true)}
                 onRate={() => setRateOpen(true)}
               />
             ) : null}
@@ -942,18 +932,6 @@ export function OrderDetailScreen({ orderId }: Props) {
             );
         }}
       />
-
-      {restaurantId ? (
-        <AssignPartnerModal
-          visible={assignOpen}
-          restaurantId={restaurantId}
-          orderId={orderId}
-          onClose={() => setAssignOpen(false)}
-          onAssigned={() => {
-            void riderQuery.refetch();
-          }}
-        />
-      ) : null}
     </View>
   );
 }

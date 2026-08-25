@@ -2,7 +2,6 @@ import {
   Bike,
   Phone,
   Star,
-  UserPlus,
 } from 'lucide-react-native';
 import {
   ActivityIndicator,
@@ -22,12 +21,10 @@ type Props = {
   rider?: KitchenRider;
   loading?: boolean;
   error?: unknown;
-  canAssign?: boolean;
   canRate?: boolean;
   callBusy?: boolean;
   onRetry: () => void;
   onCallCustomer: () => void;
-  onAssign: () => void;
   onRate: () => void;
 };
 
@@ -36,6 +33,7 @@ function dutyLabel(rider: KitchenRider) {
   if (!raw) return rider.isOnline ? 'Online' : null;
   if (raw.toLowerCase().includes('return')) return 'Returning to store';
   if (raw.toLowerCase().includes('arrived')) return 'At the store';
+  if (raw.toLowerCase() === 'searching') return 'Searching';
   return displayStatus(raw);
 }
 
@@ -43,15 +41,14 @@ export function KitchenRiderCard({
   rider,
   loading,
   error,
-  canAssign,
   canRate,
   callBusy,
   onRetry,
   onCallCustomer,
-  onAssign,
   onRate,
 }: Props) {
   const assigned = Boolean(rider?.assigned && (rider.name || rider.partnerId));
+  const searching = !assigned && (rider?.searching === true || Boolean(rider?.message));
   const phone = assigned
     ? rider?.isFleetPartner
       ? rider?.phone || rider?.phoneMasked
@@ -65,9 +62,9 @@ export function KitchenRiderCard({
         <Text style={styles.title}>Delivery partner</Text>
       </View>
 
-      {loading && !rider ? (
+      {loading && !rider && !searching ? (
         <ActivityIndicator color={authTheme.brand} />
-      ) : error && !assigned ? (
+      ) : error && !assigned && !searching ? (
         <>
           <Text style={styles.error}>{getApiErrorMessage(error)}</Text>
           <Pressable onPress={onRetry} style={styles.ghost}>
@@ -96,13 +93,18 @@ export function KitchenRiderCard({
           ) : null}
         </>
       ) : (
-        <>
-          <Text style={styles.emptyTitle}>Finding a rider</Text>
-          <Text style={styles.hint}>
-            {rider?.message ||
-              'Platform dispatch is looking. Assign one of your fleet riders if you need them now.'}
-          </Text>
-        </>
+        <View style={styles.finding}>
+          <ActivityIndicator color={authTheme.brand} />
+          <View style={styles.findingCopy}>
+            <Text style={styles.emptyTitle}>Finding a rider…</Text>
+            <Text style={styles.hint}>
+              {rider?.message
+                || (rider?.searchRadiusKm
+                  ? `Searching within ${rider.searchRadiusKm} km`
+                  : 'Platform dispatch is matching the nearest available rider.')}
+            </Text>
+          </View>
+        </View>
       )}
 
       <View style={styles.actions}>
@@ -118,14 +120,6 @@ export function KitchenRiderCard({
           )}
           <Text style={styles.actionText}>Call customer</Text>
         </Pressable>
-        {canAssign ? (
-          <Pressable onPress={onAssign} style={styles.action}>
-            <UserPlus color={authTheme.brand} size={15} />
-            <Text style={styles.actionText}>
-              {assigned ? 'Assign your rider' : 'Assign rider'}
-            </Text>
-          </Pressable>
-        ) : null}
         {canRate && assigned ? (
           <Pressable onPress={onRate} style={styles.action}>
             <Star color="#D97706" size={15} />
@@ -177,6 +171,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: authTheme.textMuted,
     lineHeight: 17,
+  },
+  finding: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  findingCopy: {
+    flex: 1,
+    gap: 2,
   },
   emptyTitle: {
     fontFamily: fonts.semiBold,

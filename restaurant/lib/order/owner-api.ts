@@ -94,6 +94,7 @@ export type KitchenHandoverTryResult = {
 
 export type KitchenRider = {
   assigned: boolean;
+  searching?: boolean;
   orderId: string;
   deliveryId?: string;
   partnerId?: string;
@@ -108,6 +109,9 @@ export type KitchenRider = {
   isFleetPartner?: boolean;
   status?: string;
   assignedAt?: string;
+  searchRadiusKm?: number;
+  hop?: number;
+  searchExpiresAt?: string;
   message?: string;
 };
 
@@ -944,11 +948,18 @@ function mapRider(raw: unknown, fallbackOrderId: string): KitchenRider {
   const name = optionalString(
     rec.partnerName ?? rec.name ?? rec.fullName ?? rec.partnerNameMasked
   );
+  const searching =
+    rec.searching === true
+    || optionalString(rec.status) === 'searching'
+    || (!partnerId && !name && rec.assigned !== true);
   const assigned = Boolean(
-    partnerId || name || rec.assigned === true || rec.deliveryId
+    (partnerId || name || rec.assigned === true || rec.deliveryId)
+    && rec.searching !== true
+    && optionalString(rec.status) !== 'searching'
   );
   return {
     assigned,
+    searching: searching && !assigned,
     orderId: optionalString(rec.orderId) ?? fallbackOrderId,
     deliveryId: optionalString(rec.deliveryId),
     partnerId,
@@ -963,6 +974,9 @@ function mapRider(raw: unknown, fallbackOrderId: string): KitchenRider {
     isFleetPartner: rec.isFleetPartner === true,
     status: optionalString(rec.status ?? rec.deliveryStatus),
     assignedAt: optionalString(rec.assignedAt),
+    searchRadiusKm: optionalNumber(rec.searchRadiusKm),
+    hop: optionalNumber(rec.hop),
+    searchExpiresAt: optionalString(rec.searchExpiresAt),
     message: optionalString(rec.message),
   };
 }
@@ -1488,8 +1502,9 @@ export const restaurantOrderApi = {
         if (status === 404) {
           return {
             assigned: false,
+            searching: true,
             orderId,
-            message: 'No rider assigned yet.',
+            message: 'Finding a rider…',
           };
         }
       }
