@@ -7,6 +7,7 @@
     "orientation": "portrait",
     "icon": "./assets/tokajo-logo.png",
     "userInterfaceStyle": "light",
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/tokajo-logo.png",
       "resizeMode": "contain",
@@ -40,7 +41,11 @@
         "expo-build-properties",
         {
           "android": {
+            "newArchEnabled": true,
             "usesCleartextTraffic": true
+          },
+          "ios": {
+            "newArchEnabled": true
           }
         }
       ]
