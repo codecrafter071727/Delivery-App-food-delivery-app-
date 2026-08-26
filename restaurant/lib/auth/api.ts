@@ -17,6 +17,7 @@ import type {
   ConfirmRegisterOtpPayload,
   ConfirmRegisterOtpResult,
   PartnerRole,
+  RegisterOtpPolicy,
   RegisterPayload,
   ResetPasswordPayload,
 } from '@/lib/auth/types';
@@ -123,6 +124,8 @@ export const AUTH_ERROR_COPY: Record<string, string> = {
     'SMS is temporarily unavailable. Use email OTP or password sign-in.',
   EMAIL_NOT_VERIFIED: 'Verify your email OTP before creating an account.',
   PHONE_NOT_VERIFIED: 'Verify your phone OTP before creating an account.',
+  OTP_CHANNEL_DISABLED:
+    'This signup OTP channel is disabled on the server right now.',
   CONTACT_REQUIRED: 'Email and phone are required for partner signup.',
   REGISTER_OTP_USE_CONFIRM:
     'Confirm the signup OTP first, then create your account.',
@@ -312,6 +315,21 @@ export const authApi = {
       },
     });
     return normalizeAuthResponse(data, payload.role);
+  },
+
+  /** Public: which partner-signup OTPs are required (env-driven). */
+  getRegisterPolicy: async (): Promise<RegisterOtpPolicy> => {
+    const data = await apiRequest<unknown>(`${AUTH_BASE}/register-policy`);
+    const payload =
+      data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+    const nested =
+      payload.data && typeof payload.data === 'object'
+        ? (payload.data as Record<string, unknown>)
+        : payload;
+    return {
+      requireEmailOtp: Boolean(nested.requireEmailOtp),
+      requirePhoneOtp: Boolean(nested.requirePhoneOtp),
+    };
   },
 
   /** Confirm signup OTP without creating a session (email or phone). */

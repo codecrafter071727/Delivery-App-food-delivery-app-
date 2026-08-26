@@ -158,7 +158,7 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
           return 'Enter a valid email address.';
         }
         if (!emailVerified || !phoneVerified) {
-          return 'Verify both email and phone OTP before continuing.';
+          return 'Verify required email/phone OTP before continuing.';
         }
         if (!isStrongSignupPassword(form.password)) {
           return 'Password needs 8+ chars with upper, lower, digit, and symbol.';

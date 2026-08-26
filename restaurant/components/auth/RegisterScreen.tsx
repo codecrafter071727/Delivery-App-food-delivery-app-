@@ -101,7 +101,7 @@ export function RegisterScreen() {
           ? inviteToken
             ? 'Validating your restaurant invitation and completing partner signup.'
             : 'Complete the steps below to register and start delivering.'
-          : 'Verify email and phone with OTP, then create your partner account.'
+          : 'Create your restaurant partner account.'
       }
       showBack
       footer={
@@ -190,7 +190,8 @@ export function RegisterScreen() {
           />
           {!canCreate ? (
             <Text className="text-center text-xs text-secondary-light">
-              Verify both email and phone OTP to enable Create account.
+              Complete email and phone (and OTP if required) to enable Create
+              account.
             </Text>
           ) : null}
         </>

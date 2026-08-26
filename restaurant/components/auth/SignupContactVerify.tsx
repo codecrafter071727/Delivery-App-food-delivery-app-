@@ -6,6 +6,7 @@ import { AuthBanner } from '@/components/auth/AuthBanner';
 import { AuthField } from '@/components/auth/AuthField';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { authApi, formatAuthError } from '@/lib/auth/api';
+import type { RegisterOtpPolicy } from '@/lib/auth/types';
 import { theme } from '@/constants/theme';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -44,8 +45,8 @@ type SignupContactVerifyProps = {
 };
 
 /**
- * Email + phone fields with send/confirm OTP for partner signup.
- * Uses existing user-service email SMTP + SMS OTP (purpose=register).
+ * Email + phone fields with optional send/confirm OTP for partner signup.
+ * OTP UI follows GET /auth/register-policy (REQUIRE_REGISTER_*_OTP env).
  */
 export function SignupContactVerify({
   email,
@@ -60,6 +61,7 @@ export function SignupContactVerify({
   emailError,
   phoneError,
 }: SignupContactVerifyProps) {
+  const [policy, setPolicy] = useState<RegisterOtpPolicy | null>(null);
   const [emailOtp, setEmailOtp] = useState('');
   const [phoneOtp, setPhoneOtp] = useState('');
   const [emailSent, setEmailSent] = useState(false);
@@ -70,6 +72,30 @@ export function SignupContactVerify({
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const next = await authApi.getRegisterPolicy();
+        if (cancelled) return;
+        setPolicy(next);
+        if (!next.requireEmailOtp) onEmailVerifiedChange(true);
+        if (!next.requirePhoneOtp) onPhoneVerifiedChange(true);
+      } catch {
+        if (cancelled) return;
+        // Fail open for local: allow create without OTP if policy unreachable.
+        setPolicy({ requireEmailOtp: false, requirePhoneOtp: false });
+        onEmailVerifiedChange(true);
+        onPhoneVerifiedChange(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally once on mount — parent setters are stable enough for signup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     setEmailSent(false);
     setEmailOtp('');
   }, [email]);
@@ -78,6 +104,9 @@ export function SignupContactVerify({
     setPhoneSent(false);
     setPhoneOtp('');
   }, [phone]);
+
+  const requireEmail = policy?.requireEmailOtp ?? false;
+  const requirePhone = policy?.requirePhoneOtp ?? false;
 
   const send = async (channel: 'email' | 'phone') => {
     setLocalError(null);
@@ -129,9 +158,24 @@ export function SignupContactVerify({
     }
   };
 
+  const verifiedBadge = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <CheckCircle2 size={14} color={theme.success} />
+      <Text style={{ fontSize: 12, fontWeight: '700', color: theme.success }}>
+        Verified
+      </Text>
+    </View>
+  );
+
   return (
     <View style={{ gap: 4 }}>
       <AuthBanner type="error" message={localError} />
+      {policy && !requireEmail && !requirePhone ? (
+        <Text className="mb-2 text-xs text-secondary-light">
+          Email/SMS OTP verification is off on the server. Enter contacts and
+          continue.
+        </Text>
+      ) : null}
 
       <AuthField
         label="Email *"
@@ -142,21 +186,14 @@ export function SignupContactVerify({
         editable={!disabled}
         onChangeText={(v) => {
           onEmailChange(v);
-          if (emailVerified) onEmailVerifiedChange(false);
+          if (requireEmail && emailVerified) onEmailVerifiedChange(false);
         }}
         errorText={emailError}
         labelAccessory={
-          emailVerified ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <CheckCircle2 size={14} color={theme.success} />
-              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.success }}>
-                Verified
-              </Text>
-            </View>
-          ) : undefined
+          emailVerified || !requireEmail ? verifiedBadge : undefined
         }
       />
-      {!emailVerified ? (
+      {requireEmail && !emailVerified ? (
         <View style={{ gap: 8, marginBottom: 8 }}>
           <PrimaryButton
             label={emailSent ? 'Resend email OTP' : 'Send email OTP'}
@@ -196,25 +233,20 @@ export function SignupContactVerify({
         editable={!disabled}
         onChangeText={(v) => {
           onPhoneChange(v);
-          if (phoneVerified) onPhoneVerifiedChange(false);
+          if (requirePhone && phoneVerified) onPhoneVerifiedChange(false);
         }}
         errorText={phoneError}
         labelAccessory={
-          phoneVerified ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <CheckCircle2 size={14} color={theme.success} />
-              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.success }}>
-                Verified
-              </Text>
-            </View>
-          ) : undefined
+          phoneVerified || !requirePhone ? verifiedBadge : undefined
         }
       />
       <Text className="mb-2 -mt-1 text-xs text-secondary-light">
-        Use E.164 format, e.g. +919876543210. Both contacts must be verified
-        before create.
+        Use E.164 format, e.g. +919876543210
+        {requireEmail || requirePhone
+          ? '. Required contacts must be OTP-verified before create.'
+          : '.'}
       </Text>
-      {!phoneVerified ? (
+      {requirePhone && !phoneVerified ? (
         <View style={{ gap: 8, marginBottom: 8 }}>
           <PrimaryButton
             label={phoneSent ? 'Resend SMS OTP' : 'Send SMS OTP'}

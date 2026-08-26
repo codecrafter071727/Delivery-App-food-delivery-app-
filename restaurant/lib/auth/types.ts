@@ -117,6 +117,12 @@ export type ConfirmRegisterOtpResult = {
   message?: string;
 };
 
+/** From GET /auth/register-policy — which signup OTPs the backend requires. */
+export type RegisterOtpPolicy = {
+  requireEmailOtp: boolean;
+  requirePhoneOtp: boolean;
+};
+
 export type GoogleLoginPayload = {
   idToken: string;
   role: PartnerRole;
