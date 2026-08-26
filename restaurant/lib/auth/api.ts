@@ -139,8 +139,14 @@ export const AUTH_ERROR_COPY: Record<string, string> = {
   INVALID_OTP: 'That code is wrong or expired. Request a new one.',
   EMAIL_NOT_FOUND: 'No account found for that email.',
   USER_NOT_FOUND: 'No account found. Create one first.',
-  EMAIL_ALREADY_EXISTS: 'An account with this email already exists. Sign in.',
-  PHONE_ALREADY_EXISTS: 'An account with this phone already exists. Sign in.',
+  EMAIL_ALREADY_EXISTS: 'An account with this email already has this role. Sign in.',
+  PHONE_ALREADY_EXISTS: 'An account with this phone already has this role. Sign in.',
+  ACCOUNT_EXISTS:
+    'An account already exists with this email or phone. Use that account’s password to add restaurant or rider access.',
+  CONTACT_CONFLICT:
+    'This email and phone belong to different accounts. Use matching contacts.',
+  ROLE_NOT_ON_ACCOUNT:
+    'This login does not have restaurant/rider access yet. Complete signup for that role first.',
   TOKEN_EXPIRED: 'This link expired. Request a new one.',
   TOKEN_INVALID: 'This link is invalid. Request a new one.',
   CURRENT_PASSWORD_INVALID: 'Current password is incorrect.',
@@ -274,6 +280,7 @@ export const authApi = {
       body: {
         email: payload.email,
         password: payload.password,
+        role: toApiRole(payload.role),
         source: authClientSource(),
         deviceId: await getAuthDeviceId(),
       },
