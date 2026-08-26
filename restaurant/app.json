@@ -18,6 +18,7 @@
       "expo-font",
       "expo-web-browser",
       "expo-apple-authentication",
+      "@react-native-community/datetimepicker",
       [
         "expo-location",
         {

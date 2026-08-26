@@ -15,6 +15,11 @@ import {
   View,
 } from 'react-native';
 
+import {
+  OfferDateField,
+  formatOfferDate,
+  parseOfferDate,
+} from '@/components/offers/OfferDateField';
 import { authTheme } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import {
@@ -42,15 +47,7 @@ const OFFER_TYPE_OPTIONS: { key: OfferDiscountType; label: string }[] = [
 ];
 
 function formatDateInput(value?: string) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    if (/^\d{2}-\d{2}-\d{4}$/.test(value)) return value;
-    return value.slice(0, 10);
-  }
-  const dd = String(date.getDate()).padStart(2, '0');
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  return `${dd}-${mm}-${date.getFullYear()}`;
+  return formatOfferDate(value);
 }
 
 function Field({
@@ -143,6 +140,16 @@ export function OfferFormModal({
       setIsActive(offer.isActive !== false);
       setDescTouched(Boolean(offer.description?.trim()));
     } else {
+      const today = new Date();
+      const in30 = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate() + 30,
+        12,
+        0,
+        0,
+        0
+      );
       setTitle('');
       setCode('');
       setDiscountType('percentage');
@@ -150,8 +157,8 @@ export function OfferFormModal({
       setMinOrder('500');
       setMaxDiscount('');
       setDescription('');
-      setValidFrom(formatDateInput(new Date().toISOString()));
-      setValidUntil('');
+      setValidFrom(formatDateInput(today));
+      setValidUntil(formatDateInput(in30));
       setUsageLimit('');
       setPerUserLimit('1');
       setIsActive(true);
@@ -309,26 +316,33 @@ export function OfferFormModal({
 
             <Text style={styles.fieldLabel}>Valid date range *</Text>
             <Text style={styles.dateHint}>
-              Offer is applicable from this day through that day (dd-mm-yyyy).
+              Tap a field to open the calendar. Offer runs from that day through
+              the end day (inclusive).
             </Text>
             <View style={styles.row2}>
               <View style={{ flex: 1 }}>
-                <Field
+                <OfferDateField
                   label="From"
                   required
                   value={validFrom}
-                  onChangeText={setValidFrom}
-                  placeholder="dd-mm-yyyy"
+                  onChange={(next) => {
+                    setValidFrom(next);
+                    const from = parseOfferDate(next);
+                    const until = parseOfferDate(validUntil);
+                    if (from && until && until < from) {
+                      setValidUntil(next);
+                    }
+                  }}
                 />
               </View>
               <View style={{ width: 12 }} />
               <View style={{ flex: 1 }}>
-                <Field
+                <OfferDateField
                   label="Until"
                   required
                   value={validUntil}
-                  onChangeText={setValidUntil}
-                  placeholder="dd-mm-yyyy"
+                  onChange={setValidUntil}
+                  minimumDate={parseOfferDate(validFrom) ?? undefined}
                 />
               </View>
             </View>
@@ -441,6 +455,22 @@ export function OfferFormModal({
                     Alert.alert(
                       'Invalid per-customer limit',
                       'Enter a whole number.'
+                    );
+                    return;
+                  }
+                  const fromDate = parseOfferDate(validFrom);
+                  const untilDate = parseOfferDate(validUntil);
+                  if (!fromDate || !untilDate) {
+                    Alert.alert(
+                      'Pick dates',
+                      'Tap From and Until to select dates from the calendar.'
+                    );
+                    return;
+                  }
+                  if (untilDate < fromDate) {
+                    Alert.alert(
+                      'Invalid date range',
+                      'Until must be on or after From.'
                     );
                     return;
                   }
