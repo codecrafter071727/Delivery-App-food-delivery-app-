@@ -444,17 +444,7 @@ export async function saveTaxPdfOnDevice(
     return url;
   }
 
-  try {
-    const FileSystem = await import('expo-file-system/legacy');
-    const binary = arrayBufferToBase64(bytes);
-    const uri = `${FileSystem.cacheDirectory ?? FileSystem.documentDirectory}${safeName}`;
-    await FileSystem.writeAsStringAsync(uri, binary, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    return uri;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 export async function shareTaxPdf(
@@ -484,10 +474,8 @@ function toArrayBuffer(data: unknown): ArrayBuffer {
   if (data instanceof ArrayBuffer) return data;
   if (ArrayBuffer.isView(data)) {
     const view = data as ArrayBufferView;
-    return view.buffer.slice(
-      view.byteOffset,
-      view.byteOffset + view.byteLength
-    );
+    const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    return bytes.slice().buffer;
   }
   throw new PartnerApiError('Could not read tax PDF.', 'TAX_DOCUMENT_NOT_FOUND');
 }

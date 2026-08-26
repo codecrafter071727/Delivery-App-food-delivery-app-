@@ -97,6 +97,10 @@ function mapDuty(
     acceptScheduled: raw.acceptScheduled === true,
     autoAccept: raw.autoAccept === true,
     openNow: raw.openNow === true,
+    forceOfflineReason:
+      typeof raw.forceOfflineReason === 'string' && raw.forceOfflineReason.trim()
+        ? raw.forceOfflineReason.trim()
+        : null,
   };
 }
 
@@ -263,6 +267,12 @@ function extractError(error: unknown, fallback: string) {
       const code = String(data?.code ?? '').toUpperCase();
       if (code === 'PARTNER_NOT_ACTIVE') {
         return 'Your listing is not live yet. Admin must approve it before you can go online.';
+      }
+      if (code === 'ADMIN_FORCE_OFFLINE') {
+        return (
+          data?.message ||
+          'Admin forced this outlet offline. Wait for ops to resume, or check notifications for the remark.'
+        );
       }
       if (code === 'ALREADY_OFFLINE') {
         return 'Go online first, then pause for a short break.';

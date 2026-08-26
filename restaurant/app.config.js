@@ -2,7 +2,7 @@
 module.exports = ({ config }) => {
   const mapsKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() || '';
   const apiUrl =
-    process.env.EXPO_PUBLIC_API_URL?.trim() || 'http://10.12.14.3:4000';
+    process.env.EXPO_PUBLIC_API_URL?.trim() || 'http://10.12.129.12:4000';
   const googleWebClientId =
     process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() || '';
   const googleIosClientId =

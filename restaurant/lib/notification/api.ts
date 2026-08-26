@@ -276,7 +276,7 @@ export const notificationApi = {
         ? res.data
         : [];
     return rows
-      .map((row) => {
+      .map((row): NotificationPushDevice | null => {
         const item = asRecord(row);
         const deviceId = String(item.deviceId ?? item.id ?? '').trim();
         if (!deviceId) return null;
@@ -287,7 +287,7 @@ export const notificationApi = {
           tokenMasked: String(item.tokenMasked ?? '') || undefined,
         };
       })
-      .filter((row): row is NotificationPushDevice => Boolean(row));
+      .filter((row): row is NotificationPushDevice => row !== null);
   },
 
   /** POST /devices/register — kitchen FCM uses app: "kitchen" */

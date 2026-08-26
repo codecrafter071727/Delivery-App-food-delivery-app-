@@ -114,6 +114,7 @@ export function KitchenDutyCard({
   const duty = dutyQuery.data;
   const listingLive = isListingLive(duty?.status);
   const paused = duty?.duty === 'paused';
+  const adminForcedOffline = Boolean(duty?.forceOfflineReason?.trim());
   const online = duty?.duty === 'online' && duty.isOnline === true;
   const storeOn = online || paused;
   const busy =
@@ -124,10 +125,11 @@ export function KitchenDutyCard({
   const headline = useMemo(() => {
     if (!duty) return 'Store status';
     if (!listingLive) return 'Listing not live';
+    if (adminForcedOffline) return 'Admin forced offline';
     if (paused) return 'Temporarily paused';
     if (online) return duty.openNow ? 'Restaurant is open' : 'Online · closed hours';
     return 'Restaurant is closed';
-  }, [duty, listingLive, online, paused]);
+  }, [duty, listingLive, online, paused, adminForcedOffline]);
 
   const subtitle = useMemo(() => {
     if (!duty) return 'Checking store status…';
@@ -135,6 +137,11 @@ export function KitchenDutyCard({
       return compact
         ? 'Admin must approve before you can accept orders.'
         : 'Admin must approve this outlet before you can accept orders.';
+    }
+    if (adminForcedOffline) {
+      return duty?.forceOfflineReason
+        ? `Ops: ${duty.forceOfflineReason}`
+        : 'Ops took this outlet offline. Check notifications for the remark.';
     }
     if (paused) {
       const left = remainingPause(duty.pausedUntil);
@@ -155,7 +162,7 @@ export function KitchenDutyCard({
     return compact
       ? 'New orders are paused. In-kitchen orders continue.'
       : 'New orders are stopped. In-flight orders still continue.';
-  }, [compact, duty, listingLive, online, paused]);
+  }, [compact, duty, listingLive, online, paused, adminForcedOffline]);
 
   const runDuty = async (fn: () => Promise<unknown>) => {
     try {
@@ -173,6 +180,14 @@ export function KitchenDutyCard({
       Alert.alert(
         'Listing not live',
         'Admin must approve this restaurant before you can go online.'
+      );
+      return;
+    }
+    if (next && adminForcedOffline) {
+      Alert.alert(
+        'Admin forced offline',
+        duty?.forceOfflineReason
+          ?? 'Ops took this outlet offline. Wait for them to resume.'
       );
       return;
     }
@@ -259,7 +274,7 @@ export function KitchenDutyCard({
           <Switch
             value={storeOn}
             onValueChange={onToggle}
-            disabled={busy || !listingLive}
+            disabled={busy || !listingLive || adminForcedOffline}
             trackColor={{ false: '#E2E8F0', true: 'rgba(34, 197, 94, 0.55)' }}
             thumbColor={storeOn ? authTheme.success : '#F8FAFC'}
           />

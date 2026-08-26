@@ -51,7 +51,7 @@ import {
 } from '@/lib/restaurant/onboarding-types';
 
 type UploadFile = { uri: string; fileName: string; mimeType: string };
-type ExpandKey = 'fssai' | 'gst' | 'pan' | 'bank' | 'photos' | null;
+type ExpandKey = 'fssai' | 'gst' | 'pan' | 'idProof' | 'bank' | 'photos' | null;
 
 function mimeFromAsset(asset: ImagePicker.ImagePickerAsset) {
   const mime = (asset.mimeType || '').toLowerCase();
@@ -96,6 +96,12 @@ function statusChip(kycStatus: string, listingStatus: string) {
   if (kycStatus === 'rejected') {
     return { label: 'Needs changes', color: '#B91C1C', bg: '#FEE2E2' };
   }
+  if (kycStatus === 'documents_pending') {
+    return { label: 'Documents pending', color: '#B45309', bg: '#FEF3C7' };
+  }
+  if (kycStatus === 'approved') {
+    return { label: 'Approved by admin', color: '#15803D', bg: '#DCFCE7' };
+  }
   if (kycStatus === 'submitted' || kycStatus === 'under_review') {
     return { label: 'Under review', color: '#B45309', bg: '#FEF3C7' };
   }
@@ -112,6 +118,8 @@ function listingTrackLabel(listingStatus: string) {
 
 function kycTrackLabel(kycStatus: string) {
   if (kycStatus === 'rejected') return 'Needs changes';
+  if (kycStatus === 'documents_pending') return 'Resubmit docs';
+  if (kycStatus === 'approved') return 'Approved';
   if (kycStatus === 'submitted' || kycStatus === 'under_review') return 'With ops';
   return 'In progress';
 }
@@ -142,6 +150,9 @@ export function OnboardingManager() {
   const [fssaiNo, setFssaiNo] = useState('');
   const [gstin, setGstin] = useState('');
   const [panNo, setPanNo] = useState('');
+  const [idProofType, setIdProofType] = useState<
+    'aadhaar' | 'driving_license' | 'voter_id' | 'passport' | 'other'
+  >('aadhaar');
   const [ifsc, setIfsc] = useState('');
   const [accountNo, setAccountNo] = useState('');
   const [holderName, setHolderName] = useState('');
@@ -189,7 +200,7 @@ export function OnboardingManager() {
     }
   };
 
-  const saveLicense = async (kind: 'fssai' | 'gst' | 'pan') => {
+  const saveLicense = async (kind: 'fssai' | 'gst' | 'pan' | 'idProof') => {
     if (kind === 'fssai') {
       if (fssaiNo && !FSSAI_RE.test(fssaiNo)) {
         Alert.alert('Invalid FSSAI', 'FSSAI license must be 14 digits.');
@@ -210,6 +221,13 @@ export function OnboardingManager() {
       await runUpload({
         gstin: value || undefined,
         gst: pendingFile.current ?? undefined,
+      });
+      return;
+    }
+    if (kind === 'idProof') {
+      await runUpload({
+        idProofType,
+        idProof: pendingFile.current ?? undefined,
       });
       return;
     }
@@ -321,7 +339,7 @@ export function OnboardingManager() {
       setExpand(expand === 'photos' ? null : 'photos');
       return;
     }
-    if (key === 'fssai' || key === 'gst' || key === 'pan' || key === 'bank') {
+    if (key === 'fssai' || key === 'gst' || key === 'pan' || key === 'idProof' || key === 'bank') {
       setExpand(expand === key ? null : key);
       setPicked(null);
     }
@@ -449,7 +467,7 @@ export function OnboardingManager() {
                   key={step.key}
                   step={step}
                   last={index === status.steps.length - 1}
-                  locked={locked && ['fssai', 'gst', 'pan', 'bank', 'photos'].includes(step.key)}
+                  locked={locked && ['fssai', 'gst', 'pan', 'idProof', 'bank', 'photos'].includes(step.key)}
                   onPress={() => stepNav(step.key)}
                 />
               ))}
@@ -507,6 +525,51 @@ export function OnboardingManager() {
                 onPick={() => void pickAndSet()}
                 onSave={() => void saveLicense('pan')}
               />
+            ) : null}
+
+            {expand === 'idProof' && !locked ? (
+              <View style={styles.formCard}>
+                <Text style={styles.formTitle}>Owner or authorized person ID proof</Text>
+                <Text style={styles.formHint}>
+                  Upload Aadhaar, driving licence, voter ID, passport, or another valid ID.
+                </Text>
+                <Text style={styles.masked}>
+                  Type: {docs?.idProofType ? docs.idProofType.replace(/_/g, ' ') : idProofType.replace(/_/g, ' ')}
+                </Text>
+                <View style={styles.idTypeRow}>
+                  {[
+                    ['aadhaar', 'Aadhaar'],
+                    ['driving_license', 'Driving licence'],
+                    ['voter_id', 'Voter ID'],
+                    ['passport', 'Passport'],
+                    ['other', 'Other'],
+                  ].map(([value, label]) => (
+                    <Pressable
+                      key={value}
+                      onPress={() => setIdProofType(value as typeof idProofType)}
+                      style={[
+                        styles.idTypeChip,
+                        idProofType === value && styles.idTypeChipActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.idTypeChipText,
+                          idProofType === value && styles.idTypeChipTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <UploadRow file={fileTick ? pendingFile.current : null} doc={latest('idProof')} onPick={() => void pickAndSet()} />
+                <PrimaryButton
+                  label="Save ID proof"
+                  loading={mutations.uploadDocuments.isPending}
+                  onPress={() => void saveLicense('idProof')}
+                />
+              </View>
             ) : null}
 
             {expand === 'bank' ? (
@@ -1082,6 +1145,32 @@ const styles = StyleSheet.create({
     color: authTheme.text,
     fontFamily: fonts.medium,
     fontSize: 13,
+  },
+  idTypeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  idTypeChip: {
+    borderWidth: 1,
+    borderColor: authTheme.inputBorder,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  idTypeChipActive: {
+    borderColor: authTheme.brand,
+    backgroundColor: authTheme.brandSoft,
+  },
+  idTypeChipText: {
+    color: authTheme.textMuted,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+  idTypeChipTextActive: {
+    color: authTheme.brand,
+    fontFamily: fonts.bold,
   },
   link: {
     color: authTheme.brand,

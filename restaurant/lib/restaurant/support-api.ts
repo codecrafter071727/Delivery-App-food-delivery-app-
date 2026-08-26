@@ -5,6 +5,8 @@ import type {
   CreateKitchenTicketInput,
   KitchenSupportTicket,
   KitchenTicketPage,
+  KitchenTicketRemark,
+  KitchenTicketStage,
   KitchenTicketStatus,
 } from '@/lib/restaurant/support-types';
 
@@ -66,9 +68,37 @@ function throwSupportError(error: unknown, fallback: string): never {
   throw new Error(fallback);
 }
 
+function mapStage(status: string, raw?: string): KitchenTicketStage {
+  if (raw === 'initiated' || raw === 'working' || raw === 'closed') return raw;
+  if (status === 'closed' || status === 'resolved') return 'closed';
+  if (status === 'in_progress' || status === 'waiting_on_restaurant') return 'working';
+  return 'initiated';
+}
+
+function mapRemark(raw: Record<string, unknown>): KitchenTicketRemark | null {
+  const id = String(raw.id ?? raw._id ?? '').trim();
+  const text = String(raw.text ?? '').trim();
+  if (!id || !text) return null;
+  const role = raw.authorRole;
+  return {
+    id,
+    text,
+    authorRole:
+      role === 'agent' || role === 'system' || role === 'restaurant' ? role : 'agent',
+    authorName: raw.authorName ? String(raw.authorName) : null,
+    createdAt: String(raw.createdAt ?? ''),
+  };
+}
+
 function mapTicket(raw: Record<string, unknown>): KitchenSupportTicket | null {
   const ticketId = String(raw.ticketId ?? raw._id ?? raw.id ?? '').trim();
   if (!ticketId) return null;
+  const status = String(raw.status ?? 'open');
+  const remarks = Array.isArray(raw.remarks)
+    ? raw.remarks
+        .map((row) => mapRemark(asRecord(row) ?? {}))
+        .filter(Boolean) as KitchenTicketRemark[]
+    : [];
   return {
     ticketId,
     ticketNo: String(raw.ticketNo ?? ''),
@@ -76,10 +106,13 @@ function mapTicket(raw: Record<string, unknown>): KitchenSupportTicket | null {
     category: String(raw.category ?? 'other'),
     subject: String(raw.subject ?? ''),
     description: String(raw.description ?? ''),
-    status: String(raw.status ?? 'open'),
+    status,
+    stage: mapStage(status, typeof raw.stage === 'string' ? raw.stage : undefined),
     priority: String(raw.priority ?? 'medium'),
     orderId: raw.orderId ? String(raw.orderId) : null,
     payoutId: raw.payoutId ? String(raw.payoutId) : null,
+    remarks,
+    latestRemark: raw.latestRemark ? String(raw.latestRemark) : remarks.at(-1)?.text ?? null,
     createdAt: String(raw.createdAt ?? ''),
     updatedAt: String(raw.updatedAt ?? ''),
   };
@@ -88,7 +121,7 @@ function mapTicket(raw: Record<string, unknown>): KitchenSupportTicket | null {
 export const kitchenSupportApi = {
   listTickets: async (
     restaurantId: string,
-    params?: { page?: number; limit?: number; status?: KitchenTicketStatus }
+    params?: { page?: number; limit?: number; status?: KitchenTicketStatus; stage?: KitchenTicketStage }
   ): Promise<KitchenTicketPage> => {
     try {
       const res = await api.get<Envelope<unknown>>(
@@ -98,6 +131,7 @@ export const kitchenSupportApi = {
             page: params?.page ?? 1,
             limit: params?.limit ?? 20,
             ...(params?.status ? { status: params.status } : {}),
+            ...(params?.stage ? { stage: params.stage } : {}),
           },
         }
       );

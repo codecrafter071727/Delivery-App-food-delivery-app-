@@ -13,7 +13,17 @@ export type KitchenTicketStatus =
   | 'resolved'
   | 'closed';
 
+export type KitchenTicketStage = 'initiated' | 'working' | 'closed';
+
 export type KitchenTicketPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export type KitchenTicketRemark = {
+  id: string;
+  text: string;
+  authorRole: 'restaurant' | 'agent' | 'system';
+  authorName: string | null;
+  createdAt: string;
+};
 
 export type KitchenSupportTicket = {
   ticketId: string;
@@ -23,9 +33,12 @@ export type KitchenSupportTicket = {
   subject: string;
   description: string;
   status: KitchenTicketStatus | string;
+  stage: KitchenTicketStage;
   priority: KitchenTicketPriority | string;
   orderId: string | null;
   payoutId: string | null;
+  remarks: KitchenTicketRemark[];
+  latestRemark: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -47,3 +60,9 @@ export type KitchenTicketPage = {
   totalPages: number;
   hasNext: boolean;
 };
+
+export const TICKET_STAGE_STEPS: { id: KitchenTicketStage; label: string }[] = [
+  { id: 'initiated', label: 'Initiated' },
+  { id: 'working', label: 'Working on it' },
+  { id: 'closed', label: 'Closed' },
+];

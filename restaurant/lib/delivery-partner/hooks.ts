@@ -161,6 +161,18 @@ export function useDeliveryDetail(
   });
 }
 
+export function useTripOrderContext(deliveryId?: string, enabled = true) {
+  const id = deliveryId?.trim() ?? '';
+  return useQuery({
+    queryKey: [...deliveryPartnerKeys.delivery(id), 'order-context'],
+    queryFn: () => deliveryPartnerApi.getDeliveryOrderContext(id),
+    enabled: enabled && Boolean(id),
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+    retry: keepRetrying,
+  });
+}
+
 export function useDeliveryTimeline(
   deliveryId?: string,
   options?: { enabled?: boolean; live?: boolean }

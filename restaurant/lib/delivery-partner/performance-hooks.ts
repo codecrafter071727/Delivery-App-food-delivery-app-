@@ -36,7 +36,6 @@ function liveQuery(isActive: boolean) {
     ),
     refetchIntervalInBackground: false as const,
     refetchOnWindowFocus: true,
-    placeholderData: (previous) => previous,
   };
 }
 
@@ -140,7 +139,6 @@ export function useReferralCode(enabled = true) {
     enabled,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
-    placeholderData: (previous) => previous,
   });
 }
 

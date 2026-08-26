@@ -9,7 +9,7 @@ import { useMyRestaurantId } from '@/lib/order/hooks';
 import { kitchenSupportApi } from '@/lib/restaurant/support-api';
 import type {
   CreateKitchenTicketInput,
-  KitchenTicketStatus,
+  KitchenTicketStage,
 } from '@/lib/restaurant/support-types';
 
 export const kitchenSupportKeys = {
@@ -19,23 +19,23 @@ export const kitchenSupportKeys = {
   list: (
     restaurantId: string,
     page: number,
-    status?: KitchenTicketStatus
+    stage?: KitchenTicketStage
   ) =>
-    [...kitchenSupportKeys.restaurant(restaurantId), 'list', page, status ?? 'all'] as const,
+    [...kitchenSupportKeys.restaurant(restaurantId), 'list', page, stage ?? 'all'] as const,
 };
 
 export function useKitchenTickets(
   page = 1,
-  status?: KitchenTicketStatus
+  stage?: KitchenTicketStage
 ) {
   const restaurantQuery = useMyRestaurantId();
   const restaurantId = restaurantQuery.data?.id ?? '';
   const isActive = useAppIsActive();
 
   const query = useQuery({
-    queryKey: kitchenSupportKeys.list(restaurantId, page, status),
+    queryKey: kitchenSupportKeys.list(restaurantId, page, stage),
     queryFn: () =>
-      kitchenSupportApi.listTickets(restaurantId, { page, limit: 20, status }),
+      kitchenSupportApi.listTickets(restaurantId, { page, limit: 20, stage }),
     enabled: Boolean(restaurantId),
     staleTime: 20_000,
     refetchInterval: liveRefetchInterval(LIVE_INTERVALS.settings, isActive),

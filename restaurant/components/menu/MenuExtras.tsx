@@ -506,8 +506,8 @@ export function ModifierLibraryModal({
   const [required, setRequired] = useState(true);
   const [allowMany, setAllowMany] = useState(false);
   const [draftOptions, setDraftOptions] = useState<DraftOption[]>([
-    { name: 'Regular', price: '0', isDefault: true, isAvailable: true },
-    { name: 'Large', price: '40', isDefault: false, isAvailable: true },
+    { name: 'Half', price: '0', isDefault: true, isAvailable: true },
+    { name: 'Full', price: '40', isDefault: false, isAvailable: true },
   ]);
 
   const resetForm = () => {
@@ -516,8 +516,8 @@ export function ModifierLibraryModal({
     setRequired(true);
     setAllowMany(false);
     setDraftOptions([
-      { name: 'Regular', price: '0', isDefault: true, isAvailable: true },
-      { name: 'Large', price: '40', isDefault: false, isAvailable: true },
+      { name: 'Half', price: '0', isDefault: true, isAvailable: true },
+      { name: 'Full', price: '40', isDefault: false, isAvailable: true },
     ]);
   };
 
@@ -559,7 +559,7 @@ export function ModifierLibraryModal({
       return;
     }
     if (parsed.length < 1) {
-      Alert.alert('Add options', 'Customers need at least one choice, like Regular / Large.');
+      Alert.alert('Add options', 'Customers need at least one choice, like Half / Full.');
       return;
     }
     if (parsed.length > 20) {

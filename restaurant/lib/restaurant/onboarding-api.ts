@@ -188,6 +188,8 @@ function mapDocuments(raw: unknown): KycDocumentsList {
     gstinMasked:
       typeof record.gstinMasked === 'string' ? record.gstinMasked : null,
     panMasked: typeof record.panMasked === 'string' ? record.panMasked : null,
+    idProofType:
+      typeof record.idProofType === 'string' ? record.idProofType : null,
     documents,
   };
 }
@@ -260,6 +262,9 @@ export const restaurantOnboardingApi = {
     if (payload.panNumber?.trim()) {
       fields.panNumber = payload.panNumber.trim().toUpperCase();
     }
+    if (payload.idProofType?.trim()) {
+      fields.idProofType = payload.idProofType.trim();
+    }
 
     const files: Array<{
       fieldName: string;
@@ -282,6 +287,7 @@ export const restaurantOnboardingApi = {
     pushFile('fssai', payload.fssai);
     pushFile('gst', payload.gst);
     pushFile('pan', payload.pan);
+    pushFile('idProof', payload.idProof);
     pushFile('cancelledCheque', payload.cancelledCheque);
     for (const photo of payload.outletPhotos ?? []) {
       pushFile('outletPhotos', photo);

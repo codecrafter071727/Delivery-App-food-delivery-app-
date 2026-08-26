@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Google from 'expo-auth-session/providers/google';
+import type { AuthSessionResult } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Platform } from 'react-native';
@@ -64,7 +65,10 @@ export function useSocialSignIn({ role, onSuccess, onError }: Options) {
 
   useEffect(() => {
     if (!response) return;
-    const key = `${response.type}:${JSON.stringify(response.params ?? {})}`;
+    const responseWithParams = response as AuthSessionResult & {
+      params?: Record<string, unknown>;
+    };
+    const key = `${response.type}:${JSON.stringify(responseWithParams.params ?? {})}`;
     if (handledResponse.current === key) return;
     handledResponse.current = key;
 
@@ -81,8 +85,9 @@ export function useSocialSignIn({ role, onSuccess, onError }: Options) {
       return;
     }
 
+    const idTokenFromParams = responseWithParams.params?.id_token;
     const idToken =
-      response.params.id_token ||
+      (typeof idTokenFromParams === 'string' ? idTokenFromParams : undefined) ||
       (response.authentication as { idToken?: string } | null)?.idToken;
     if (!idToken) {
       onError('Google did not return an ID token. Try again.');

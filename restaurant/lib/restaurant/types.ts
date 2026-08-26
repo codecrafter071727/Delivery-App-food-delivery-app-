@@ -55,6 +55,7 @@ export type KitchenDutySnapshot = {
   acceptScheduled: boolean;
   autoAccept: boolean;
   openNow: boolean;
+  forceOfflineReason?: string | null;
 };
 
 export type PauseReasonCode =

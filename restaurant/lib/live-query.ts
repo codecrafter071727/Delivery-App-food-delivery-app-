@@ -35,7 +35,7 @@ export function getRateLimitRemainingMs() {
  * Poll only while the app is open.
  * When rate-limited: pause short polls entirely, stretch long polls to 90s+.
  */
-export function liveRefetchInterval(baseMs: number, isActive: boolean) {
+export function liveRefetchInterval(baseMs: number, isActive: boolean): number | false {
   if (!isActive) return false;
   if (isGloballyBackingOff()) {
     // Don't stack retries on hot endpoints during cooldown.

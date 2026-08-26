@@ -2,6 +2,7 @@ export type KycDocType =
   | 'fssai'
   | 'gst'
   | 'pan'
+  | 'idProof'
   | 'cancelledCheque'
   | 'outletPhoto';
 
@@ -11,15 +12,19 @@ export type KycSubmissionStatus =
   | 'draft'
   | 'submitted'
   | 'under_review'
+  | 'documents_pending'
+  | 'approved'
   | 'rejected';
 
 export type OnboardingStepKey =
   | 'profile'
   | 'address'
   | 'fssai'
-  | 'gst'
   | 'pan'
+  | 'idProof'
   | 'bank'
+  | 'cancelledCheque'
+  | 'gst'
   | 'photos'
   | 'menu';
 
@@ -60,6 +65,7 @@ export type KycDocumentsList = {
   fssaiMasked: string | null;
   gstinMasked: string | null;
   panMasked: string | null;
+  idProofType: string | null;
   documents: KycDocument[];
 };
 
@@ -100,9 +106,11 @@ export type UploadKycPayload = {
   fssaiLicense?: string;
   gstin?: string;
   panNumber?: string;
+  idProofType?: 'aadhaar' | 'driving_license' | 'voter_id' | 'passport' | 'other';
   fssai?: { uri: string; fileName: string; mimeType: string };
   gst?: { uri: string; fileName: string; mimeType: string };
   pan?: { uri: string; fileName: string; mimeType: string };
+  idProof?: { uri: string; fileName: string; mimeType: string };
   cancelledCheque?: { uri: string; fileName: string; mimeType: string };
   outletPhotos?: { uri: string; fileName: string; mimeType: string }[];
 };
