@@ -1,6 +1,6 @@
 /**
  * Partner KYC documents — `docType` values match POST /partners/me/documents.
- * Canonical keys: aadhar, pan, drivingLicense, vehicleRC, insurance, bankPassbook
+ * Documents screen shows Aadhaar, DL, RC, insurance (PAN + bank payout live elsewhere / optional).
  */
 
 export type PartnerDocumentStatus =
@@ -44,11 +44,6 @@ export const PARTNER_DOC_TYPES: {
     hint: 'Upload front & back as a single image',
   },
   {
-    type: 'pan',
-    label: 'PAN Card',
-    hint: 'Clear photo of your PAN card',
-  },
-  {
     type: 'drivingLicense',
     label: 'Driving License',
     hint: 'Valid driving license (front side)',
@@ -62,11 +57,6 @@ export const PARTNER_DOC_TYPES: {
     type: 'insurance',
     label: 'Vehicle Insurance',
     hint: 'Valid insurance document',
-  },
-  {
-    type: 'bankPassbook',
-    label: 'Bank Passbook',
-    hint: 'First page showing account details',
   },
 ];
 
@@ -101,6 +91,8 @@ export const DOC_TYPE_ALIASES: Record<string, PartnerDocumentType> = {
 
 const CANONICAL_DOC_TYPES: PartnerDocumentType[] = [
   ...PARTNER_DOC_TYPES.map((d) => d.type),
+  'pan',
+  'bankPassbook',
   'profilePhoto',
 ];
 

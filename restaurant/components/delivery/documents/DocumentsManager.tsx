@@ -7,7 +7,6 @@ import {
   FileText,
   Upload,
 } from 'lucide-react-native';
-import { useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -23,8 +22,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useDeliveryHeaderScrollProps } from '@/components/delivery/shared/header-scroll';
-import { PartnerBankTaxSection } from '@/components/delivery/profile/BankTaxSection';
-import { partnerBankKeys } from '@/lib/delivery-partner/bank-hooks';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { getApiErrorMessage } from '@/lib/errors';
@@ -175,7 +172,6 @@ export function PartnerDocumentsManager() {
   const insets = useSafeAreaInsets();
   const headerScroll = useDeliveryHeaderScrollProps();
   const { width } = useWindowDimensions();
-  const queryClient = useQueryClient();
 
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [uploadingType, setUploadingType] = useState<PartnerDocumentType | null>(
@@ -214,10 +210,7 @@ export function PartnerDocumentsManager() {
   const onRefresh = async () => {
     setPullRefreshing(true);
     try {
-      await Promise.all([
-        me.refetch(),
-        queryClient.invalidateQueries({ queryKey: partnerBankKeys.all }),
-      ]);
+      await me.refetch();
     } finally {
       setPullRefreshing(false);
     }
@@ -348,8 +341,6 @@ export function PartnerDocumentsManager() {
                 />
               ))}
             </View>
-
-            <PartnerBankTaxSection />
           </>
         )}
       </ScrollView>
