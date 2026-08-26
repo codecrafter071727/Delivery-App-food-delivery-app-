@@ -127,7 +127,7 @@ export function useDeliveryNotificationSync(enabled = true) {
       }
     });
 
-    const responseSub = addNotificationOpenListener(() => {
+    const responseSub = addNotificationOpenListener((_data) => {
       router.push(DELIVERY_ROUTES.notifications as never);
     });
 

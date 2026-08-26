@@ -71,6 +71,13 @@ export async function ensureDeviceNotificationReady(): Promise<boolean> {
           lightColor: '#7A0E22',
           sound: 'default',
         });
+        await Notifications.setNotificationChannelAsync('tokajo-kitchen-orders', {
+          name: 'Kitchen new orders',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 400, 200, 400],
+          lightColor: '#7A0E22',
+          sound: 'default',
+        });
       }
       configured = true;
     }
@@ -104,10 +111,15 @@ async function saveSeenIds(ids: Set<string>): Promise<void> {
 }
 
 export async function presentDeviceNotification(
-  item: AppNotification
+  item: AppNotification,
+  options?: { channelId?: string }
 ): Promise<void> {
   const Notifications = loadNotificationsModule();
   if (!Notifications) return;
+
+  const channelId =
+    options?.channelId ??
+    (Platform.OS === 'android' ? CHANNEL_ID : undefined);
 
   await Notifications.scheduleNotificationAsync({
     content: {
@@ -119,7 +131,7 @@ export async function presentDeviceNotification(
         ...(item.data ?? {}),
       },
       sound: true,
-      ...(Platform.OS === 'android' ? { channelId: CHANNEL_ID } : null),
+      ...(channelId ? { channelId } : null),
     },
     trigger: null,
   });
@@ -182,7 +194,7 @@ export async function markNotificationIdsSeen(ids: string[]): Promise<void> {
 
 /** No-op subscription in Expo Go; real listener in native builds. */
 export function addNotificationOpenListener(
-  onOpen: () => void
+  onOpen: (data: Record<string, unknown>) => void
 ): { remove: () => void } {
   const Notifications = loadNotificationsModule();
   if (!Notifications) {
@@ -190,8 +202,13 @@ export function addNotificationOpenListener(
   }
 
   try {
-    return Notifications.addNotificationResponseReceivedListener(() => {
-      onOpen();
+    return Notifications.addNotificationResponseReceivedListener((response) => {
+      const raw = response.notification.request.content.data;
+      const data =
+        raw && typeof raw === 'object' && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : {};
+      onOpen(data);
     });
   } catch {
     return { remove: () => undefined };
