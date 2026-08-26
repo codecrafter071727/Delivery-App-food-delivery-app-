@@ -294,11 +294,6 @@ export function KitchenDutyCard({
             </Text>
           </View>
         ) : null}
-        {showZoneHint ? (
-          <View style={styles.mutedChip}>
-            <Text style={styles.mutedChipText}>Zone not assigned</Text>
-          </View>
-        ) : null}
         {showSurgeDown ? (
           <View style={styles.mutedChip}>
             <Text style={styles.mutedChipText}>Surge unavailable</Text>
