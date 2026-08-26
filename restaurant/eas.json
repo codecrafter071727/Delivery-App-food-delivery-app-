@@ -4,13 +4,23 @@
     "appVersionSource": "remote"
   },
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://10.12.129.12:4000"
+      }
+    },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://10.12.14.3:4000"
+        "EXPO_PUBLIC_API_URL": "http://10.12.129.12:4000"
       }
     },
     "production": {
@@ -18,7 +28,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://10.12.14.3:4000"
+        "EXPO_PUBLIC_API_URL": "http://10.12.129.12:4000"
       }
     }
   },
