@@ -216,10 +216,18 @@ export function TripLifecycleBar({
   const atRestaurant = status === 'arrived';
   const atDrop = status === 'at_customer';
   const postAccept = status !== 'assigned';
-  const canCancel =
+  const cancelUnlockAt = delivery.cancelAvailableAt
+    ? new Date(delivery.cancelAvailableAt).getTime()
+    : null;
+  const cancelUnlocked =
     delivery.canCancel !== false &&
+    (cancelUnlockAt == null || Date.now() >= cancelUnlockAt);
+  const canCancel =
+    cancelUnlocked &&
     postAccept &&
     status !== 'returning_to_restaurant';
+  const cancelRequiresNote =
+    delivery.cancelRequiresNote === true || status === 'accepted';
   const canIssue = delivery.canReportIssue !== false && postAccept;
   const settledUpi = (delivery.settledVia ?? '').toLowerCase() === 'upi';
   const showCodUpi =
@@ -464,6 +472,13 @@ export function TripLifecycleBar({
   };
 
   const submitCancel = async () => {
+    if (cancelRequiresNote && note.trim().length < 5) {
+      Alert.alert(
+        'Remark required',
+        'Write why you are cancelling (at least 5 characters).'
+      );
+      return;
+    }
     try {
       await run('Cancelling trip…', () =>
         mutations.cancelTrip.mutateAsync({
@@ -1019,6 +1034,15 @@ export function TripLifecycleBar({
             >
               <Text style={styles.moreDanger}>Cancel trip</Text>
             </Pressable>
+          ) : status === 'accepted' && cancelUnlockAt ? (
+            <Text style={styles.moreText}>
+              Cancel unlocks after{' '}
+              {Math.max(
+                1,
+                Math.ceil((cancelUnlockAt - Date.now()) / 60_000)
+              )}{' '}
+              min if you still cannot reach the restaurant
+            </Text>
           ) : null}
         </View>
       ) : null}
@@ -1220,7 +1244,9 @@ export function TripLifecycleBar({
             </View>
             <Text style={styles.sub}>
               {sheet === 'cancel'
-                ? 'Pre-pickup rider reasons reassign the order. After pickup this cancels the trip.'
+                ? cancelRequiresNote
+                  ? 'You waited 45+ minutes heading to the store. Pick a reason and add a remark.'
+                  : 'Pre-pickup rider reasons reassign the order. After pickup this cancels the trip.'
                 : 'This does not change trip status. Dispatch sees it on the timeline.'}
             </Text>
             <View style={styles.chips}>
@@ -1255,7 +1281,13 @@ export function TripLifecycleBar({
             <TextInput
               value={note}
               onChangeText={setNote}
-              placeholder={sheet === 'cancel' ? 'Optional note' : 'Optional note'}
+              placeholder={
+                sheet === 'cancel' && cancelRequiresNote
+                  ? 'Remark required (why cancel?)'
+                  : sheet === 'cancel'
+                    ? 'Optional note'
+                    : 'Optional note'
+              }
               placeholderTextColor="#9CA3AF"
               style={styles.input}
               multiline

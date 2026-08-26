@@ -263,6 +263,19 @@ export function OrderDetailScreen({ orderId }: Props) {
   const address = order ? addressText(order) : '';
   const cooking =
     order?.status === 'accepted' || order?.status === 'preparing';
+  const tripStatus = `${order?.deliveryTripStatus ?? rider?.status ?? ''}`.toLowerCase();
+  const riderEnRoute =
+    Boolean(rider?.assigned) &&
+    !/(arriv|picked|out_for|deliver|return|fail|cancel)/.test(tripStatus);
+  const riderSinceMs = rider?.assignedAt
+    ? new Date(rider.assignedAt).getTime()
+    : 0;
+  const riderNoShowReady =
+    order?.status === 'ready' &&
+    riderEnRoute &&
+    riderSinceMs > 0 &&
+    Date.now() - riderSinceMs >= 45 * 60 * 1000;
+  const canKitchenCancel = cooking || riderNoShowReady;
   const canDelay =
     cooking || order?.status === 'ready';
   const canPrint = Boolean(order) && statusRank(order?.status ?? 'pending') >= 0;
@@ -525,7 +538,7 @@ export function OrderDetailScreen({ orderId }: Props) {
               ) : null}
             </View>
 
-            {(cooking || canDelay || canPrint) ? (
+            {(cooking || canDelay || canPrint || canKitchenCancel) ? (
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Kitchen</Text>
                 <View style={styles.toolGrid}>
@@ -564,7 +577,7 @@ export function OrderDetailScreen({ orderId }: Props) {
                       <Text style={styles.toolText}>Item 86</Text>
                     </Pressable>
                   ) : null}
-                  {cooking ? (
+                  {canKitchenCancel ? (
                     <Pressable
                       onPress={() => setCancelOpen(true)}
                       style={styles.tool}
@@ -576,6 +589,21 @@ export function OrderDetailScreen({ orderId }: Props) {
                     </Pressable>
                   ) : null}
                 </View>
+                {order?.status === 'ready' &&
+                rider?.assigned &&
+                !riderNoShowReady &&
+                riderSinceMs > 0 ? (
+                  <Text style={styles.muted}>
+                    Cancel for rider no-show unlocks after 45 min from assign (
+                    {Math.max(
+                      1,
+                      Math.ceil(
+                        (45 * 60 * 1000 - (Date.now() - riderSinceMs)) / 60_000
+                      )
+                    )}{' '}
+                    min left)
+                  </Text>
+                ) : null}
               </View>
             ) : null}
 
@@ -872,11 +900,28 @@ export function OrderDetailScreen({ orderId }: Props) {
       <RejectOrderSheet
         visible={cancelOpen}
         order={order ?? null}
-        reasons={reasonsQuery.data ?? []}
+        reasons={
+          riderNoShowReady
+            ? [
+                {
+                  code: 'rider_no_show',
+                  label: 'Rider did not reach restaurant',
+                },
+              ]
+            : (reasonsQuery.data ?? [])
+        }
         reasonsError={reasonsQuery.error}
         busy={ticket.cancel.isPending}
-        title="Cancel this order?"
-        copy="Use this after you’ve already accepted. Prepaid orders are refunded when payment-service allows it."
+        title={
+          riderNoShowReady
+            ? 'Cancel — rider did not arrive?'
+            : 'Cancel this order?'
+        }
+        copy={
+          riderNoShowReady
+            ? 'Rider was assigned 45+ minutes ago and has not reached the store. Add a remark explaining why you are cancelling.'
+            : 'Use this after you’ve already accepted. Prepaid orders are refunded when payment-service allows it.'
+        }
         confirmLabel="Cancel order"
         onClose={() => setCancelOpen(false)}
         onConfirm={(reasonCode, note) => {

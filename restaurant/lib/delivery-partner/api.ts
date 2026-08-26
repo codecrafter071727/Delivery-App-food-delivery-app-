@@ -681,6 +681,8 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
     nextAction: pickString(source, ['nextAction']),
     canReject: pickBool(source, ['canReject']),
     canCancel: pickBool(source, ['canCancel']),
+    cancelAvailableAt: pickString(source, ['cancelAvailableAt']),
+    cancelRequiresNote: pickBool(source, ['cancelRequiresNote']),
     canReportIssue: pickBool(source, ['canReportIssue']),
     waitStartedAt: pickString(source, ['waitStartedAt']),
     waitEndedAt: pickString(source, ['waitEndedAt']),

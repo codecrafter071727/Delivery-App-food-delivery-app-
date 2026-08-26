@@ -225,6 +225,9 @@ export type PartnerDelivery = {
   nextAction?: PartnerNextAction;
   canReject?: boolean;
   canCancel?: boolean;
+  /** When heading to restaurant, cancel unlocks at this ISO time. */
+  cancelAvailableAt?: string | null;
+  cancelRequiresNote?: boolean;
   canReportIssue?: boolean;
   waitStartedAt?: string;
   waitEndedAt?: string;

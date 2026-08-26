@@ -127,13 +127,17 @@ export function RejectOrderSheet({
 
   const submit = () => {
     if (!code) return;
-    if (code === 'other' && note.trim().length < 3) return;
+    if ((code === 'other' || code === 'rider_no_show') && note.trim().length < 5) {
+      return;
+    }
     onConfirm(code, note.trim() || undefined);
   };
 
-  const needNote = code === 'other' || reasons.length === 0;
+  const needNote =
+    code === 'other' || code === 'rider_no_show' || reasons.length === 0;
+  const minNote = code === 'rider_no_show' || code === 'other' ? 5 : 3;
   const canSubmit =
-    Boolean(code) && (!needNote || note.trim().length >= 3) && !busy;
+    Boolean(code) && (!needNote || note.trim().length >= minNote) && !busy;
 
   return (
     <Modal
@@ -177,14 +181,22 @@ export function RejectOrderSheet({
               multiline
               maxLength={200}
               onChangeText={setNote}
-              placeholder="Short note for the customer"
+              placeholder={
+                code === 'rider_no_show'
+                  ? 'Remark: why are you cancelling? (required)'
+                  : 'Short note for the customer'
+              }
               placeholderTextColor={authTheme.textDim}
               style={styles.input}
               value={note}
             />
           ) : null}
-          {code === 'other' && note.trim().length > 0 && note.trim().length < 3 ? (
-            <Text style={styles.error}>Write at least 3 characters.</Text>
+          {needNote &&
+          note.trim().length > 0 &&
+          note.trim().length < minNote ? (
+            <Text style={styles.error}>
+              Write at least {minNote} characters.
+            </Text>
           ) : null}
           <View style={styles.actions}>
             <Pressable onPress={close} style={styles.secondary}>

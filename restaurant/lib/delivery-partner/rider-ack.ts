@@ -142,6 +142,10 @@ export function socketErrorCopy(code?: string): string | undefined {
       return 'Pickup must come before drop for every order in the stack.';
     case 'BATCH_NOT_FOUND':
       return 'This stacked assignment is no longer available.';
+    case 'CANCEL_TOO_EARLY':
+      return 'Wait 45 minutes after accepting before cancelling while heading to the restaurant.';
+    case 'NOTE_REQUIRED':
+      return 'Add a short remark explaining why you are cancelling.';
     case 'INVALID_STATUS':
       return 'That history filter is not valid. Try All, Delivered, or Cancelled.';
     case 'VALIDATION_ERROR':
