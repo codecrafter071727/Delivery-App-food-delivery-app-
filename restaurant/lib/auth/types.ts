@@ -67,7 +67,7 @@ export type RegisterPayload = {
   firstName: string;
   lastName?: string;
   email: string;
-  phone?: string;
+  phone: string;
   password: string;
   confirmPassword: string;
   role: PartnerRole;
@@ -103,6 +103,18 @@ export type OtpVerifyPayload = {
   otp: string;
   role: PartnerRole;
   purpose?: OtpPurpose;
+};
+
+export type ConfirmRegisterOtpPayload = {
+  emailOrPhone: string;
+  otp: string;
+};
+
+export type ConfirmRegisterOtpResult = {
+  channel: 'email' | 'phone';
+  identifier: string;
+  verified: true;
+  message?: string;
 };
 
 export type GoogleLoginPayload = {

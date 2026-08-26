@@ -14,6 +14,8 @@ import type {
   OtpSendPayload,
   OtpSendResult,
   OtpVerifyPayload,
+  ConfirmRegisterOtpPayload,
+  ConfirmRegisterOtpResult,
   PartnerRole,
   RegisterPayload,
   ResetPasswordPayload,
@@ -116,8 +118,14 @@ function normalizeOtpSendResponse(data: unknown): OtpSendResult {
 export const AUTH_ERROR_COPY: Record<string, string> = {
   OTP_COOLDOWN: 'Wait a few seconds before requesting another code.',
   OTP_RATE_LIMITED: 'Too many OTP requests. Try again in 15 minutes.',
+  OTP_EXPIRED: 'That code expired. Request a new one.',
   SMS_UNAVAILABLE:
     'SMS is temporarily unavailable. Use email OTP or password sign-in.',
+  EMAIL_NOT_VERIFIED: 'Verify your email OTP before creating an account.',
+  PHONE_NOT_VERIFIED: 'Verify your phone OTP before creating an account.',
+  CONTACT_REQUIRED: 'Email and phone are required for partner signup.',
+  REGISTER_OTP_USE_CONFIRM:
+    'Confirm the signup OTP first, then create your account.',
   SOCIAL_TOKEN_INVALID: 'Social sign-in failed. Try again.',
   SOCIAL_ACCOUNT_CONFLICT:
     'This Google/Apple account is already linked to another user.',
@@ -304,6 +312,32 @@ export const authApi = {
       },
     });
     return normalizeAuthResponse(data, payload.role);
+  },
+
+  /** Confirm signup OTP without creating a session (email or phone). */
+  confirmRegisterOtp: async (
+    payload: ConfirmRegisterOtpPayload
+  ): Promise<ConfirmRegisterOtpResult> => {
+    const data = await apiRequest<unknown>(`${AUTH_BASE}/otp/confirm-register`, {
+      method: 'POST',
+      body: {
+        identifier: payload.emailOrPhone,
+        otp: payload.otp,
+      },
+    });
+    const payloadObj =
+      data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+    const nested =
+      payloadObj.data && typeof payloadObj.data === 'object'
+        ? (payloadObj.data as Record<string, unknown>)
+        : payloadObj;
+    const channel = nested.channel === 'phone' ? 'phone' : 'email';
+    return {
+      channel,
+      identifier: String(nested.identifier ?? payload.emailOrPhone),
+      verified: true,
+      message: normalizeMessageResponse(data).message,
+    };
   },
 
   loginGoogle: async (payload: GoogleLoginPayload) => {

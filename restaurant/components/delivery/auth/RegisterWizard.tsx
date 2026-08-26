@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Check, Lock, Mail, Phone, User } from 'lucide-react-native';
+import { Check, Lock, User } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
@@ -7,8 +7,15 @@ import { AuthBanner } from '@/components/auth/AuthBanner';
 import { AuthField } from '@/components/auth/AuthField';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { RoleSelector } from '@/components/auth/RoleSelector';
+import {
+  SignupContactVerify,
+  isStrongSignupPassword,
+  isValidSignupEmail,
+  isValidSignupPhone,
+} from '@/components/auth/SignupContactVerify';
 import { authTheme } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
+import { formatAuthError } from '@/lib/auth/api';
 import { deliveryPartnerApi } from '@/lib/delivery-partner/api';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import {
@@ -21,7 +28,6 @@ import { markDeliveryPartnerSetupComplete } from '@/lib/navigation/post-auth';
 import { useAuthStore } from '@/store/auth-store';
 
 const STEPS = ['Personal', 'Address', 'Vehicle', 'Verification'] as const;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type FormState = {
   firstName: string;
@@ -55,10 +61,6 @@ const INITIAL: FormState = {
   acceptedTerms: false,
 };
 
-function isE164(phone: string) {
-  return /^\+[1-9]\d{7,14}$/.test(phone.trim());
-}
-
 type Props = {
   /** When true, account already exists — skip email/password and only finish partner profile. */
   profileOnly?: boolean;
@@ -91,6 +93,8 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(Boolean(inviteToken));
   const [invite, setInvite] = useState<PartnerInviteValidation | null>(null);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
 
   const inviteBlocked =
     Boolean(inviteToken) && (inviteLoading || invite?.valid === false);
@@ -146,15 +150,18 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
     if (index === 0) {
       if (form.firstName.trim().length < 2) return 'Enter your first name.';
       if (!form.phone.trim()) return 'Phone number is required.';
-      if (!isE164(form.phone)) {
+      if (!isValidSignupPhone(form.phone)) {
         return 'Use E.164 phone format, e.g. +919876543210';
       }
       if (!profileOnly) {
-        if (!EMAIL_RE.test(form.email.trim())) {
+        if (!isValidSignupEmail(form.email.trim())) {
           return 'Enter a valid email address.';
         }
-        if (form.password.length < 6) {
-          return 'Password must be at least 6 characters.';
+        if (!emailVerified || !phoneVerified) {
+          return 'Verify both email and phone OTP before continuing.';
+        }
+        if (!isStrongSignupPassword(form.password)) {
+          return 'Password needs 8+ chars with upper, lower, digit, and symbol.';
         }
         if (form.password !== form.confirmPassword) {
           return 'Passwords do not match.';
@@ -266,9 +273,7 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
         params: { registered: '1', email, role: 'delivery' },
       });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Could not complete registration'
-      );
+      setError(formatAuthError(err, 'Could not complete registration'));
     } finally {
       setSubmitting(false);
     }
@@ -407,31 +412,31 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
               />
             </View>
           </View>
-          <AuthField
-            label="Phone number *"
-            icon={Phone}
-            placeholder="+919876543210"
-            autofill="telephone"
-            value={form.phone}
-            onChangeText={(phone) => patch({ phone })}
-          />
-          <Text className="mb-3 -mt-2 text-xs text-secondary-light">
-            Use E.164 format, e.g. +919876543210
-          </Text>
-          {!profileOnly ? (
+          {profileOnly ? (
+            <AuthField
+              label="Phone number *"
+              placeholder="+919876543210"
+              autofill="telephone"
+              value={form.phone}
+              onChangeText={(phone) => patch({ phone })}
+            />
+          ) : (
             <>
-              <AuthField
-                label="Email *"
-                icon={Mail}
-                placeholder="you@email.com"
-                autofill="email"
-                value={form.email}
-                onChangeText={(email) => patch({ email })}
+              <SignupContactVerify
+                email={form.email}
+                phone={form.phone}
+                onEmailChange={(email) => patch({ email })}
+                onPhoneChange={(phone) => patch({ phone })}
+                emailVerified={emailVerified}
+                phoneVerified={phoneVerified}
+                onEmailVerifiedChange={setEmailVerified}
+                onPhoneVerifiedChange={setPhoneVerified}
+                disabled={busy}
               />
               <AuthField
                 label="Password *"
                 icon={Lock}
-                placeholder="At least 6 characters"
+                placeholder="8+ chars, mixed case, digit, symbol"
                 secure
                 autofill="newPassword"
                 value={form.password}
@@ -447,7 +452,7 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
                 onChangeText={(confirmPassword) => patch({ confirmPassword })}
               />
             </>
-          ) : null}
+          )}
         </View>
       ) : null}
 

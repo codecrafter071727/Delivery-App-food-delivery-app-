@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Lock, Mail, Phone, User, UserPlus } from 'lucide-react-native';
+import { Lock, User, UserPlus } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
@@ -8,10 +8,15 @@ import { AuthField } from '@/components/auth/AuthField';
 import { DeliveryRegisterWizard } from '@/components/delivery/auth/RegisterWizard';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { RoleSelector } from '@/components/auth/RoleSelector';
+import {
+  SignupContactVerify,
+  isStrongSignupPassword,
+  isValidSignupEmail,
+  isValidSignupPhone,
+} from '@/components/auth/SignupContactVerify';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { formatAuthError } from '@/lib/auth/api';
 import { useAuthStore } from '@/store/auth-store';
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function RegisterScreen() {
   const router = useRouter();
@@ -34,6 +39,8 @@ export function RegisterScreen() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -42,11 +49,15 @@ export function RegisterScreen() {
   const validate = () => {
     const next: Record<string, string> = {};
     if (firstName.trim().length < 2) next.firstName = 'Enter your first name';
-    if (!EMAIL_RE.test(email.trim())) next.email = 'Enter a valid email address';
-    if (phone && phone.replace(/\D/g, '').length < 10)
-      next.phone = 'Enter a valid phone number';
-    if (password.length < 6)
-      next.password = 'Password must be at least 6 characters';
+    if (!isValidSignupEmail(email)) next.email = 'Enter a valid email address';
+    if (!isValidSignupPhone(phone))
+      next.phone = 'Use E.164 format, e.g. +919876543210';
+    if (!emailVerified) next.email = 'Verify your email with OTP';
+    if (!phoneVerified) next.phone = 'Verify your phone with OTP';
+    if (!isStrongSignupPassword(password)) {
+      next.password =
+        'Min 8 chars with upper, lower, digit, and special character';
+    }
     if (password !== confirmPassword)
       next.confirmPassword = 'Passwords do not match';
     setFieldErrors(next);
@@ -64,7 +75,7 @@ export function RegisterScreen() {
         firstName: firstName.trim(),
         lastName: lastName.trim() || undefined,
         email: normalizedEmail,
-        phone: phone.trim() || undefined,
+        phone: phone.trim(),
         password,
         confirmPassword,
         role,
@@ -75,11 +86,12 @@ export function RegisterScreen() {
         params: { registered: '1', email: normalizedEmail, role: 'restaurant' },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      setError(formatAuthError(err, 'Registration failed'));
     }
   };
 
   const isDelivery = role === 'delivery' || Boolean(inviteToken);
+  const canCreate = emailVerified && phoneVerified && !isLoading;
 
   return (
     <AuthShell
@@ -89,7 +101,7 @@ export function RegisterScreen() {
           ? inviteToken
             ? 'Validating your restaurant invitation and completing partner signup.'
             : 'Complete the steps below to register and start delivering.'
-          : 'Join as a partner and start earning with us.'
+          : 'Verify email and phone with OTP, then create your partner account.'
       }
       showBack
       footer={
@@ -134,28 +146,24 @@ export function RegisterScreen() {
             </View>
           </View>
 
-          <AuthField
-            label="Email"
-            icon={Mail}
-            placeholder="you@email.com"
-            autofill="email"
-            value={email}
-            onChangeText={setEmail}
-            errorText={fieldErrors.email}
+          <SignupContactVerify
+            email={email}
+            phone={phone}
+            onEmailChange={setEmail}
+            onPhoneChange={setPhone}
+            emailVerified={emailVerified}
+            phoneVerified={phoneVerified}
+            onEmailVerifiedChange={setEmailVerified}
+            onPhoneVerifiedChange={setPhoneVerified}
+            disabled={isLoading}
+            emailError={fieldErrors.email}
+            phoneError={fieldErrors.phone}
           />
-          <AuthField
-            label="Phone"
-            icon={Phone}
-            placeholder="+919876543210"
-            autofill="telephone"
-            value={phone}
-            onChangeText={setPhone}
-            errorText={fieldErrors.phone}
-          />
+
           <AuthField
             label="Password"
             icon={Lock}
-            placeholder="At least 6 characters"
+            placeholder="8+ chars, mixed case, digit, symbol"
             secure
             autofill="newPassword"
             value={password}
@@ -178,7 +186,13 @@ export function RegisterScreen() {
             icon={UserPlus}
             onPress={() => void handleRegister()}
             loading={isLoading}
+            disabled={!canCreate}
           />
+          {!canCreate ? (
+            <Text className="text-center text-xs text-secondary-light">
+              Verify both email and phone OTP to enable Create account.
+            </Text>
+          ) : null}
         </>
       )}
     </AuthShell>
