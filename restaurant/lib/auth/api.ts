@@ -142,9 +142,9 @@ export const AUTH_ERROR_COPY: Record<string, string> = {
   EMAIL_ALREADY_EXISTS: 'An account with this email already has this role. Sign in.',
   PHONE_ALREADY_EXISTS: 'An account with this phone already has this role. Sign in.',
   ACCOUNT_EXISTS:
-    'An account already exists with this email or phone. Use that account’s password to add restaurant or rider access.',
+    'An account already exists with this email or phone. Use that account’s password to add restaurant or rider access (you can keep a different email or phone on this signup).',
   CONTACT_CONFLICT:
-    'This email and phone belong to different accounts. Use matching contacts.',
+    'This email and phone belong to two different accounts. Use one account’s email or phone.',
   ROLE_NOT_ON_ACCOUNT:
     'This login does not have restaurant/rider access yet. Complete signup for that role first.',
   TOKEN_EXPIRED: 'This link expired. Request a new one.',
