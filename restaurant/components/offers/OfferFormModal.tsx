@@ -12,8 +12,10 @@ import {
   Switch,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   OfferDateField,
@@ -189,27 +191,129 @@ export function OfferFormModal({
     if (!descTouched) setDescription(preview);
   }, [preview, descTouched]);
 
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const sheetHeight = Math.round(windowHeight * 0.92);
+  const canSubmit =
+    !saving &&
+    Boolean(title.trim()) &&
+    Boolean(code.trim()) &&
+    (!valueRequired || Boolean(discountValue.trim())) &&
+    Boolean(validFrom.trim()) &&
+    Boolean(validUntil.trim());
+
+  const handleSubmit = () => {
+    const discount =
+      discountValue.trim() === '' ? 0 : Number(discountValue);
+    const min = minOrder.trim() === '' ? 0 : Number(minOrder);
+    const max =
+      showMaxDiscount && maxDiscount.trim() !== ''
+        ? Number(maxDiscount)
+        : undefined;
+    const cap = usageLimit.trim() === '' ? undefined : Number(usageLimit);
+    const perUser =
+      perUserLimit.trim() === '' ? undefined : Number(perUserLimit);
+
+    if (valueRequired && (!Number.isFinite(discount) || discount <= 0)) {
+      Alert.alert(
+        'Invalid value',
+        `Enter a valid ${valueFieldLabel(discountType).toLowerCase()}.`
+      );
+      return;
+    }
+    if (discountType === 'percentage' && discount > 100) {
+      Alert.alert('Invalid discount', 'Percentage cannot exceed 100.');
+      return;
+    }
+    if (!Number.isFinite(min) || min < 0) {
+      Alert.alert('Invalid min order', 'Enter a valid minimum item total.');
+      return;
+    }
+    if (max != null && (!Number.isFinite(max) || max < 0)) {
+      Alert.alert('Invalid cap', 'Enter a valid max discount.');
+      return;
+    }
+    if (cap != null && (!Number.isFinite(cap) || cap < 0)) {
+      Alert.alert(
+        'Invalid usage cap',
+        'Enter a whole number, or leave blank.'
+      );
+      return;
+    }
+    if (perUser != null && (!Number.isFinite(perUser) || perUser < 0)) {
+      Alert.alert('Invalid per-customer limit', 'Enter a whole number.');
+      return;
+    }
+    const fromDate = parseOfferDate(validFrom);
+    const untilDate = parseOfferDate(validUntil);
+    if (!fromDate || !untilDate) {
+      Alert.alert(
+        'Pick dates',
+        'Tap From and Until to select dates from the calendar.'
+      );
+      return;
+    }
+    if (untilDate < fromDate) {
+      Alert.alert('Invalid date range', 'Until must be on or after From.');
+      return;
+    }
+    const cleanCode = sanitizePromoCode(code);
+    if (cleanCode.length < 2) {
+      Alert.alert(
+        'Invalid promo code',
+        'Use at least 2 letters or numbers (e.g. SAVE50).'
+      );
+      return;
+    }
+    void onSubmit({
+      title: title.trim(),
+      code: cleanCode,
+      discountType,
+      discountValue: Number.isFinite(discount) ? discount : 0,
+      minOrderAmount: min,
+      maxDiscountAmount: discountType === 'percentage' ? max : undefined,
+      description: (description.trim() || preview) || undefined,
+      validFrom: validFrom.trim(),
+      validUntil: validUntil.trim(),
+      isActive,
+      usageLimit: cap,
+      perUserLimit: perUser,
+    });
+  };
+
   return (
     <Modal visible={Boolean(state)} animationType="slide" transparent>
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.modalScroll}
+        <View
+          style={[
+            styles.modalSheet,
+            {
+              height: sheetHeight,
+              paddingBottom: Math.max(insets.bottom, 12),
+            },
+          ]}
         >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {state?.mode === 'edit' ? 'Edit offer' : 'Create offer'}
-              </Text>
-              <Pressable onPress={onClose}>
-                <X color={authTheme.textMuted} size={20} />
-              </Pressable>
-            </View>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              {state?.mode === 'edit' ? 'Edit offer' : 'Create offer'}
+            </Text>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <X color={authTheme.textMuted} size={20} />
+            </Pressable>
+          </View>
 
+          <ScrollView
+            style={styles.modalBody}
+            contentContainerStyle={styles.modalBodyContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+            bounces
+          >
             <View style={styles.previewBox}>
               <Text style={styles.previewLabel}>What customers get</Text>
               <Text style={styles.previewText}>{preview}</Text>
@@ -383,136 +487,30 @@ export function OfferFormModal({
                 thumbColor={isActive ? authTheme.brand : '#FFFFFF'}
               />
             </View>
+          </ScrollView>
 
-            <View style={styles.modalActions}>
-              <Pressable style={styles.modalCancel} onPress={onClose}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.modalPrimary}
-                disabled={
-                  saving ||
-                  !title.trim() ||
-                  !code.trim() ||
-                  (valueRequired && !discountValue.trim()) ||
-                  !validFrom.trim() ||
-                  !validUntil.trim()
-                }
-                onPress={() => {
-                  const discount =
-                    discountValue.trim() === '' ? 0 : Number(discountValue);
-                  const min = minOrder.trim() === '' ? 0 : Number(minOrder);
-                  const max =
-                    showMaxDiscount && maxDiscount.trim() !== ''
-                      ? Number(maxDiscount)
-                      : undefined;
-                  const cap =
-                    usageLimit.trim() === '' ? undefined : Number(usageLimit);
-                  const perUser =
-                    perUserLimit.trim() === ''
-                      ? undefined
-                      : Number(perUserLimit);
-
-                  if (
-                    valueRequired
-                    && (!Number.isFinite(discount) || discount <= 0)
-                  ) {
-                    Alert.alert(
-                      'Invalid value',
-                      `Enter a valid ${valueFieldLabel(discountType).toLowerCase()}.`
-                    );
-                    return;
-                  }
-                  if (discountType === 'percentage' && discount > 100) {
-                    Alert.alert(
-                      'Invalid discount',
-                      'Percentage cannot exceed 100.'
-                    );
-                    return;
-                  }
-                  if (!Number.isFinite(min) || min < 0) {
-                    Alert.alert(
-                      'Invalid min order',
-                      'Enter a valid minimum item total.'
-                    );
-                    return;
-                  }
-                  if (max != null && (!Number.isFinite(max) || max < 0)) {
-                    Alert.alert('Invalid cap', 'Enter a valid max discount.');
-                    return;
-                  }
-                  if (cap != null && (!Number.isFinite(cap) || cap < 0)) {
-                    Alert.alert(
-                      'Invalid usage cap',
-                      'Enter a whole number, or leave blank.'
-                    );
-                    return;
-                  }
-                  if (
-                    perUser != null
-                    && (!Number.isFinite(perUser) || perUser < 0)
-                  ) {
-                    Alert.alert(
-                      'Invalid per-customer limit',
-                      'Enter a whole number.'
-                    );
-                    return;
-                  }
-                  const fromDate = parseOfferDate(validFrom);
-                  const untilDate = parseOfferDate(validUntil);
-                  if (!fromDate || !untilDate) {
-                    Alert.alert(
-                      'Pick dates',
-                      'Tap From and Until to select dates from the calendar.'
-                    );
-                    return;
-                  }
-                  if (untilDate < fromDate) {
-                    Alert.alert(
-                      'Invalid date range',
-                      'Until must be on or after From.'
-                    );
-                    return;
-                  }
-                  const cleanCode = sanitizePromoCode(code);
-                  if (cleanCode.length < 2) {
-                    Alert.alert(
-                      'Invalid promo code',
-                      'Use at least 2 letters or numbers (e.g. SAVE50).'
-                    );
-                    return;
-                  }
-                  void onSubmit({
-                    title: title.trim(),
-                    code: cleanCode,
-                    discountType,
-                    discountValue: Number.isFinite(discount) ? discount : 0,
-                    minOrderAmount: min,
-                    maxDiscountAmount:
-                      discountType === 'percentage' ? max : undefined,
-                    description: (description.trim() || preview) || undefined,
-                    validFrom: validFrom.trim(),
-                    validUntil: validUntil.trim(),
-                    isActive,
-                    usageLimit: cap,
-                    perUserLimit: perUser,
-                  });
-                }}
-              >
-                {saving ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <>
-                    <Save color="#FFFFFF" size={16} />
-                    <Text style={styles.modalPrimaryText}>
-                      {state?.mode === 'edit' ? 'Save' : 'Create'}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
-            </View>
+          <View style={styles.modalActions}>
+            <Pressable style={styles.modalCancel} onPress={onClose}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.modalPrimary, !canSubmit && styles.modalPrimaryDisabled]}
+              disabled={!canSubmit}
+              onPress={handleSubmit}
+            >
+              {saving ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <Save color="#FFFFFF" size={16} />
+                  <Text style={styles.modalPrimaryText}>
+                    {state?.mode === 'edit' ? 'Save' : 'Create'}
+                  </Text>
+                </>
+              )}
+            </Pressable>
           </View>
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -525,20 +523,26 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalDismiss: { flex: 1 },
-  modalScroll: { flexGrow: 1, justifyContent: 'flex-end' },
-  modalCard: {
+  modalSheet: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 18,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+  },
+  modalBody: {
+    flex: 1,
+    minHeight: 0,
+  },
+  modalBodyContent: {
     gap: 10,
-    maxHeight: '92%',
+    paddingBottom: 12,
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 10,
   },
   modalTitle: {
     fontFamily: fonts.bold,
@@ -616,7 +620,13 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 6,
   },
-  modalActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: authTheme.cardBorder,
+  },
   modalCancel: {
     flex: 1,
     minHeight: 46,
@@ -639,6 +649,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     backgroundColor: authTheme.brand,
+  },
+  modalPrimaryDisabled: {
+    opacity: 0.45,
   },
   modalPrimaryText: {
     fontFamily: fonts.bold,
