@@ -140,8 +140,8 @@ Partner routes require a registered partner. Illegal duty/trip transitions retur
 | Status | Method | Path | Auth | Use |
 |---|---|---|---|---|
 | LIVE | `GET` | `/partners/invite/validate` | 🔓 | Validate restaurant invite token |
-| LIVE | `POST` | `/partners/register` | 🔑 | Create partner profile (standard) |
-| LIVE | `POST` | `/partners/register-with-invite` | 🔑 | Register via restaurant invite |
+| LIVE | `POST` | `/partners/register` | 🔑 | Create partner profile + optional home pin (`address`/`city`/`state`/`latitude`/`longitude`) |
+| LIVE | `POST` | `/partners/register-with-invite` | 🔑 | Register via restaurant invite (same home pin fields) |
 | LIVE | `GET` | `/partners/me` | 🔑🚴 | Own partner profile |
 | LIVE | `PUT` | `/partners/me` | 🔑🚴 | Update profile / vehicle (not bank) |
 | LIVE | `POST` | `/partners/me/documents` | 🔑🚴 | Upload KYC (`multipart/form-data`) |

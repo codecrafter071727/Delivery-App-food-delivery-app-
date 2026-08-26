@@ -1195,6 +1195,15 @@ function toRegisterBody(payload: DeliveryPartnerRegisterPayload) {
   if (payload.address?.trim()) body.address = payload.address.trim();
   if (payload.city?.trim()) body.city = payload.city.trim();
   if (payload.state?.trim()) body.state = payload.state.trim();
+  if (
+    payload.latitude != null &&
+    payload.longitude != null &&
+    Number.isFinite(payload.latitude) &&
+    Number.isFinite(payload.longitude)
+  ) {
+    body.latitude = payload.latitude;
+    body.longitude = payload.longitude;
+  }
   if (payload.vehicleNumber?.trim()) {
     body.vehicleNumber = payload.vehicleNumber.trim().toUpperCase();
   }

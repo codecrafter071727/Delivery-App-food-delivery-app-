@@ -13,10 +13,12 @@ import {
   isValidSignupEmail,
   isValidSignupPhone,
 } from '@/components/auth/SignupContactVerify';
+import { RegisterAddressStep } from '@/components/delivery/auth/RegisterAddressStep';
 import { authTheme } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { formatAuthError } from '@/lib/auth/api';
 import { deliveryPartnerApi } from '@/lib/delivery-partner/api';
+import { partnerTrackingApi } from '@/lib/delivery-partner/tracking-api';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import {
   VEHICLE_TYPE_OPTIONS,
@@ -39,6 +41,8 @@ type FormState = {
   address: string;
   city: string;
   state: string;
+  latitude: number | null;
+  longitude: number | null;
   vehicleType: VehicleType | '';
   vehicleNumber: string;
   aadharNumber: string;
@@ -55,6 +59,8 @@ const INITIAL: FormState = {
   address: '',
   city: '',
   state: '',
+  latitude: null,
+  longitude: null,
   vehicleType: '',
   vehicleNumber: '',
   aadharNumber: '',
@@ -169,6 +175,26 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
       }
       return null;
     }
+    if (index === 1) {
+      if (
+        form.latitude == null ||
+        form.longitude == null ||
+        !Number.isFinite(form.latitude) ||
+        !Number.isFinite(form.longitude)
+      ) {
+        return 'Open the map and pin your exact home / base location.';
+      }
+      if (form.address.trim().length < 3) {
+        return 'Enter your address (or confirm the pin so it autofills).';
+      }
+      if (form.city.trim().length < 2) {
+        return 'City is required (autofills from the map pin).';
+      }
+      if (form.state.trim().length < 2) {
+        return 'State is required (autofills from the map pin).';
+      }
+      return null;
+    }
     if (index === 2 && !form.vehicleType) {
       return 'Select a vehicle type.';
     }
@@ -246,6 +272,8 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
           address: form.address.trim() || undefined,
           city: form.city.trim() || undefined,
           state: form.state.trim() || undefined,
+          latitude: form.latitude ?? undefined,
+          longitude: form.longitude ?? undefined,
           vehicleType: form.vehicleType,
           vehicleNumber: form.vehicleNumber.trim() || undefined,
           aadharNumber: form.aadharNumber.trim() || undefined,
@@ -257,6 +285,27 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
         const existing = await deliveryPartnerApi.getMe().catch(() => null);
         if (!existing?.id) throw regErr;
         profile = existing;
+      }
+
+      if (
+        form.latitude != null &&
+        form.longitude != null &&
+        Number.isFinite(form.latitude) &&
+        Number.isFinite(form.longitude)
+      ) {
+        // Resolve home zone + ensure pin is on the partner profile.
+        await partnerTrackingApi
+          .saveHomeLocation({
+            latitude: form.latitude,
+            longitude: form.longitude,
+            address:
+              [form.address.trim(), form.city.trim(), form.state.trim()]
+                .filter(Boolean)
+                .join(', ') || undefined,
+          })
+          .catch(() => {
+            // Register already persisted lat/lng; zone resolve can retry later.
+          });
       }
 
       await markDeliveryPartnerSetupComplete(profile.id);
@@ -457,28 +506,17 @@ export function DeliveryRegisterWizard({ profileOnly = false }: Props) {
       ) : null}
 
       {step === 1 ? (
-        <View>
-          <AuthField
-            label="Address"
-            placeholder="123, Main Street"
-            value={form.address}
-            onChangeText={(address) => patch({ address })}
-          />
-          <AuthField
-            label="City"
-            placeholder="Delhi"
-            autoCapitalize="words"
-            value={form.city}
-            onChangeText={(city) => patch({ city })}
-          />
-          <AuthField
-            label="State"
-            placeholder="Delhi"
-            autoCapitalize="words"
-            value={form.state}
-            onChangeText={(state) => patch({ state })}
-          />
-        </View>
+        <RegisterAddressStep
+          values={{
+            address: form.address,
+            city: form.city,
+            state: form.state,
+            latitude: form.latitude,
+            longitude: form.longitude,
+          }}
+          onChange={patch}
+          disabled={busy}
+        />
       ) : null}
 
       {step === 2 ? (

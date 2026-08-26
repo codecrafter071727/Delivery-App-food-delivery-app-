@@ -46,6 +46,9 @@ export type DeliveryPartnerRegisterPayload = {
   address?: string;
   city?: string;
   state?: string;
+  /** Exact home pin from signup map (required for production signup). */
+  latitude?: number;
+  longitude?: number;
   vehicleType: VehicleType;
   vehicleNumber?: string;
   aadharNumber?: string;
