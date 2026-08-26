@@ -428,8 +428,16 @@ class PartnerLocationTracker {
     }
 
     this.heartbeatInFlight = true;
+    // Location ping already writes coords. Heartbeat only needs coords when GPS
+    // is stale / we have never pinged — otherwise send an empty body (alive TTL).
+    const recordedAgeMs = this.snapshot.recordedAt
+      ? Date.now() - new Date(this.snapshot.recordedAt).getTime()
+      : Number.POSITIVE_INFINITY;
+    const coordsFresh =
+      Number.isFinite(recordedAgeMs) &&
+      recordedAgeMs < Math.max(this.snapshot.nextPingAfterMs || IDLE_PING_MS, 8_000) * 2;
     const heartbeatCoords =
-      this.latest && isValidCoords(this.latest) ? this.latest : null;
+      !coordsFresh && this.latest && isValidCoords(this.latest) ? this.latest : null;
     try {
       const result = await partnerTrackingApi.heartbeat(heartbeatCoords);
       this.applyHeartbeat(result);

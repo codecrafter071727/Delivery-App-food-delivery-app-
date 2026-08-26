@@ -162,10 +162,10 @@ export type TrackingRoute = {
   durationInTraffic?: boolean;
 };
 
-export const IDLE_PING_MS = 8_000;
-export const TRIP_PING_MS = 4_000;
-export const IDLE_HEARTBEAT_MS = 15_000;
-export const TRIP_HEARTBEAT_MS = 4_000;
+export const IDLE_PING_MS = 10_000;
+export const TRIP_PING_MS = 5_000;
+export const IDLE_HEARTBEAT_MS = 20_000;
+export const TRIP_HEARTBEAT_MS = 8_000;
 export const LOW_ACCURACY_METERS = 80;
 
 export const LOCATION_ERROR_COPY: Record<string, string> = {

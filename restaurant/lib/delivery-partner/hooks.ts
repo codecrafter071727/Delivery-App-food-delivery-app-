@@ -92,7 +92,7 @@ export function useActiveDelivery(
 ) {
   const isActive = useAppIsActive();
   const intervalMs = options?.fast
-    ? Math.min(LIVE_INTERVALS.deliveryActive, 5_000)
+    ? Math.min(LIVE_INTERVALS.deliveryActive, 8_000)
     : LIVE_INTERVALS.deliveryActive;
 
   return useQuery({
@@ -117,7 +117,7 @@ export function useActiveDeliveries(
 ) {
   const isActive = useAppIsActive();
   const intervalMs = options?.fast
-    ? Math.min(LIVE_INTERVALS.deliveryActive, 5_000)
+    ? Math.min(LIVE_INTERVALS.deliveryActive, 8_000)
     : LIVE_INTERVALS.deliveryActive;
 
   return useQuery<PartnerDelivery[]>({
