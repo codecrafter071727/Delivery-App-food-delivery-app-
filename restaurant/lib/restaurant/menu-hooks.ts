@@ -41,8 +41,8 @@ export const menuKeys = {
     [...menuKeys.restaurant(restaurantId), 'search', q] as const,
   unavailable: (restaurantId: string) =>
     [...menuKeys.restaurant(restaurantId), 'unavailable'] as const,
-  modifiers: (restaurantId: string) =>
-    [...menuKeys.restaurant(restaurantId), 'modifiers'] as const,
+  modifiers: (restaurantId: string, categoryId?: string) =>
+    [...menuKeys.restaurant(restaurantId), 'modifiers', categoryId ?? 'all'] as const,
   customizations: (restaurantId: string, itemId: string) =>
     [...menuKeys.restaurant(restaurantId), 'customizations', itemId] as const,
 };
@@ -294,10 +294,10 @@ export function useUnavailableIds(restaurantId: string) {
   });
 }
 
-export function useModifierGroups(restaurantId: string) {
+export function useModifierGroups(restaurantId: string, categoryId?: string) {
   return useQuery({
-    queryKey: menuKeys.modifiers(restaurantId),
-    queryFn: () => restaurantMenuApi.listModifierGroups(restaurantId),
+    queryKey: menuKeys.modifiers(restaurantId, categoryId),
+    queryFn: () => restaurantMenuApi.listModifierGroups(restaurantId, categoryId),
     enabled: Boolean(restaurantId),
     staleTime: 30_000,
   });
@@ -525,7 +525,7 @@ export function useMenuMutations(restaurantId: string) {
       restaurantMenuApi.createModifierGroup(restaurantId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: menuKeys.modifiers(restaurantId),
+        queryKey: [...menuKeys.restaurant(restaurantId), 'modifiers'],
       });
       await invalidateMenu(queryClient, restaurantId);
     },
@@ -541,7 +541,7 @@ export function useMenuMutations(restaurantId: string) {
     }) => restaurantMenuApi.updateModifierGroup(restaurantId, groupId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: menuKeys.modifiers(restaurantId),
+        queryKey: [...menuKeys.restaurant(restaurantId), 'modifiers'],
       });
       await invalidateMenu(queryClient, restaurantId);
     },
@@ -552,7 +552,7 @@ export function useMenuMutations(restaurantId: string) {
       restaurantMenuApi.deleteModifierGroup(restaurantId, groupId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: menuKeys.modifiers(restaurantId),
+        queryKey: [...menuKeys.restaurant(restaurantId), 'modifiers'],
       });
       await invalidateMenu(queryClient, restaurantId);
     },

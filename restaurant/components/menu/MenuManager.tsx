@@ -34,6 +34,7 @@ import {
 
 
 import { RestaurantPageHeader } from '@/components/dashboard/RestaurantPageHeader';
+import { CategoryAddOnsManager } from '@/components/menu/CategoryAddOnsManager';
 import {
   CategoryActionsSheet,
   CategoryScheduleModal,
@@ -142,6 +143,7 @@ export function MenuManager() {
   const [scheduleCategory, setScheduleCategory] = useState<MenuCategory | null>(null);
   const [timed86Item, setTimed86Item] = useState<MenuItem | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [addOnsOpen, setAddOnsOpen] = useState(false);
   const [attachItem, setAttachItem] = useState<MenuItem | null>(null);
   const [attachedGroups, setAttachedGroups] = useState<ModifierGroup[]>([]);
   const [bulkPriceOpen, setBulkPriceOpen] = useState(false);
@@ -542,9 +544,9 @@ export function MenuManager() {
         subtitle={restaurantName || 'Categories, items & 86'}
         hideActions
         headerRight={
-          <Pressable style={styles.headerIconBtn} onPress={() => setLibraryOpen(true)}>
+          <Pressable style={styles.headerIconBtn} onPress={() => setAddOnsOpen(true)}>
             <Layers color={authTheme.brand} size={18} />
-            <Text style={styles.headerIconBtnText}>Variants</Text>
+            <Text style={styles.headerIconBtnText}>Add-ons</Text>
           </Pressable>
         }
       >
@@ -1211,6 +1213,14 @@ export function MenuManager() {
             setItemModal({ mode: 'edit', item: { ...itemModal.item, ...updated } });
           }
         }}
+      />
+
+      <CategoryAddOnsManager
+        visible={addOnsOpen && Boolean(restaurantId)}
+        restaurantId={restaurantId ?? ''}
+        categories={categories}
+        onClose={() => setAddOnsOpen(false)}
+        onOpenLibrary={() => setLibraryOpen(true)}
       />
 
       <ModifierLibraryModal

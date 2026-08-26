@@ -274,6 +274,22 @@ function mapItems(raw: unknown): OwnerOrderItem[] {
   return raw.map((row) => {
     const item = asRecord(row);
     const price = Number(item.price ?? item.unitPrice ?? item.basePrice);
+    const modifiersRaw = item.modifiers;
+    const modifiers = Array.isArray(modifiersRaw)
+      ? modifiersRaw
+          .map((mod) => {
+            if (typeof mod === 'string') return mod.trim();
+            const rec = asRecord(mod);
+            if (!rec) return '';
+            const group = String(rec.groupName ?? rec.group ?? '').trim();
+            const option = String(
+              rec.optionName ?? rec.name ?? rec.option ?? ''
+            ).trim();
+            if (group && option) return `${group}: ${option}`;
+            return option || group;
+          })
+          .filter(Boolean)
+      : undefined;
     return {
       id: String(item._id ?? item.id ?? item.menuItemId ?? '') || undefined,
       name: String(item.name ?? item.itemName ?? item.title ?? 'Item'),
@@ -281,6 +297,7 @@ function mapItems(raw: unknown): OwnerOrderItem[] {
       price: Number.isFinite(price) ? price : undefined,
       specialInstructions:
         String(item.specialInstructions ?? item.notes ?? '').trim() || undefined,
+      modifiers: modifiers?.length ? modifiers : undefined,
     };
   });
 }

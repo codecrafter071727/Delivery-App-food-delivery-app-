@@ -183,6 +183,7 @@ export type ModifierGroup = {
   id: string;
   name: string;
   description?: string | null;
+  categoryId?: string | null;
   minSelect: number;
   maxSelect: number;
   isRequired: boolean;
@@ -260,6 +261,7 @@ export type AvailabilityPayload = {
 export type CreateModifierGroupPayload = {
   name: string;
   description?: string;
+  categoryId?: string | null;
   minSelect?: number;
   maxSelect?: number;
   isRequired?: boolean;

@@ -641,6 +641,11 @@ export function OrderDetailScreen({ orderId }: Props) {
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.itemName}>{item.name}</Text>
                       <Text style={styles.itemMeta}>Qty: {item.quantity}</Text>
+                      {item.modifiers?.length ? (
+                        <Text style={styles.itemNote}>
+                          {item.modifiers.join(' · ')}
+                        </Text>
+                      ) : null}
                       {item.specialInstructions ? (
                         <Text style={styles.itemNote}>
                           {item.specialInstructions}

@@ -232,7 +232,6 @@ export function KitchenDutyCard({
 
   const surge = surgeQuery.data;
   const showSurgeChip = Boolean(surge?.assigned && surge.surgeActive);
-  const showZoneHint = surge && !surge.assigned;
   const showSurgeDown = surge?.unavailable === true;
 
   return (

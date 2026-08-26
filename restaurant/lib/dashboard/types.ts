@@ -4,6 +4,8 @@ export type OwnerOrderItem = {
   quantity: number;
   price?: number;
   specialInstructions?: string;
+  /** Selected add-ons for kitchen / owner bill. */
+  modifiers?: string[];
 };
 
 export type OwnerOrderAddress = {

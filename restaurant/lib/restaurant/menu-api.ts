@@ -315,6 +315,12 @@ function mapModifierGroup(row: Record<string, unknown>): ModifierGroup {
     name: String(row.name ?? ''),
     description:
       typeof row.description === 'string' ? row.description : null,
+    categoryId:
+      typeof row.categoryId === 'string' && row.categoryId
+        ? row.categoryId
+        : row.categoryId
+          ? String(row.categoryId)
+          : null,
     minSelect: Number(row.minSelect ?? 0) || 0,
     maxSelect: Number(row.maxSelect ?? 1) || 1,
     isRequired: row.isRequired === true,
@@ -860,11 +866,15 @@ export const restaurantMenuApi = {
     }
   },
 
-  /** GET /restaurants/:id/modifier-groups */
-  listModifierGroups: async (restaurantId: string): Promise<ModifierGroup[]> => {
+  /** GET /restaurants/:id/modifier-groups?categoryId= */
+  listModifierGroups: async (
+    restaurantId: string,
+    categoryId?: string
+  ): Promise<ModifierGroup[]> => {
     try {
       const res = await api.get<Envelope<unknown>>(
-        `${RESTAURANT_BASE}/${restaurantId}/modifier-groups`
+        `${RESTAURANT_BASE}/${restaurantId}/modifier-groups`,
+        categoryId ? { params: { categoryId } } : undefined
       );
       return asRows(unwrapEntity(res.data))
         .map((row) => mapModifierGroup(row))
@@ -885,6 +895,7 @@ export const restaurantMenuApi = {
         {
           name: payload.name.trim(),
           description: payload.description,
+          categoryId: payload.categoryId ?? undefined,
           minSelect: payload.minSelect,
           maxSelect: payload.maxSelect,
           isRequired: payload.isRequired,
@@ -917,6 +928,7 @@ export const restaurantMenuApi = {
         {
           name: payload.name.trim(),
           description: payload.description,
+          categoryId: payload.categoryId ?? undefined,
           minSelect: payload.minSelect,
           maxSelect: payload.maxSelect,
           isRequired: payload.isRequired,
