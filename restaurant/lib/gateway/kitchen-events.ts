@@ -18,7 +18,9 @@ export type KitchenInboundEvent =
   | 'payment:cod-paid'
   | 'notification:new'
   | 'chat:new-message'
-  | 'typing';
+  | 'typing'
+  | 'tracking:location'
+  | 'partner:location';
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'
@@ -242,6 +244,10 @@ export function applyKitchenSocketEvent(
     });
     void queryClient.invalidateQueries({
       queryKey: restaurantOrderKeys.rider(restaurantId, orderId),
+      refetchType: 'active',
+    });
+    void queryClient.invalidateQueries({
+      queryKey: [...restaurantOrderKeys.detail(restaurantId, orderId), 'tracking'],
       refetchType: 'active',
     });
     return;

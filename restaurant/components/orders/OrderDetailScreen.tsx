@@ -40,6 +40,7 @@ import {
 } from '@/components/orders/KitchenTicketSheets';
 import { KitchenOrderChat } from '@/components/orders/KitchenOrderChat';
 import { KitchenRiderCard } from '@/components/orders/KitchenRiderCard';
+import { KitchenRiderTrackMap } from '@/components/orders/KitchenRiderTrackMap';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { getApiErrorMessage } from '@/lib/errors';
@@ -53,6 +54,7 @@ import {
   useRestaurantOrder,
   useUpdateRestaurantOrderStatus,
 } from '@/lib/order/hooks';
+import { useKitchenOrderTracking } from '@/lib/order/kitchen-tracking-hooks';
 import type { KotPrintResult, RestaurantOrderAction } from '@/lib/order/owner-api';
 import { buildRestaurantBill } from '@/lib/order/restaurant-bill';
 import {
@@ -138,6 +140,21 @@ export function OrderDetailScreen({ orderId }: Props) {
   const slaQuery = useOrderSla(restaurantId, orderId, order?.status);
   const handoverQuery = useOrderHandover(restaurantId, orderId, order);
   const riderQuery = useOrderRider(restaurantId, orderId, order);
+  const rider = riderQuery.data;
+  const trackLive =
+    order?.fulfillmentTone === 'delivery' &&
+    Boolean(rider?.assigned) &&
+    Boolean(
+      order.status &&
+        ['accepted', 'preparing', 'ready', 'out_for_delivery', 'delivered'].includes(
+          order.status
+        )
+    );
+  const kitchenTracking = useKitchenOrderTracking(
+    restaurantId,
+    orderId,
+    trackLive
+  );
   const action = order ? nextKitchenAction(order) : null;
   const ActionIcon = action?.Icon;
 
@@ -282,7 +299,6 @@ export function OrderDetailScreen({ orderId }: Props) {
   const lineIds = (order?.items ?? []).filter((item) => item.id);
   const busy = updateStatus.isPending || ticket.isPending;
   const sla = slaQuery.data;
-  const rider = riderQuery.data;
   const canCall = Boolean(
     order &&
       order.fulfillmentTone !== 'table' &&
@@ -781,16 +797,25 @@ export function OrderDetailScreen({ orderId }: Props) {
 
             {/* Partner */}
             {order.fulfillmentTone === 'delivery' ? (
-              <KitchenRiderCard
-                rider={rider}
-                loading={riderQuery.isLoading}
-                error={riderQuery.error}
-                canRate={canRate}
-                callBusy={ticket.callCustomer.isPending}
-                onRetry={() => void riderQuery.refetch()}
-                onCallCustomer={() => void callCustomer()}
-                onRate={() => setRateOpen(true)}
-              />
+              <>
+                <KitchenRiderCard
+                  rider={rider}
+                  loading={riderQuery.isLoading}
+                  error={riderQuery.error}
+                  canRate={canRate}
+                  callBusy={ticket.callCustomer.isPending}
+                  onRetry={() => void riderQuery.refetch()}
+                  onCallCustomer={() => void callCustomer()}
+                  onRate={() => setRateOpen(true)}
+                />
+                {trackLive ? (
+                  <KitchenRiderTrackMap
+                    tracking={kitchenTracking.tracking}
+                    loading={kitchenTracking.isLoading}
+                    error={kitchenTracking.error}
+                  />
+                ) : null}
+              </>
             ) : null}
 
             <KitchenOrderChat

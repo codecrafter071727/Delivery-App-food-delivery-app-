@@ -18,6 +18,8 @@ const INBOUND: KitchenInboundEvent[] = [
   'notification:new',
   'chat:new-message',
   'typing',
+  'tracking:location',
+  'partner:location',
 ];
 
 export type KitchenChatMessage = {
