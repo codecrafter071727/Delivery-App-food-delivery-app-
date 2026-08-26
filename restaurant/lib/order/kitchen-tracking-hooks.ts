@@ -45,6 +45,10 @@ export function useKitchenOrderTracking(
   const orderRef = useRef(orderId);
   orderRef.current = orderId;
 
+  useEffect(() => {
+    setLivePatch(null);
+  }, [orderId]);
+
   const query = useQuery({
     queryKey: kitchenTrackingKeys(restaurantId ?? '', orderId ?? ''),
     queryFn: () => fetchKitchenOrderTracking(restaurantId!, orderId!),
