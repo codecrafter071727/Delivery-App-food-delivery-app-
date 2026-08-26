@@ -193,6 +193,16 @@ export function PartnerDocumentsManager() {
       ).length,
     [documents]
   );
+  const rejectedDocs = useMemo(
+    () =>
+      PARTNER_DOC_TYPES.filter(
+        (d) => displayDocumentStatus(documents?.[d.type]) === 'rejected'
+      ).map((d) => ({
+        label: d.label,
+        reason: documents?.[d.type]?.rejectionReason?.trim() || '',
+      })),
+    [documents]
+  );
   const totalDocs = PARTNER_DOC_TYPES.length;
 
   const loading = me.isLoading && !me.data;
@@ -310,6 +320,21 @@ export function PartnerDocumentsManager() {
                 <Text style={styles.countLabel}>verified</Text>
               </View>
             </View>
+
+            {rejectedDocs.length > 0 ? (
+              <View style={styles.rejectBanner}>
+                <Text style={styles.rejectBannerTitle}>
+                  {rejectedDocs.length} document
+                  {rejectedDocs.length === 1 ? '' : 's'} rejected
+                </Text>
+                {rejectedDocs.map((row) => (
+                  <Text key={row.label} style={styles.rejectBannerLine}>
+                    • {row.label}
+                    {row.reason ? ` — ${row.reason}` : ' — re-upload required'}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
 
             <View style={styles.grid}>
               {PARTNER_DOC_TYPES.map((item) => (
@@ -491,6 +516,26 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 11,
     lineHeight: 15,
+    color: '#B91C1C',
+  },
+  rejectBanner: {
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    gap: 6,
+  },
+  rejectBannerTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 14,
+    color: '#991B1B',
+  },
+  rejectBannerLine: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 17,
     color: '#B91C1C',
   },
   uploadHit: {

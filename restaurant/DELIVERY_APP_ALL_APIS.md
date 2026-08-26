@@ -27,7 +27,7 @@ Implement **every LIVE row** below. Prefer **canonical `/partners/me/*`** on del
 1. Splash → `GET /partners/me/config` (min app version, city flags)  
 2. Login → user-service (`role=delivery_partner` on register)  
 3. Register partner → `POST /partners/register` (or `register-with-invite`)  
-4. KYC → `POST /partners/me/documents` → wait for **admin** approve  
+4. KYC → `POST /partners/me/documents` → wait for **admin** approve (inbox + Expo push on approve/reject with reason; tap opens Documents)  
 5. Bank → IFSC lookup → OTP → save → penny-drop verify  
 6. Duty → `GET /status` → `PUT /go-online` (needs KYC `active`) / `go-offline` / break  
 7. GPS → `POST /partners/me/location` + socket `partner:location` / `partner:heartbeat`  

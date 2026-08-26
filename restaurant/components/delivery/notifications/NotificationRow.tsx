@@ -57,7 +57,14 @@ function iconForType(type: string) {
     return Gift;
   }
   if (t.includes('support') || t.includes('ticket')) return Headphones;
-  if (t.includes('security') || t.includes('system')) return Shield;
+  if (
+    t.includes('kyc') ||
+    t.includes('security') ||
+    t.includes('system') ||
+    t.includes('document')
+  ) {
+    return Shield;
+  }
   return Bell;
 }
 
@@ -70,6 +77,7 @@ function colorForType(type: string) {
   }
   if (t.includes('promo') || t.includes('offer')) return '#DB2777';
   if (t.includes('support')) return '#7C3AED';
+  if (t.includes('kyc') || t.includes('reject')) return '#B91C1C';
   return authTheme.brand;
 }
 
@@ -81,6 +89,14 @@ export function DeliveryNotificationRow({
   const Icon = iconForType(notification.type);
   const color = colorForType(notification.type);
   const unread = !notification.isRead;
+  const reason =
+    typeof notification.data?.reason === 'string'
+      ? notification.data.reason.trim()
+      : '';
+  const isKyc =
+    String(notification.data?.kind ?? '')
+      .toLowerCase()
+      .includes('kyc') || notification.type.toLowerCase().includes('kyc');
 
   return (
     <Pressable
@@ -107,8 +123,13 @@ export function DeliveryNotificationRow({
           ) : null}
         </View>
         {notification.body ? (
-          <Text style={styles.message} numberOfLines={2}>
+          <Text style={styles.message} numberOfLines={isKyc ? 4 : 2}>
             {notification.body}
+          </Text>
+        ) : null}
+        {reason && !notification.body?.includes(reason) ? (
+          <Text style={styles.reason} numberOfLines={3}>
+            Reason: {reason}
           </Text>
         ) : null}
       </View>
@@ -169,6 +190,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontFamily: fonts.regular,
     color: authTheme.textMuted,
+  },
+  reason: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: fonts.semiBold,
+    color: '#B91C1C',
   },
   dot: {
     width: 8,

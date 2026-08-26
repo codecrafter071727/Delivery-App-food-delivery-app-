@@ -59,6 +59,17 @@ function openNotificationDeepLink(
   item: AppNotification
 ) {
   const data = item.data ?? {};
+  const kind = String(data.kind ?? '').toLowerCase();
+  const screen = String(data.screen ?? '').toLowerCase();
+  if (
+    screen === 'documents' ||
+    kind.includes('kyc') ||
+    item.type.toLowerCase().includes('kyc')
+  ) {
+    router.push(DELIVERY_ROUTES.documents as never);
+    return;
+  }
+
   const orderId = String(
     data.orderId ?? data.order_id ?? data.order ?? data.deliveryId ?? ''
   ).trim();

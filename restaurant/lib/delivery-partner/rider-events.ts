@@ -131,7 +131,14 @@ export function applyRiderSocketEvent(
       const title = pickString(record, ['title']) ?? 'TOKAJO';
       const body =
         pickString(record, ['message', 'body']) ?? 'You have a new update';
-      pushLiveToast({ title, body, tone: 'info' });
+      const data = asRecord(record.data);
+      const kind = (pickString(data, ['kind']) ?? '').toLowerCase();
+      const isKyc = kind.includes('kyc');
+      pushLiveToast({
+        title,
+        body,
+        tone: kind.includes('reject') ? 'warn' : 'info',
+      });
       const notificationId = pickString(record, ['notificationId', 'id']);
       void presentDeviceNotification({
         id: notificationId ?? `live-${Date.now()}`,
@@ -139,7 +146,7 @@ export function applyRiderSocketEvent(
         body,
         type: pickString(record, ['type']) ?? 'system',
         isRead: false,
-        data: asRecord(record.data),
+        data,
       });
       queryClient.setQueryData(
         notificationKeys.unreadCount(),
@@ -148,6 +155,10 @@ export function applyRiderSocketEvent(
         })
       );
       invalidate(queryClient, notificationKeys.all);
+      if (isKyc) {
+        invalidate(queryClient, deliveryPartnerKeys.me());
+        invalidate(queryClient, deliveryPartnerKeys.all);
+      }
       break;
     }
     case 'earnings:updated':

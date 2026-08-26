@@ -58,6 +58,9 @@ export function preferenceKeyForType(
   if (t.includes('support') || t.includes('ticket') || t.includes('help')) {
     return 'support';
   }
+  if (t.includes('kyc') || t.includes('document')) {
+    return 'system';
+  }
   if (
     t.includes('promo') ||
     t.includes('offer') ||
