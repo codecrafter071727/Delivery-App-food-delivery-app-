@@ -1,28 +1,18 @@
-import {
+﻿import {
   Calendar,
-  Copy,
   Gift,
-  Pencil,
   Plus,
   RefreshCw,
-  Save,
   Search,
-  Trash2,
-  X,
 } from 'lucide-react-native';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
-  Share,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -30,40 +20,30 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RestaurantPageHeader } from '@/components/dashboard/RestaurantPageHeader';
+import { OfferDetailSheet } from '@/components/offers/OfferDetailSheet';
+import {
+  OfferFormModal,
+  type OfferModalState,
+} from '@/components/offers/OfferFormModal';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { getApiErrorMessage } from '@/lib/errors';
-import { sanitizePromoCode } from '@/lib/restaurant/offers-api';
+import { discountLabel, offerEffectSummary } from '@/lib/restaurant/offer-copy';
 import {
-  useOfferDetail,
   useOfferMutations,
   useRestaurantOffers,
 } from '@/lib/restaurant/offers-hooks';
 import type {
-  CreateOfferPayload,
-  OfferDiscountType,
   OfferLifecycleStatus,
   RestaurantOffer,
 } from '@/lib/restaurant/types';
 
 type TabKey = OfferLifecycleStatus;
 
-type OfferModalState =
-  | { mode: 'create' }
-  | { mode: 'edit'; offer: RestaurantOffer }
-  | null;
-
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'active', label: 'Live' },
   { key: 'scheduled', label: 'Upcoming' },
   { key: 'inactive', label: 'Paused' },
-];
-
-const OFFER_TYPE_OPTIONS: { key: OfferDiscountType; label: string }[] = [
-  { key: 'percentage', label: '% off' },
-  { key: 'flat', label: 'Flat ₹' },
-  { key: 'free_delivery', label: 'Free delivery' },
-  { key: 'bogo', label: 'BOGO' },
 ];
 
 function formatDateInput(value?: string) {
@@ -80,16 +60,7 @@ function formatDateInput(value?: string) {
 
 function formatDisplayDate(value?: string) {
   const formatted = formatDateInput(value);
-  return formatted || '—';
-}
-
-function discountLabel(offer: RestaurantOffer) {
-  const value = offer.discountValue ?? 0;
-  const type = String(offer.discountType ?? 'percentage').toLowerCase();
-  if (type === 'flat') return `₹${Math.round(value)} OFF`;
-  if (type === 'free_delivery') return 'FREE DELIVERY';
-  if (type === 'bogo' || type.includes('buy')) return 'BOGO';
-  return `${Math.round(value)}% OFF`;
+  return formatted || '-';
 }
 
 function lifecycleLabel(offer: RestaurantOffer) {
@@ -97,34 +68,6 @@ function lifecycleLabel(offer: RestaurantOffer) {
   if (offer.status === 'scheduled') return 'Upcoming';
   if (offer.status === 'inactive') return 'Ended';
   return 'Live';
-}
-
-function normalizeOfferType(value?: string): OfferDiscountType {
-  const lower = String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
-  if (lower === 'flat' || lower === 'flat_amount' || lower === 'fixed') {
-    return 'flat';
-  }
-  if (lower === 'free_delivery' || lower === 'freedelivery') {
-    return 'free_delivery';
-  }
-  if (lower === 'bogo' || lower.includes('buy')) return 'bogo';
-  return 'percentage';
-}
-
-function valueFieldLabel(type: OfferDiscountType) {
-  switch (type) {
-    case 'flat':
-      return 'Amount (₹)';
-    case 'free_delivery':
-      return 'Delivery fee (₹)';
-    case 'bogo':
-      return 'Value (₹)';
-    default:
-      return 'Discount %';
-  }
 }
 
 function offerErrorTitle(error: unknown) {
@@ -142,65 +85,6 @@ function offerErrorTitle(error: unknown) {
     return 'Not allowed';
   }
   return 'Could not save offer';
-}
-
-async function copyCode(code: string) {
-  try {
-    if (Platform.OS === 'web' && typeof navigator !== 'undefined') {
-      const clipboard = (
-        navigator as Navigator & {
-          clipboard?: { writeText?: (value: string) => Promise<void> };
-        }
-      ).clipboard;
-      if (clipboard?.writeText) {
-        await clipboard.writeText(code);
-        Alert.alert('Copied', `${code} copied.`);
-        return;
-      }
-    }
-    await Share.share({ message: code, title: 'Promo code' });
-  } catch {
-    Alert.alert('Could not copy', code);
-  }
-}
-
-function Field({
-  label,
-  value,
-  onChangeText,
-  placeholder,
-  required,
-  multiline,
-  keyboardType,
-  autoCapitalize,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  placeholder?: string;
-  required?: boolean;
-  multiline?: boolean;
-  keyboardType?: 'default' | 'numeric' | 'decimal-pad';
-  autoCapitalize?: 'none' | 'characters' | 'sentences';
-}) {
-  return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>
-        {label}
-        {required ? ' *' : ''}
-      </Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={authTheme.textDim}
-        multiline={multiline}
-        keyboardType={keyboardType}
-        autoCapitalize={autoCapitalize}
-        style={[styles.input, multiline && styles.textarea]}
-      />
-    </View>
-  );
 }
 
 function OfferCard({
@@ -244,12 +128,12 @@ function OfferCard({
         {offer.code ? (
           <Text style={styles.offerCode}>{offer.code}</Text>
         ) : null}
+        <Text style={styles.offerMeta} numberOfLines={2}>
+          {offerEffectSummary(offer)}
+        </Text>
         <Text style={styles.offerMeta} numberOfLines={1}>
           {[
-            offer.minOrderAmount
-              ? `Min ₹${Math.round(offer.minOrderAmount)}`
-              : null,
-            `Till ${formatDisplayDate(offer.validUntil)}`,
+            `${formatDisplayDate(offer.validFrom)} -> ${formatDisplayDate(offer.validUntil)}`,
             offer.usageCount != null ? `${offer.usageCount} used` : null,
           ]
             .filter(Boolean)
@@ -257,165 +141,6 @@ function OfferCard({
         </Text>
       </View>
     </Pressable>
-  );
-}
-
-function OfferDetailSheet({
-  restaurantId,
-  offer,
-  onClose,
-  onEdit,
-  onDeleted,
-}: {
-  restaurantId: string;
-  offer: RestaurantOffer | null;
-  onClose: () => void;
-  onEdit: (offer: RestaurantOffer) => void;
-  onDeleted: () => void;
-}) {
-  const detail = useOfferDetail(
-    restaurantId,
-    offer?.id,
-    Boolean(offer?.id)
-  );
-  const mutations = useOfferMutations(restaurantId);
-  const row = detail.data ?? offer;
-  const busy =
-    mutations.updateOffer.isPending || mutations.deleteOffer.isPending;
-
-  const pause = () => {
-    if (!row) return;
-    const next = row.isActive === false;
-    void mutations.updateOffer
-      .mutateAsync({ offerId: row.id, payload: { isActive: next } })
-      .then(onClose)
-      .catch((error) => {
-        Alert.alert(offerErrorTitle(error), getApiErrorMessage(error));
-      });
-  };
-
-  const remove = () => {
-    if (!row) return;
-    Alert.alert(
-      'Delete this offer?',
-      'Customers will no longer see this promo. This cannot be undone.',
-      [
-        { text: 'Keep', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            void mutations.deleteOffer
-              .mutateAsync(row.id)
-              .then(() => {
-                onDeleted();
-                onClose();
-              })
-              .catch((error) => {
-                Alert.alert(offerErrorTitle(error), getApiErrorMessage(error));
-              });
-          },
-        },
-      ]
-    );
-  };
-
-  return (
-    <Modal
-      visible={Boolean(offer)}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <View style={styles.detailBackdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.detailSheet}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Offer details</Text>
-            <Pressable onPress={onClose} hitSlop={8}>
-              <X color={authTheme.textMuted} size={20} />
-            </Pressable>
-          </View>
-
-          {detail.isLoading && !row ? (
-            <ActivityIndicator color={authTheme.brand} style={{ marginVertical: 24 }} />
-          ) : detail.isError && !row ? (
-            <Text style={styles.errorText}>{getApiErrorMessage(detail.error)}</Text>
-          ) : row ? (
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.detailHero}>
-                <Text style={styles.detailDiscount}>{discountLabel(row)}</Text>
-                <Text style={styles.detailTitle}>{row.title}</Text>
-                <Text style={styles.offerMeta}>{lifecycleLabel(row)}</Text>
-              </View>
-
-              {row.code ? (
-                <Pressable
-                  onPress={() => void copyCode(row.code!)}
-                  style={styles.codeBox}
-                >
-                  <Text style={styles.codeBoxText}>{row.code}</Text>
-                  <Copy color={authTheme.brand} size={16} />
-                </Pressable>
-              ) : null}
-
-              {row.description ? (
-                <Text style={styles.offerDesc}>{row.description}</Text>
-              ) : null}
-
-              <Text style={styles.kv}>
-                Valid {formatDisplayDate(row.validFrom)} →{' '}
-                {formatDisplayDate(row.validUntil)}
-              </Text>
-              {row.minOrderAmount != null ? (
-                <Text style={styles.kv}>
-                  Min order ₹{Math.round(row.minOrderAmount)}
-                </Text>
-              ) : null}
-              {row.maxDiscountAmount != null ? (
-                <Text style={styles.kv}>
-                  Max discount ₹{Math.round(row.maxDiscountAmount)}
-                </Text>
-              ) : null}
-              <Text style={styles.kv}>
-                Used {row.usageCount ?? 0}
-                {row.usageLimit ? ` / ${row.usageLimit}` : ' (no cap)'}
-                {row.perUserLimit != null
-                  ? ` · ${row.perUserLimit} per customer`
-                  : ''}
-              </Text>
-
-              <View style={styles.detailActions}>
-                <Pressable
-                  disabled={busy}
-                  onPress={pause}
-                  style={styles.secondaryBtn}
-                >
-                  <Text style={styles.secondaryBtnText}>
-                    {row.isActive === false ? 'Go live' : 'Pause'}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  disabled={busy}
-                  onPress={() => onEdit(row)}
-                  style={styles.secondaryBtn}
-                >
-                  <Pencil color={authTheme.text} size={14} />
-                  <Text style={styles.secondaryBtnText}>Edit</Text>
-                </Pressable>
-                <Pressable
-                  disabled={busy}
-                  onPress={remove}
-                  style={styles.dangerBtn}
-                >
-                  <Trash2 color="#FFFFFF" size={14} />
-                </Pressable>
-              </View>
-            </ScrollView>
-          ) : null}
-        </View>
-      </View>
-    </Modal>
   );
 }
 
@@ -469,7 +194,7 @@ export function OffersManager() {
         title="Offers"
         subtitle={
           restaurantName
-            ? `${restaurantName} · ${liveCount} live`
+            ? `${restaurantName}  ·  ${liveCount} live`
             : 'Promos customers see on your menu'
         }
         showBack
@@ -551,7 +276,7 @@ export function OffersManager() {
 
         {isError ? (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Couldn’t load offers</Text>
+            <Text style={styles.emptyTitle}>Couldn't load offers</Text>
             <Text style={styles.emptyText}>{getApiErrorMessage(error)}</Text>
             <Pressable style={styles.primaryBtn} onPress={() => void refetch()}>
               <RefreshCw color="#FFFFFF" size={14} />
@@ -617,10 +342,10 @@ export function OffersManager() {
               const nextTab = (created.status ?? 'active') as TabKey;
               setTab(nextTab);
               Alert.alert(
-                'Offer live',
+                'Offer saved',
                 created.code
-                  ? `${created.code} is saved. Customers see it while it is live.`
-                  : 'Offer saved.'
+                  ? `${created.code}: ${offerEffectSummary(created)}. Customers see it in cart while it is live.`
+                  : 'Offer saved. Customers see it in cart while it is live.'
               );
             } else {
               await mutations.updateOffer.mutateAsync({
@@ -636,335 +361,6 @@ export function OffersManager() {
         }}
       />
     </View>
-  );
-}
-
-function OfferFormModal({
-  state,
-  saving,
-  onClose,
-  onSubmit,
-}: {
-  state: OfferModalState;
-  saving: boolean;
-  onClose: () => void;
-  onSubmit: (payload: CreateOfferPayload) => Promise<void>;
-}) {
-  const [title, setTitle] = useState('');
-  const [code, setCode] = useState('');
-  const [discountType, setDiscountType] = useState<OfferDiscountType>('percentage');
-  const [discountValue, setDiscountValue] = useState('');
-  const [minOrder, setMinOrder] = useState('');
-  const [maxDiscount, setMaxDiscount] = useState('');
-  const [description, setDescription] = useState('');
-  const [validFrom, setValidFrom] = useState('');
-  const [validUntil, setValidUntil] = useState('');
-  const [usageLimit, setUsageLimit] = useState('');
-  const [perUserLimit, setPerUserLimit] = useState('1');
-  const [isActive, setIsActive] = useState(true);
-
-  useEffect(() => {
-    if (!state) return;
-    if (state.mode === 'edit') {
-      const offer = state.offer;
-      setTitle(offer.title);
-      setCode(offer.code ?? '');
-      setDiscountType(normalizeOfferType(offer.discountType));
-      setDiscountValue(
-        offer.discountValue != null ? String(offer.discountValue) : ''
-      );
-      setMinOrder(
-        offer.minOrderAmount != null ? String(offer.minOrderAmount) : '0'
-      );
-      setMaxDiscount(
-        offer.maxDiscountAmount != null ? String(offer.maxDiscountAmount) : ''
-      );
-      setDescription(offer.description ?? '');
-      setValidFrom(formatDateInput(offer.validFrom));
-      setValidUntil(formatDateInput(offer.validUntil));
-      setUsageLimit(offer.usageLimit ? String(offer.usageLimit) : '');
-      setPerUserLimit(
-        offer.perUserLimit != null ? String(offer.perUserLimit) : '1'
-      );
-      setIsActive(offer.isActive !== false);
-    } else {
-      setTitle('');
-      setCode('');
-      setDiscountType('percentage');
-      setDiscountValue('');
-      setMinOrder('0');
-      setMaxDiscount('');
-      setDescription('');
-      setValidFrom(formatDateInput(new Date().toISOString()));
-      setValidUntil('');
-      setUsageLimit('');
-      setPerUserLimit('1');
-      setIsActive(true);
-    }
-  }, [state]);
-
-  const showMaxDiscount = discountType === 'percentage';
-  const valueRequired = discountType !== 'bogo';
-
-  return (
-    <Modal visible={Boolean(state)} animationType="slide" transparent>
-      <KeyboardAvoidingView
-        style={styles.modalBackdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <Pressable style={styles.modalDismiss} onPress={onClose} />
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.modalScroll}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {state?.mode === 'edit' ? 'Edit offer' : 'Create offer'}
-              </Text>
-              <Pressable onPress={onClose}>
-                <X color={authTheme.textMuted} size={20} />
-              </Pressable>
-            </View>
-            <Text style={styles.hintText}>
-              Same types customers see on Swiggy/Zomato: % off, flat ₹, free
-              delivery, or buy 1 get 1. Code must be unique for this restaurant.
-            </Text>
-
-            <Field
-              label="Offer title"
-              required
-              value={title}
-              onChangeText={setTitle}
-              placeholder="Weekend special"
-            />
-            <Field
-              label="Promo code"
-              required
-              value={code}
-              onChangeText={(value) => setCode(sanitizePromoCode(value))}
-              placeholder="SAVE20"
-              autoCapitalize="characters"
-            />
-
-            <Text style={styles.fieldLabel}>Type *</Text>
-            <View style={styles.typeRow}>
-              {OFFER_TYPE_OPTIONS.map((option) => {
-                const on = discountType === option.key;
-                return (
-                  <Pressable
-                    key={option.key}
-                    style={[styles.typeChip, on && styles.typeChipOn]}
-                    onPress={() => {
-                      setDiscountType(option.key);
-                      if (option.key !== 'percentage') setMaxDiscount('');
-                      if (option.key === 'bogo' && !discountValue.trim()) {
-                        setDiscountValue('0');
-                      }
-                    }}
-                  >
-                    <Text
-                      style={[styles.typeChipText, on && styles.typeChipTextOn]}
-                    >
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <View style={styles.row2}>
-              <View style={{ flex: 1 }}>
-                <Field
-                  label={valueFieldLabel(discountType)}
-                  required={valueRequired}
-                  value={discountValue}
-                  onChangeText={setDiscountValue}
-                  placeholder={discountType === 'percentage' ? '20' : '50'}
-                  keyboardType="decimal-pad"
-                />
-              </View>
-              <View style={{ width: 12 }} />
-              <View style={{ flex: 1 }}>
-                <Field
-                  label="Min order (₹)"
-                  value={minOrder}
-                  onChangeText={setMinOrder}
-                  placeholder="299"
-                  keyboardType="decimal-pad"
-                />
-              </View>
-            </View>
-
-            {showMaxDiscount ? (
-              <Field
-                label="Max discount (₹)"
-                value={maxDiscount}
-                onChangeText={setMaxDiscount}
-                placeholder="100"
-                keyboardType="decimal-pad"
-              />
-            ) : null}
-
-            <Field
-              label="Description"
-              value={description}
-              onChangeText={setDescription}
-              placeholder="On orders above ₹299"
-              multiline
-            />
-
-            <View style={styles.row2}>
-              <View style={{ flex: 1 }}>
-                <Field
-                  label="Valid from"
-                  required
-                  value={validFrom}
-                  onChangeText={setValidFrom}
-                  placeholder="dd-mm-yyyy"
-                />
-              </View>
-              <View style={{ width: 12 }} />
-              <View style={{ flex: 1 }}>
-                <Field
-                  label="Valid until"
-                  required
-                  value={validUntil}
-                  onChangeText={setValidUntil}
-                  placeholder="dd-mm-yyyy"
-                />
-              </View>
-            </View>
-
-            <View style={styles.row2}>
-              <View style={{ flex: 1 }}>
-                <Field
-                  label="Usage cap"
-                  value={usageLimit}
-                  onChangeText={setUsageLimit}
-                  placeholder="Blank = unlimited"
-                  keyboardType="numeric"
-                />
-              </View>
-              <View style={{ width: 12 }} />
-              <View style={{ flex: 1 }}>
-                <Field
-                  label="Per customer"
-                  value={perUserLimit}
-                  onChangeText={setPerUserLimit}
-                  placeholder="1"
-                  keyboardType="numeric"
-                />
-              </View>
-            </View>
-
-            <View style={styles.switchRow}>
-              <Text style={styles.fieldLabel}>Live on menu</Text>
-              <Switch
-                value={isActive}
-                onValueChange={setIsActive}
-                trackColor={{ true: '#FECACA', false: '#E5E7EB' }}
-                thumbColor={isActive ? authTheme.brand : '#FFFFFF'}
-              />
-            </View>
-
-            <View style={styles.modalActions}>
-              <Pressable style={styles.modalCancel} onPress={onClose}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.modalPrimary}
-                disabled={
-                  saving ||
-                  !title.trim() ||
-                  !code.trim() ||
-                  (valueRequired && !discountValue.trim()) ||
-                  !validFrom.trim() ||
-                  !validUntil.trim()
-                }
-                onPress={() => {
-                  const discount =
-                    discountValue.trim() === '' ? 0 : Number(discountValue);
-                  const min = minOrder.trim() === '' ? 0 : Number(minOrder);
-                  const max =
-                    showMaxDiscount && maxDiscount.trim() !== ''
-                      ? Number(maxDiscount)
-                      : undefined;
-                  const cap =
-                    usageLimit.trim() === '' ? undefined : Number(usageLimit);
-                  const perUser =
-                    perUserLimit.trim() === ''
-                      ? undefined
-                      : Number(perUserLimit);
-
-                  if (valueRequired && (!Number.isFinite(discount) || discount < 0)) {
-                    Alert.alert(
-                      'Invalid value',
-                      `Enter a valid ${valueFieldLabel(discountType).toLowerCase()}.`
-                    );
-                    return;
-                  }
-                  if (discountType === 'percentage' && discount > 100) {
-                    Alert.alert('Invalid discount', 'Percentage cannot exceed 100.');
-                    return;
-                  }
-                  if (!Number.isFinite(min) || min < 0) {
-                    Alert.alert('Invalid min order', 'Enter a valid minimum order.');
-                    return;
-                  }
-                  if (max != null && (!Number.isFinite(max) || max < 0)) {
-                    Alert.alert('Invalid cap', 'Enter a valid max discount.');
-                    return;
-                  }
-                  if (cap != null && (!Number.isFinite(cap) || cap < 0)) {
-                    Alert.alert('Invalid usage cap', 'Enter a whole number, or leave blank.');
-                    return;
-                  }
-                  if (perUser != null && (!Number.isFinite(perUser) || perUser < 0)) {
-                    Alert.alert('Invalid per-customer limit', 'Enter a whole number.');
-                    return;
-                  }
-                  const cleanCode = sanitizePromoCode(code);
-                  if (cleanCode.length < 2) {
-                    Alert.alert(
-                      'Invalid promo code',
-                      'Use at least 2 letters or numbers (e.g. SAVE20).'
-                    );
-                    return;
-                  }
-                  void onSubmit({
-                    title: title.trim(),
-                    code: cleanCode,
-                    discountType,
-                    discountValue: Number.isFinite(discount) ? discount : 0,
-                    minOrderAmount: min,
-                    maxDiscountAmount:
-                      discountType === 'percentage' ? max : undefined,
-                    description: description.trim() || undefined,
-                    validFrom: validFrom.trim(),
-                    validUntil: validUntil.trim(),
-                    isActive,
-                    usageLimit: cap,
-                    perUserLimit: perUser,
-                  });
-                }}
-              >
-                {saving ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <>
-                    <Save color="#FFFFFF" size={16} />
-                    <Text style={styles.modalPrimaryText}>
-                      {state?.mode === 'edit' ? 'Save' : 'Create'}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </Modal>
   );
 }
 
