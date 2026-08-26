@@ -269,6 +269,7 @@ export const restaurantFinanceApi = {
         lifetimeCredited: pickNumber(raw, ['lifetimeCredited']),
         lifetimeDebited: pickNumber(raw, ['lifetimeDebited']),
         lastCreditedAt: raw.lastCreditedAt ? String(raw.lastCreditedAt) : null,
+        lastDebitedAt: raw.lastDebitedAt ? String(raw.lastDebitedAt) : null,
         commissionPercent: pickNumber(raw, ['commissionPercent']) || 12,
       };
     } catch (error) {
@@ -278,12 +279,26 @@ export const restaurantFinanceApi = {
 
   listWalletTransactions: async (
     restaurantId: string,
-    params?: { page?: number; limit?: number }
+    params?: {
+      page?: number;
+      limit?: number;
+      type?: string;
+      from?: string;
+      to?: string;
+    }
   ): Promise<FinancePage<RestaurantWalletTxn>> => {
     try {
       const res = await api.get<Envelope<unknown>>(
         `${RESTAURANT_BASE}/${restaurantId}/wallet/transactions`,
-        { params: { page: params?.page ?? 1, limit: params?.limit ?? 20 } }
+        {
+          params: {
+            page: params?.page ?? 1,
+            limit: params?.limit ?? 20,
+            type: params?.type || undefined,
+            from: params?.from || undefined,
+            to: params?.to || undefined,
+          },
+        }
       );
       return unwrapPaged(res.data, (raw) => {
         const id = String(raw.id ?? raw._id ?? '').trim();
@@ -292,6 +307,7 @@ export const restaurantFinanceApi = {
           id,
           orderId: raw.orderId ? String(raw.orderId) : null,
           orderNumber: raw.orderNumber ? String(raw.orderNumber) : null,
+          payoutId: raw.payoutId ? String(raw.payoutId) : null,
           type: String(raw.type ?? 'order_credit'),
           amount: pickNumber(raw, ['amount']),
           balanceAfter: pickNumber(raw, ['balanceAfter']),
@@ -311,6 +327,47 @@ export const restaurantFinanceApi = {
       });
     } catch (error) {
       throwFinanceError(error, 'Failed to load wallet ledger');
+    }
+  },
+
+  exportWalletTransactions: async (
+    restaurantId: string,
+    params?: { type?: string; from?: string; to?: string }
+  ): Promise<{ csv: string; filename: string; rowCount: number }> => {
+    try {
+      const res = await api.get<string>(
+        `${RESTAURANT_BASE}/${restaurantId}/wallet/transactions/export`,
+        {
+          params: {
+            type: params?.type || undefined,
+            from: params?.from || undefined,
+            to: params?.to || undefined,
+          },
+          responseType: 'text',
+          headers: { Accept: 'text/csv, text/plain, */*' },
+          transformResponse: [(data) => data],
+        }
+      );
+      const csv = typeof res.data === 'string' ? res.data : String(res.data ?? '');
+      const disposition = String(
+        res.headers?.['content-disposition']
+          ?? res.headers?.['Content-Disposition']
+          ?? ''
+      );
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      const filename =
+        match?.[1]
+        || `restaurant-wallet-passbook-${new Date().toISOString().slice(0, 10)}.csv`;
+      const rowCountHeader = Number(res.headers?.['x-row-count'] ?? 0);
+      return {
+        csv,
+        filename,
+        rowCount: Number.isFinite(rowCountHeader) && rowCountHeader > 0
+          ? rowCountHeader
+          : Math.max(0, csv.split('\n').length - 1),
+      };
+    } catch (error) {
+      throwFinanceError(error, 'Failed to export wallet passbook');
     }
   },
 };

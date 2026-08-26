@@ -77,14 +77,22 @@ export type RestaurantWallet = {
   lifetimeCredited: number;
   lifetimeDebited: number;
   lastCreditedAt: string | null;
+  lastDebitedAt?: string | null;
   commissionPercent: number;
 };
+
+export type RestaurantWalletTxnType =
+  | 'order_credit'
+  | 'payout_debit'
+  | 'adjustment'
+  | string;
 
 export type RestaurantWalletTxn = {
   id: string;
   orderId?: string | null;
   orderNumber?: string | null;
-  type: string;
+  payoutId?: string | null;
+  type: RestaurantWalletTxnType;
   amount: number;
   balanceAfter: number;
   grossAmount?: number | null;

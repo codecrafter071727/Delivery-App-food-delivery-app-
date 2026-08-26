@@ -22,8 +22,8 @@ export const financeKeys = {
     [...financeKeys.restaurant(restaurantId), 'commission'] as const,
   wallet: (restaurantId: string) =>
     [...financeKeys.restaurant(restaurantId), 'wallet'] as const,
-  walletTxns: (restaurantId: string, page: number) =>
-    [...financeKeys.restaurant(restaurantId), 'wallet-txns', page] as const,
+  walletTxns: (restaurantId: string, page: number, type = 'all') =>
+    [...financeKeys.restaurant(restaurantId), 'wallet-txns', page, type] as const,
 };
 
 export function useRestaurantPayouts(page = 1) {
@@ -127,17 +127,21 @@ export function useRestaurantWallet() {
   };
 }
 
-export function useRestaurantWalletTransactions(page = 1) {
+export function useRestaurantWalletTransactions(
+  page = 1,
+  type: 'all' | 'order_credit' | 'payout_debit' | 'adjustment' = 'all'
+) {
   const restaurantQuery = useMyRestaurantId();
   const restaurantId = restaurantQuery.data?.id ?? '';
   const isActive = useAppIsActive();
 
   const query = useQuery({
-    queryKey: financeKeys.walletTxns(restaurantId, page),
+    queryKey: financeKeys.walletTxns(restaurantId, page, type),
     queryFn: () =>
       restaurantFinanceApi.listWalletTransactions(restaurantId, {
         page,
         limit: 20,
+        type: type === 'all' ? undefined : type,
       }),
     enabled: Boolean(restaurantId),
     staleTime: 20_000,

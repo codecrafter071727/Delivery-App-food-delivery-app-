@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 
 import { RestaurantPageHeader } from '@/components/dashboard/RestaurantPageHeader';
+import { WalletPassbook } from '@/components/finance/WalletPassbook';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { formatCurrency } from '@/lib/dashboard/format';
@@ -30,10 +31,8 @@ import {
   useRestaurantWalletTransactions,
 } from '@/lib/restaurant/finance-hooks';
 import type {
-  PayoutStatus,
   RestaurantInvoice,
   RestaurantPayout,
-  RestaurantWalletTxn,
 } from '@/lib/restaurant/finance-types';
 
 type TabKey = 'wallet' | 'payouts' | 'invoices' | 'fees';
@@ -139,10 +138,16 @@ function InvoiceCard({ invoice }: { invoice: RestaurantInvoice }) {
 export function FinanceManager() {
   const [tab, setTab] = useState<TabKey>('wallet');
   const [page, setPage] = useState(1);
+  const [ledgerFilter, setLedgerFilter] = useState<
+    'all' | 'order_credit' | 'payout_debit' | 'adjustment'
+  >('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const wallet = useRestaurantWallet();
-  const walletTxns = useRestaurantWalletTransactions(tab === 'wallet' ? page : 1);
+  const walletTxns = useRestaurantWalletTransactions(
+    tab === 'wallet' ? page : 1,
+    ledgerFilter
+  );
   const payouts = useRestaurantPayouts(tab === 'payouts' ? page : 1);
   const invoices = useRestaurantInvoices(tab === 'invoices' ? page : 1);
   const commission = useRestaurantCommission();
@@ -173,7 +178,7 @@ export function FinanceManager() {
     tab === 'fees' ? false : (listQuery.data as { hasNext?: boolean } | undefined)?.hasNext ?? false;
   const payoutList = payouts.data?.items ?? [];
   const invoiceList = invoices.data?.items ?? [];
-  const txnList: RestaurantWalletTxn[] = walletTxns.data?.items ?? [];
+  const txnList = walletTxns.data?.items ?? [];
 
   const switchTab = (next: TabKey) => {
     setTab(next);
@@ -280,74 +285,23 @@ export function FinanceManager() {
 
         {!loading && tab === 'wallet' ? (
           <View style={styles.list}>
-            <View style={styles.walletCard}>
-              <Text style={styles.walletLabel}>Available balance</Text>
-              <Text style={styles.walletBalance}>
-                {formatCurrency(wallet.data?.balance ?? 0)}
-              </Text>
-              <Text style={styles.muted}>
-                After each delivered order, {wallet.data?.commissionPercent ?? 12}%
-                platform fee is deducted from food + tax; the rest credits here.
-              </Text>
-              <View style={styles.walletMeta}>
-                <Text style={styles.muted}>
-                  Lifetime in {formatCurrency(wallet.data?.lifetimeCredited ?? 0)}
-                </Text>
-              </View>
-            </View>
-            {wallet.isError || walletTxns.isError ? (
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>Couldn’t load wallet</Text>
-                <Text style={styles.muted}>
-                  {(wallet.error || walletTxns.error) instanceof Error
-                    ? ((wallet.error || walletTxns.error) as Error).message
-                    : 'Please try again'}
-                </Text>
-                <Pressable style={styles.retry} onPress={onRefresh}>
-                  <Text style={styles.retryText}>Retry</Text>
-                </Pressable>
-              </View>
-            ) : txnList.length ? (
-              txnList.map((txn) => (
-                <View key={txn.id} style={styles.card}>
-                  <View style={styles.cardTop}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.period}>
-                        {txn.orderNumber
-                          ? `Order #${txn.orderNumber}`
-                          : txn.description || 'Wallet credit'}
-                      </Text>
-                      <Text style={styles.meta}>{formatDate(txn.createdAt)}</Text>
-                    </View>
-                    <Text style={styles.net}>{formatCurrency(txn.amount)}</Text>
-                  </View>
-                  {txn.grossAmount != null && txn.commissionAmount != null ? (
-                    <View style={styles.breakdown}>
-                      <Line
-                        label="Restaurant charges"
-                        value={formatCurrency(txn.grossAmount)}
-                      />
-                      <Line
-                        label="Platform fee"
-                        value={formatCurrency(txn.commissionAmount)}
-                      />
-                      <Line
-                        label="Balance after"
-                        value={formatCurrency(txn.balanceAfter)}
-                      />
-                    </View>
-                  ) : null}
-                </View>
-              ))
-            ) : (
-              <View style={styles.empty}>
-                <Banknote color={authTheme.textDim} size={36} />
-                <Text style={styles.emptyTitle}>No credits yet</Text>
-                <Text style={styles.muted}>
-                  Complete a delivery and your net earnings appear here.
-                </Text>
-              </View>
-            )}
+            <WalletPassbook
+              restaurantId={wallet.restaurantId}
+              wallet={wallet.data}
+              txns={txnList}
+              filter={ledgerFilter}
+              onFilterChange={(next) => {
+                setLedgerFilter(next);
+                setPage(1);
+              }}
+              walletError={
+                wallet.error instanceof Error ? wallet.error : null
+              }
+              txnsError={
+                walletTxns.error instanceof Error ? walletTxns.error : null
+              }
+              onRetry={onRefresh}
+            />
           </View>
         ) : null}
 
