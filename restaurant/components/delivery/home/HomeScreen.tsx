@@ -328,9 +328,24 @@ export function DeliveryHomeScreen() {
         });
       },
       onError: (err) => {
+        const code = getApiErrorCode(err);
+        const isKyc =
+          code === 'PARTNER_NOT_ACTIVE' ||
+          code === 'KYC_INCOMPLETE' ||
+          code === 'PARTNER_KYC_PENDING';
         Alert.alert(
-          'Could not update duty',
-          formatGoOnlineError(err, 'Please try again.')
+          isKyc ? 'KYC pending' : 'Could not update duty',
+          formatGoOnlineError(err, 'Please try again.'),
+          isKyc
+            ? [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Complete KYC',
+                  onPress: () =>
+                    router.push(DELIVERY_ROUTES.documents as never),
+                },
+              ]
+            : undefined
         );
       },
     });

@@ -160,8 +160,7 @@ export function getPartnerVerificationBadge(
 
 /**
  * Client-side gate before calling go-online.
- * KYC / document upload is optional for duty. Only suspended, blocked, or
- * deactivated accounts are stopped here. GPS is still required by the API.
+ * Backend also enforces REQUIRE_KYC_FOR_DUTY — block early with a clear alert.
  */
 export function getGoOnlineBlocker(
   profile?: DeliveryPartnerProfile | null
@@ -188,26 +187,40 @@ export function getGoOnlineBlocker(
     };
   }
 
-  // --- KYC was a duty gate; keep the old checks commented, not deleted. ---
-  // const { submitted, verified, total } = getDocumentProgress(profile);
-  // if (submitted < total) {
-  //   return {
-  //     reason: 'documents',
-  //     title: 'Documents required',
-  //     message: `Upload all required documents first (${submitted}/${total} submitted). Then wait for verification before going online.`,
-  //     actionLabel: 'Open Documents',
-  //     actionHref: DELIVERY_ROUTES.documents,
-  //   };
-  // }
-  // if (!isPartnerAccountActive(profile) && verified < total) {
-  //   return {
-  //     reason: 'pending_review',
-  //     title: 'Verification pending',
-  //     message: `Documents are under review (${verified}/${total} verified). Only active partners can go online after approval.`,
-  //     actionLabel: 'View Documents',
-  //     actionHref: DELIVERY_ROUTES.documents,
-  //   };
-  // }
+  const { submitted, rejected, total } = getDocumentProgress(profile);
+
+  if (rejected > 0) {
+    return {
+      reason: 'documents',
+      title: 'KYC rejected',
+      message:
+        'One or more KYC documents were rejected. Please re-upload them and wait for approval before going online.',
+      actionLabel: 'Complete KYC',
+      actionHref: DELIVERY_ROUTES.documents,
+    };
+  }
+
+  if (submitted < total) {
+    return {
+      reason: 'documents',
+      title: 'KYC pending',
+      message:
+        'Your KYC is pending. Please complete document upload before going online.',
+      actionLabel: 'Complete KYC',
+      actionHref: DELIVERY_ROUTES.documents,
+    };
+  }
+
+  if (!isPartnerAccountActive(profile)) {
+    return {
+      reason: 'pending_review',
+      title: 'KYC pending',
+      message:
+        'Your KYC documents are submitted and under review. Please wait for approval before going online.',
+      actionLabel: 'View KYC status',
+      actionHref: DELIVERY_ROUTES.documents,
+    };
+  }
 
   return null;
 }

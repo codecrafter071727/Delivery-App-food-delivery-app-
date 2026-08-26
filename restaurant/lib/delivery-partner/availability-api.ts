@@ -531,7 +531,11 @@ export function applyDutyStatusToProfile(
 
 export const DUTY_ERROR_COPY: Record<string, string> = {
   PARTNER_NOT_ACTIVE:
-    'Could not go online. Check GPS and try again.',
+    'Your KYC is pending. Please complete document upload and wait for approval before going online.',
+  KYC_INCOMPLETE:
+    'Your KYC is pending. Please complete document upload before going online.',
+  PARTNER_KYC_PENDING:
+    'Your KYC is under review. Please wait for approval before going online.',
   PARTNER_NOT_FOUND:
     'No rider profile linked to this login. If admin already shows you as active, log out and sign in with that same delivery account — do not create a second rider.',
   PARTNER_PHONE_TAKEN:
