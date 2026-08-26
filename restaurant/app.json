@@ -73,9 +73,14 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "bcbf8fec-a400-4e24-9571-70c066da9080"
-      }
+        "projectId": "909628eb-e4ce-41be-a284-c1fbf7876c39"
+      },
+      "apiUrl": "http://10.12.129.12:4000",
+      "googleMapsApiKey": "",
+      "googleWebClientId": "",
+      "googleIosClientId": "",
+      "googleAndroidClientId": ""
     },
-    "owner": "akanksha_singh"
+    "owner": "anshul071727"
   }
 }
