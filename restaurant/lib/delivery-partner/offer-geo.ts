@@ -23,7 +23,8 @@ export function formatTripKm(km: number | null | undefined): string | null {
   if (km == null || !Number.isFinite(km) || km < 0) return null;
   if (km < 0.05) return '< 50 m';
   if (km < 0.1) return `${Math.round(km * 1000)} m`;
-  return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+  // Always one decimal so Google road km matches Maps (e.g. 13.2 km, not 13).
+  return `${km.toFixed(1)} km`;
 }
 
 /** Aerial km → approximate road km + travel minutes. */

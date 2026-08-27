@@ -16,6 +16,7 @@ import {
   useDeliveryBatch,
   useDeliveryOrderMutations,
 } from '@/lib/delivery-partner/hooks';
+import { fetchGoogleRoadLegs } from '@/lib/delivery-partner/google-road-distance';
 import { partnerLocationTracker } from '@/lib/delivery-partner/location-tracker';
 import {
   clearIncomingOffer,
@@ -24,11 +25,25 @@ import {
   subscribeIncomingOffer,
   type IncomingOffer,
 } from '@/lib/delivery-partner/offer-store';
+import {
+  fetchRouteEstimate,
+  type RouteEstimateLeg,
+} from '@/lib/delivery-partner/route-estimate-api';
 import { formatTripError } from '@/lib/delivery-partner/rider-ack';
 import { toRejectReasonCode } from '@/lib/delivery-partner/rider-gateway-types';
 import { useLastLocation } from '@/lib/delivery-partner/tracking-hooks';
 import { useResolvedTripStops } from '@/lib/delivery-partner/trip-stops';
 import type { PartnerDelivery } from '@/lib/delivery-partner/types';
+
+function validCoord(lat?: number | null, lng?: number | null) {
+  return (
+    lat != null &&
+    lng != null &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    !(lat === 0 && lng === 0)
+  );
+}
 
 export function IncomingOfferOverlay() {
   const mutations = useDeliveryOrderMutations();
@@ -40,6 +55,7 @@ export function IncomingOfferOverlay() {
     () => partnerLocationTracker.getSnapshot().coords
   );
   const [locating, setLocating] = useState(false);
+  const [roadLegs, setRoadLegs] = useState<RouteEstimateLeg[] | null>(null);
 
   useEffect(() => subscribeIncomingOffer(setOffer), []);
   useEffect(() => {
@@ -53,6 +69,7 @@ export function IncomingOfferOverlay() {
     if (!offer?.deliveryId) return;
     let cancelled = false;
     setLocating(true);
+    setRoadLegs(null);
     void partnerLocationTracker
       .captureLiveLocation()
       .then((coords) => {
@@ -145,9 +162,84 @@ export function IncomingOfferOverlay() {
 
   const riderLat = liveCoords?.latitude ?? lastLocation.data?.latitude;
   const riderLng = liveCoords?.longitude ?? lastLocation.data?.longitude;
+
+  /** Google road km for You→Restaurant and Restaurant→Customer. */
+  useEffect(() => {
+    if (!offer?.deliveryId) return;
+    const restOk = validCoord(offer.restaurantLat, offer.restaurantLng);
+    const dropOk = validCoord(offer.dropLat, offer.dropLng);
+    const riderOk = validCoord(riderLat, riderLng);
+    if (!restOk && !dropOk) return;
+
+    const legs: Array<{
+      id: string;
+      origin: { latitude: number; longitude: number };
+      destination: { latitude: number; longitude: number };
+    }> = [];
+    if (riderOk && restOk) {
+      legs.push({
+        id: 'pickup',
+        origin: { latitude: riderLat!, longitude: riderLng! },
+        destination: {
+          latitude: offer.restaurantLat!,
+          longitude: offer.restaurantLng!,
+        },
+      });
+    }
+    if (restOk && dropOk) {
+      legs.push({
+        id: 'drop',
+        origin: {
+          latitude: offer.restaurantLat!,
+          longitude: offer.restaurantLng!,
+        },
+        destination: { latitude: offer.dropLat!, longitude: offer.dropLng! },
+      });
+    }
+    if (!legs.length) return;
+
+    let cancelled = false;
+    void (async () => {
+      let merged: RouteEstimateLeg[] = [];
+      try {
+        merged = await fetchRouteEstimate({ legs, vehicleType: 'bike' });
+      } catch {
+        merged = [];
+      }
+      const needGoogle =
+        !merged.length || merged.some((l) => l.provider !== 'google');
+      if (needGoogle) {
+        const direct = await fetchGoogleRoadLegs(legs);
+        if (direct.length) {
+          const byId = new Map(merged.map((l) => [l.id ?? '', l]));
+          for (const leg of direct) {
+            if (leg.provider === 'google') byId.set(leg.id ?? '', leg);
+          }
+          merged = Array.from(byId.values());
+        }
+      }
+      if (!cancelled && merged.length) setRoadLegs(merged);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    offer?.deliveryId,
+    offer?.restaurantLat,
+    offer?.restaurantLng,
+    offer?.dropLat,
+    offer?.dropLng,
+    riderLat,
+    riderLng,
+  ]);
+
   const trip = useMemo(
-    () => (offer ? resolveOfferTripMetrics(offer, riderLat, riderLng) : null),
-    [offer, riderLat, riderLng]
+    () =>
+      offer
+        ? resolveOfferTripMetrics(offer, riderLat, riderLng, roadLegs)
+        : null,
+    [offer, riderLat, riderLng, roadLegs]
   );
   const progress = useMemo(() => {
     if (!offer) return 0;

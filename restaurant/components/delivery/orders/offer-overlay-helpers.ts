@@ -3,6 +3,7 @@ import {
   estimateLegEtaMinutes,
   haversineKm,
 } from '@/lib/delivery-partner/offer-geo';
+import type { RouteEstimateLeg } from '@/lib/delivery-partner/route-estimate-api';
 import { formatTripError } from '@/lib/delivery-partner/rider-ack';
 import { getApiErrorCode } from '@/lib/errors';
 
@@ -92,18 +93,64 @@ export function resolveDropKm(offer: IncomingOffer) {
   return offer.estimatedKm ?? null;
 }
 
+export type OfferTripMetrics = {
+  pickupKm: number | null;
+  dropKm: number | null;
+  pickupEtaMin: number | null;
+  dropEtaMin: number | null;
+  totalEtaMin: number | null;
+  roadSource: 'google' | 'haversine' | 'mixed' | null;
+};
+
 export function resolveOfferTripMetrics(
   offer: IncomingOffer,
   riderLat?: number | null,
-  riderLng?: number | null
-) {
-  const pickupKm = resolvePickupKm(offer, riderLat, riderLng);
-  const dropKm = resolveDropKm(offer);
-  const pickupEtaMin = estimateLegEtaMinutes(pickupKm);
-  const dropEtaMin = estimateLegEtaMinutes(dropKm);
+  riderLng?: number | null,
+  roadLegs?: RouteEstimateLeg[] | null
+): OfferTripMetrics {
+  const aerialPickup = resolvePickupKm(offer, riderLat, riderLng);
+  const aerialDrop = resolveDropKm(offer);
+
+  const pickupRoad = roadLegs?.find((l) => l.id === 'pickup');
+  const dropRoad = roadLegs?.find((l) => l.id === 'drop');
+
+  const pickupKm =
+    pickupRoad && pickupRoad.distanceKm > 0
+      ? pickupRoad.distanceKm
+      : aerialPickup;
+  const dropKm =
+    dropRoad && dropRoad.distanceKm > 0 ? dropRoad.distanceKm : aerialDrop;
+
+  const pickupEtaMin =
+    pickupRoad && pickupRoad.provider === 'google'
+      ? pickupRoad.etaMinutes
+      : estimateLegEtaMinutes(aerialPickup);
+  const dropEtaMin =
+    dropRoad && dropRoad.provider === 'google'
+      ? dropRoad.etaMinutes
+      : estimateLegEtaMinutes(aerialDrop);
+
   const totalEtaMin =
     pickupEtaMin != null || dropEtaMin != null
       ? (pickupEtaMin ?? 0) + (dropEtaMin ?? 0)
       : null;
-  return { pickupKm, dropKm, pickupEtaMin, dropEtaMin, totalEtaMin };
+
+  const providers = [pickupRoad?.provider, dropRoad?.provider].filter(
+    Boolean
+  ) as Array<'google' | 'haversine'>;
+  let roadSource: OfferTripMetrics['roadSource'] = null;
+  if (providers.length) {
+    if (providers.every((p) => p === 'google')) roadSource = 'google';
+    else if (providers.every((p) => p === 'haversine')) roadSource = 'haversine';
+    else roadSource = 'mixed';
+  }
+
+  return {
+    pickupKm,
+    dropKm,
+    pickupEtaMin,
+    dropEtaMin,
+    totalEtaMin,
+    roadSource,
+  };
 }
