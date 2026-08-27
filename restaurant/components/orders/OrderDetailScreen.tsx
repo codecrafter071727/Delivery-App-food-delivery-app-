@@ -287,11 +287,13 @@ export function OrderDetailScreen({ orderId }: Props) {
   const riderSinceMs = rider?.assignedAt
     ? new Date(rider.assignedAt).getTime()
     : 0;
+  /** Match order-service `RIDER_NO_SHOW_CANCEL_AFTER_MS` (TEMP 0 for testing). */
+  const riderNoShowWaitMs = 0;
   const riderNoShowReady =
     order?.status === 'ready' &&
     riderEnRoute &&
     riderSinceMs > 0 &&
-    Date.now() - riderSinceMs >= 45 * 60 * 1000;
+    Date.now() - riderSinceMs >= riderNoShowWaitMs;
   const canKitchenCancel = cooking || riderNoShowReady;
   const canDelay =
     cooking || order?.status === 'ready';
@@ -608,13 +610,16 @@ export function OrderDetailScreen({ orderId }: Props) {
                 {order?.status === 'ready' &&
                 rider?.assigned &&
                 !riderNoShowReady &&
+                riderNoShowWaitMs > 0 &&
                 riderSinceMs > 0 ? (
                   <Text style={styles.muted}>
-                    Cancel for rider no-show unlocks after 45 min from assign (
+                    Cancel for rider no-show unlocks after{' '}
+                    {Math.round(riderNoShowWaitMs / 60_000)} min from assign (
                     {Math.max(
                       1,
                       Math.ceil(
-                        (45 * 60 * 1000 - (Date.now() - riderSinceMs)) / 60_000
+                        (riderNoShowWaitMs - (Date.now() - riderSinceMs)) /
+                          60_000
                       )
                     )}{' '}
                     min left)
@@ -944,7 +949,7 @@ export function OrderDetailScreen({ orderId }: Props) {
         }
         copy={
           riderNoShowReady
-            ? 'Rider was assigned 45+ minutes ago and has not reached the store. Add a remark explaining why you are cancelling.'
+            ? 'Rider is assigned but has not reached the store. Add a remark explaining why you are cancelling.'
             : 'Use this after you’ve already accepted. Prepaid orders are refunded when payment-service allows it.'
         }
         confirmLabel="Cancel order"
