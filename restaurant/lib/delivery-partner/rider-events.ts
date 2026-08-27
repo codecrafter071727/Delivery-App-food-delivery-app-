@@ -11,11 +11,14 @@ import { deliveryPartnerKeys } from '@/lib/delivery-partner/hooks';
 import { pushLiveToast } from '@/lib/delivery-partner/live-toast-store';
 import {
   alertNewOffer,
+  alertOfferExpiring,
   clearIncomingOffer,
+  isOfferDeclined,
   parseIncomingOffer,
   patchIncomingOffer,
   setIncomingOffer,
 } from '@/lib/delivery-partner/offer-store';
+import { resolveOfferEarnings, formatInr } from '@/lib/delivery-partner/offer-earnings';
 import type { RiderGatewayEvent } from '@/lib/delivery-partner/rider-gateway-types';
 import { partnerTrackingKeys } from '@/lib/delivery-partner/tracking-hooks';
 import { presentDeviceNotification } from '@/lib/notification/device-alerts';
@@ -68,16 +71,20 @@ export function applyRiderSocketEvent(
   switch (event) {
     case 'delivery:new': {
       const offer = parseIncomingOffer(payload);
-      if (offer) {
+      if (offer && !isOfferDeclined(offer.deliveryId, offer.orderId)) {
         setIncomingOffer(offer);
         alertNewOffer();
+        const earnings = resolveOfferEarnings(offer);
+        const km =
+          offer.dropDistanceKm ??
+          offer.pickupDistanceKm ??
+          offer.estimatedKm;
         void presentDeviceNotification({
           id: `offer-${offer.deliveryId}`,
           title: 'New delivery request',
-          body:
-            offer.deliveryFee != null
-              ? `Earn ₹${Math.round(offer.deliveryFee)} · ${offer.estimatedKm ?? '—'} km`
-              : 'A nearby order is waiting',
+          body: earnings
+            ? `Earn ${formatInr(earnings.netTotal)}${km != null ? ` · ${km.toFixed(1)} km` : ''}`
+            : 'A nearby order is waiting',
           type: 'delivery',
           isRead: false,
           data: { deliveryId: offer.deliveryId, orderId: offer.orderId },
@@ -93,17 +100,21 @@ export function applyRiderSocketEvent(
         patchIncomingOffer(deliveryId, {
           secondsLeft: pickNumber(record, ['secondsLeft']),
           expiresAt: pickString(record, ['expiresAt']),
+          expiring: true,
         });
+        alertOfferExpiring();
       }
       break;
     }
     case 'delivery:cancelled': {
       const deliveryId = pickString(record, ['deliveryId', 'id']);
       const reason = pickString(record, ['reason', 'code']);
+      const message = pickString(record, ['message']);
       clearIncomingOffer(deliveryId);
+      const taken = (reason ?? '').toUpperCase() === 'OFFER_TAKEN';
       pushLiveToast({
-        title: 'Order released',
-        body: cancelCopy(reason),
+        title: taken ? 'Accepted by another rider' : 'Order released',
+        body: message || cancelCopy(reason),
         tone: 'warn',
       });
       invalidate(queryClient, deliveryPartnerKeys.active());

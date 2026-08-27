@@ -42,7 +42,7 @@ export function socketErrorCopy(code?: string): string | undefined {
     case 'OFFER_EXPIRED':
       return 'This order timed out. Wait for the next one.';
     case 'OFFER_TAKEN':
-      return 'Another rider took this order.';
+      return 'Another rider accepted this order.';
     case 'PARTNER_NOT_ACTIVE':
       return 'Could not go online. Check GPS and try again.';
     case 'PARTNER_SUSPENDED':
