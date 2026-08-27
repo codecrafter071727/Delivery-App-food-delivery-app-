@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 import { GOOGLE_MAPS_API_KEY } from '@/lib/google-maps';
 
 export type GoogleRoadLeg = {
@@ -6,13 +8,25 @@ export type GoogleRoadLeg = {
   distanceKm: number;
   etaSeconds: number;
   etaMinutes: number;
-  source: 'directions' | 'distance_matrix';
+  source: 'routes' | 'directions' | 'distance_matrix';
   provider: 'google';
 };
 
 export type RoadPoint = {
   latitude: number;
   longitude: number;
+};
+
+type RoutesResponse = {
+  routes?: Array<{
+    distanceMeters?: number;
+    duration?: string;
+    legs?: Array<{
+      distanceMeters?: number;
+      duration?: string;
+    }>;
+  }>;
+  error?: { message?: string; status?: string };
 };
 
 type DirectionsResponse = {
@@ -49,6 +63,14 @@ function validPoint(p?: RoadPoint | null): p is RoadPoint {
   );
 }
 
+function parseDurationSeconds(raw?: string | null): number | null {
+  if (!raw) return null;
+  const match = /^(\d+(?:\.\d+)?)s$/.exec(raw.trim());
+  if (!match) return null;
+  const n = Number(match[1]);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
 function toLeg(
   id: string | undefined,
   meters: number,
@@ -68,27 +90,98 @@ function toLeg(
   };
 }
 
+function warnRoad(msg: string, extra?: Record<string, unknown>) {
+  if (__DEV__) {
+    console.warn(`[offer-road] ${msg}`, extra ?? '');
+  }
+}
+
+/** New Routes API — same X-Goog-Api-Key pattern as Places (works with Expo key). */
+async function fetchRoutesLeg(
+  origin: RoadPoint,
+  destination: RoadPoint,
+  id?: string
+): Promise<GoogleRoadLeg | null> {
+  const { data } = await axios.post<RoutesResponse>(
+    'https://routes.googleapis.com/directions/v2:computeRoutes',
+    {
+      origin: {
+        location: {
+          latLng: {
+            latitude: origin.latitude,
+            longitude: origin.longitude,
+          },
+        },
+      },
+      destination: {
+        location: {
+          latLng: {
+            latitude: destination.latitude,
+            longitude: destination.longitude,
+          },
+        },
+      },
+      travelMode: 'DRIVE',
+      routingPreference: 'TRAFFIC_AWARE',
+      computeAlternativeRoutes: false,
+      languageCode: 'en-IN',
+      units: 'METRIC',
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+        'X-Goog-FieldMask':
+          'routes.distanceMeters,routes.duration,routes.legs.distanceMeters,routes.legs.duration',
+      },
+      timeout: 12_000,
+    }
+  );
+
+  const route = data.routes?.[0];
+  const meters = route?.distanceMeters ?? route?.legs?.[0]?.distanceMeters;
+  const seconds =
+    parseDurationSeconds(route?.duration) ??
+    parseDurationSeconds(route?.legs?.[0]?.duration);
+  if (meters == null || !Number.isFinite(meters) || meters <= 0) {
+    warnRoad('Routes API empty', { id, error: data.error?.message });
+    return null;
+  }
+  return toLeg(
+    id,
+    meters,
+    seconds ?? (meters / 1000 / 22) * 3600,
+    'routes'
+  );
+}
+
 async function fetchDirectionsLeg(
   origin: RoadPoint,
   destination: RoadPoint,
   id?: string
 ): Promise<GoogleRoadLeg | null> {
-  const params = new URLSearchParams({
-    origin: `${origin.latitude},${origin.longitude}`,
-    destination: `${destination.latitude},${destination.longitude}`,
-    mode: 'driving',
-    key: GOOGLE_MAPS_API_KEY,
-  });
-  const res = await fetch(
-    `https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`
+  const { data } = await axios.get<DirectionsResponse>(
+    'https://maps.googleapis.com/maps/api/directions/json',
+    {
+      params: {
+        origin: `${origin.latitude},${origin.longitude}`,
+        destination: `${destination.latitude},${destination.longitude}`,
+        mode: 'driving',
+        key: GOOGLE_MAPS_API_KEY,
+      },
+      timeout: 12_000,
+    }
   );
-  if (!res.ok) return null;
-  const json = (await res.json()) as DirectionsResponse;
-  const leg = json.routes?.[0]?.legs?.[0];
+  const leg = data.routes?.[0]?.legs?.[0];
   const meters = leg?.distance?.value;
   const seconds =
     leg?.duration_in_traffic?.value ?? leg?.duration?.value;
-  if (json.status !== 'OK' || meters == null || !Number.isFinite(meters)) {
+  if (data.status !== 'OK' || meters == null) {
+    warnRoad('Directions failed', {
+      id,
+      status: data.status,
+      error: data.error_message,
+    });
     return null;
   }
   return toLeg(
@@ -104,27 +197,29 @@ async function fetchMatrixLeg(
   destination: RoadPoint,
   id?: string
 ): Promise<GoogleRoadLeg | null> {
-  const params = new URLSearchParams({
-    origins: `${origin.latitude},${origin.longitude}`,
-    destinations: `${destination.latitude},${destination.longitude}`,
-    mode: 'driving',
-    key: GOOGLE_MAPS_API_KEY,
-  });
-  const res = await fetch(
-    `https://maps.googleapis.com/maps/api/distancematrix/json?${params.toString()}`
+  const { data } = await axios.get<MatrixResponse>(
+    'https://maps.googleapis.com/maps/api/distancematrix/json',
+    {
+      params: {
+        origins: `${origin.latitude},${origin.longitude}`,
+        destinations: `${destination.latitude},${destination.longitude}`,
+        mode: 'driving',
+        key: GOOGLE_MAPS_API_KEY,
+      },
+      timeout: 12_000,
+    }
   );
-  if (!res.ok) return null;
-  const json = (await res.json()) as MatrixResponse;
-  const el = json.rows?.[0]?.elements?.[0];
+  const el = data.rows?.[0]?.elements?.[0];
   const meters = el?.distance?.value;
   const seconds =
     el?.duration_in_traffic?.value ?? el?.duration?.value;
-  if (
-    json.status !== 'OK' ||
-    el?.status !== 'OK' ||
-    meters == null ||
-    !Number.isFinite(meters)
-  ) {
+  if (data.status !== 'OK' || el?.status !== 'OK' || meters == null) {
+    warnRoad('Distance Matrix failed', {
+      id,
+      status: data.status,
+      element: el?.status,
+      error: data.error_message,
+    });
     return null;
   }
   return toLeg(
@@ -142,22 +237,46 @@ async function fetchOneRoadLeg(input: {
 }): Promise<GoogleRoadLeg | null> {
   if (!validPoint(input.origin) || !validPoint(input.destination)) return null;
   try {
+    const viaRoutes = await fetchRoutesLeg(
+      input.origin,
+      input.destination,
+      input.id
+    );
+    if (viaRoutes) return viaRoutes;
+  } catch (err) {
+    warnRoad('Routes API error', {
+      id: input.id,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+  try {
     const viaDirections = await fetchDirectionsLeg(
       input.origin,
       input.destination,
       input.id
     );
     if (viaDirections) return viaDirections;
+  } catch (err) {
+    warnRoad('Directions error', {
+      id: input.id,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+  try {
     return await fetchMatrixLeg(input.origin, input.destination, input.id);
-  } catch {
+  } catch (err) {
+    warnRoad('Matrix error', {
+      id: input.id,
+      message: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
 
 /**
- * Road km via Expo `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`.
- * Directions first (same as Google Maps), then Distance Matrix.
- * Enable Directions API + Distance Matrix API on that key.
+ * Driving road km via Expo `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`.
+ * Prefers Routes API (header key, same as Places), then Directions, then Matrix.
+ * Enable: Routes API, Directions API, Distance Matrix API on the key.
  */
 export async function fetchGoogleRoadLegs(
   legs: Array<{
@@ -166,7 +285,15 @@ export async function fetchGoogleRoadLegs(
     destination: RoadPoint;
   }>
 ): Promise<GoogleRoadLeg[]> {
-  if (!GOOGLE_MAPS_API_KEY || !legs.length) return [];
+  if (!GOOGLE_MAPS_API_KEY) {
+    warnRoad('EXPO_PUBLIC_GOOGLE_MAPS_API_KEY missing');
+    return [];
+  }
+  if (!legs.length) return [];
   const settled = await Promise.all(legs.map((leg) => fetchOneRoadLeg(leg)));
   return settled.filter((leg): leg is GoogleRoadLeg => Boolean(leg));
+}
+
+export function isGoogleMapsKeyConfigured(): boolean {
+  return Boolean(GOOGLE_MAPS_API_KEY);
 }

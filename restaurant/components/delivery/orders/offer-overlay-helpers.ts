@@ -51,7 +51,6 @@ function validPair(
   );
 }
 
-/** Prefer live rider GPS → restaurant; fall back to server pickupDistanceKm. */
 export function resolvePickupKm(
   offer: IncomingOffer,
   riderLat?: number | null,
@@ -74,7 +73,6 @@ export function resolvePickupKm(
   return null;
 }
 
-/** Prefer restaurant → customer coords; fall back to server drop / estimated km. */
 export function resolveDropKm(offer: IncomingOffer) {
   if (
     validPair(offer.restaurantLat, offer.restaurantLng) &&
@@ -99,58 +97,78 @@ export type OfferTripMetrics = {
   pickupEtaMin: number | null;
   dropEtaMin: number | null;
   totalEtaMin: number | null;
-  roadSource: 'google' | 'haversine' | 'mixed' | null;
+  /** True when shown km is Google driving distance. */
+  isRoadKm: boolean;
+  roadLoading: boolean;
 };
 
+/**
+ * Prefer Google driving km. While loading / if Google fails, do not paint
+ * straight-line km as if it were road distance (that caused the 7.4 vs 13 gap).
+ */
 export function resolveOfferTripMetrics(
   offer: IncomingOffer,
   riderLat?: number | null,
   riderLng?: number | null,
-  roadLegs?: GoogleRoadLeg[] | null
+  roadLegs?: GoogleRoadLeg[] | null,
+  roadLoading = false
 ): OfferTripMetrics {
-  const aerialPickup = resolvePickupKm(offer, riderLat, riderLng);
-  const aerialDrop = resolveDropKm(offer);
-
   const pickupRoad = roadLegs?.find((l) => l.id === 'pickup');
   const dropRoad = roadLegs?.find((l) => l.id === 'drop');
+  const hasGoogle = Boolean(
+    (pickupRoad && pickupRoad.distanceKm > 0) ||
+      (dropRoad && dropRoad.distanceKm > 0)
+  );
 
-  const pickupKm =
-    pickupRoad && pickupRoad.distanceKm > 0
-      ? pickupRoad.distanceKm
-      : aerialPickup;
-  const dropKm =
-    dropRoad && dropRoad.distanceKm > 0 ? dropRoad.distanceKm : aerialDrop;
-
-  const pickupEtaMin =
-    pickupRoad && pickupRoad.provider === 'google'
-      ? pickupRoad.etaMinutes
-      : estimateLegEtaMinutes(aerialPickup);
-  const dropEtaMin =
-    dropRoad && dropRoad.provider === 'google'
-      ? dropRoad.etaMinutes
-      : estimateLegEtaMinutes(aerialDrop);
-
-  const totalEtaMin =
-    pickupEtaMin != null || dropEtaMin != null
-      ? (pickupEtaMin ?? 0) + (dropEtaMin ?? 0)
-      : null;
-
-  const providers = [pickupRoad?.provider, dropRoad?.provider].filter(
-    Boolean
-  ) as Array<'google' | 'haversine'>;
-  let roadSource: OfferTripMetrics['roadSource'] = null;
-  if (providers.length) {
-    if (providers.every((p) => p === 'google')) roadSource = 'google';
-    else if (providers.every((p) => p === 'haversine')) roadSource = 'haversine';
-    else roadSource = 'mixed';
+  if (roadLoading && !hasGoogle) {
+    return {
+      pickupKm: null,
+      dropKm: null,
+      pickupEtaMin: null,
+      dropEtaMin: null,
+      totalEtaMin: null,
+      isRoadKm: false,
+      roadLoading: true,
+    };
   }
 
+  if (hasGoogle) {
+    const pickupKm =
+      pickupRoad && pickupRoad.distanceKm > 0 ? pickupRoad.distanceKm : null;
+    const dropKm =
+      dropRoad && dropRoad.distanceKm > 0 ? dropRoad.distanceKm : null;
+    const pickupEtaMin = pickupRoad?.etaMinutes ?? null;
+    const dropEtaMin = dropRoad?.etaMinutes ?? null;
+    const totalEtaMin =
+      pickupEtaMin != null || dropEtaMin != null
+        ? (pickupEtaMin ?? 0) + (dropEtaMin ?? 0)
+        : null;
+    return {
+      pickupKm,
+      dropKm,
+      pickupEtaMin,
+      dropEtaMin,
+      totalEtaMin,
+      isRoadKm: true,
+      roadLoading: false,
+    };
+  }
+
+  // Google failed — last-resort aerial (labeled approx in UI).
+  const aerialPickup = resolvePickupKm(offer, riderLat, riderLng);
+  const aerialDrop = resolveDropKm(offer);
+  const pickupEtaMin = estimateLegEtaMinutes(aerialPickup);
+  const dropEtaMin = estimateLegEtaMinutes(aerialDrop);
   return {
-    pickupKm,
-    dropKm,
+    pickupKm: aerialPickup,
+    dropKm: aerialDrop,
     pickupEtaMin,
     dropEtaMin,
-    totalEtaMin,
-    roadSource,
+    totalEtaMin:
+      pickupEtaMin != null || dropEtaMin != null
+        ? (pickupEtaMin ?? 0) + (dropEtaMin ?? 0)
+        : null,
+    isRoadKm: false,
+    roadLoading: false,
   };
 }

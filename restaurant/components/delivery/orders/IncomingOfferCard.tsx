@@ -35,6 +35,8 @@ type Props = {
   totalEtaMin?: number | null;
   showYouLeg: boolean;
   locating?: boolean;
+  roadLoading?: boolean;
+  isRoadKm?: boolean;
   busy: 'accept' | 'reject' | null;
   onAccept: () => void;
   onDecline: () => void;
@@ -60,6 +62,8 @@ export function IncomingOfferCard({
   totalEtaMin,
   showYouLeg,
   locating,
+  roadLoading,
+  isRoadKm,
   busy,
   onAccept,
   onDecline,
@@ -116,6 +120,8 @@ export function IncomingOfferCard({
             showYouLeg={showYouLeg}
             youKm={pickupKm}
             locating={locating}
+            roadLoading={roadLoading}
+            isRoadKm={isRoadKm}
             restaurantName={restaurantName}
             pickupAddress={pickupAddress}
             pickupKm={pickupKm}
@@ -132,6 +138,8 @@ export function IncomingOfferCard({
             dropKm={batch?.estimatedDistanceKm ?? dropKm}
             dropEtaMin={dropEtaMin}
             totalEtaMin={totalEtaMin}
+            roadLoading={roadLoading}
+            isRoadKm={isRoadKm}
           />
         )}
       </ScrollView>

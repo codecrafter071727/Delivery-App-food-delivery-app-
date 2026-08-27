@@ -55,6 +55,7 @@ export function IncomingOfferOverlay() {
   );
   const [locating, setLocating] = useState(false);
   const [roadLegs, setRoadLegs] = useState<GoogleRoadLeg[] | null>(null);
+  const [roadLoading, setRoadLoading] = useState(false);
 
   useEffect(() => subscribeIncomingOffer(setOffer), []);
   useEffect(() => {
@@ -69,6 +70,7 @@ export function IncomingOfferOverlay() {
     let cancelled = false;
     setLocating(true);
     setRoadLegs(null);
+    setRoadLoading(false);
     void partnerLocationTracker
       .captureLiveLocation()
       .then((coords) => {
@@ -198,9 +200,15 @@ export function IncomingOfferOverlay() {
     if (!legs.length) return;
 
     let cancelled = false;
-    void fetchGoogleRoadLegs(legs).then((road) => {
-      if (!cancelled && road.length) setRoadLegs(road);
-    });
+    setRoadLoading(true);
+    void fetchGoogleRoadLegs(legs)
+      .then((road) => {
+        if (cancelled) return;
+        setRoadLegs(road.length ? road : []);
+      })
+      .finally(() => {
+        if (!cancelled) setRoadLoading(false);
+      });
 
     return () => {
       cancelled = true;
@@ -218,9 +226,15 @@ export function IncomingOfferOverlay() {
   const trip = useMemo(
     () =>
       offer
-        ? resolveOfferTripMetrics(offer, riderLat, riderLng, roadLegs)
+        ? resolveOfferTripMetrics(
+            offer,
+            riderLat,
+            riderLng,
+            roadLegs,
+            roadLoading
+          )
         : null,
-    [offer, riderLat, riderLng, roadLegs]
+    [offer, riderLat, riderLng, roadLegs, roadLoading]
   );
   const progress = useMemo(() => {
     if (!offer) return 0;
@@ -346,11 +360,13 @@ export function IncomingOfferOverlay() {
           pickupKm={trip?.pickupKm ?? null}
           pickupEtaMin={trip?.pickupEtaMin ?? null}
           dropAddress={stops.dropAddress || offer.dropLabel}
-          dropKm={trip?.dropKm ?? stops.dropKm ?? null}
+          dropKm={trip?.dropKm ?? null}
           dropEtaMin={trip?.dropEtaMin ?? null}
           totalEtaMin={trip?.totalEtaMin ?? null}
           showYouLeg={Boolean(youPin || locating)}
           locating={locating && !youPin}
+          roadLoading={roadLoading || Boolean(trip?.roadLoading)}
+          isRoadKm={Boolean(trip?.isRoadKm)}
           busy={busy}
           onAccept={() => void accept()}
           onDecline={() => void decline()}
