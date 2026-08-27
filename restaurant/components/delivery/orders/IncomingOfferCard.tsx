@@ -2,6 +2,7 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  ScrollView,
   Text,
   View,
 } from 'react-native';
@@ -66,7 +67,9 @@ export function IncomingOfferCard({
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.card, { marginBottom: Math.max(insets.bottom, 12) }]}>
+    <View
+      style={[styles.card, { marginBottom: Math.max(insets.bottom, 12) }]}
+    >
       <View style={styles.timerRow}>
         <View style={styles.timerTrack}>
           <View
@@ -84,48 +87,54 @@ export function IncomingOfferCard({
         </Text>
       </View>
 
-      {urgent ? (
-        <View style={styles.expiringBanner}>
-          <Text style={styles.expiringText}>
-            Hurry — offer expires in {seconds}s
-          </Text>
-        </View>
-      ) : null}
+      <ScrollView
+        style={styles.cardScroll}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+        {urgent ? (
+          <View style={styles.expiringBanner}>
+            <Text style={styles.expiringText}>
+              Hurry — offer expires in {seconds}s
+            </Text>
+          </View>
+        ) : null}
 
-      <OfferPayoutHeader
-        offer={offer}
-        stacked={stacked}
-        stackCount={stackCount}
-        stackEarnings={stackEarnings}
-      />
-
-      {offer.batchId && batchLoading && !batch ? (
-        <ActivityIndicator color="#EA4B14" style={{ marginVertical: 12 }} />
-      ) : null}
-
-      {!stacked ? (
-        <OfferRouteCard
-          showYouLeg={showYouLeg}
-          youKm={pickupKm}
-          locating={locating}
-          restaurantName={restaurantName}
-          pickupAddress={pickupAddress}
-          pickupKm={pickupKm}
-          pickupEtaMin={pickupEtaMin}
-          dropAddress={dropAddress}
-          dropKm={dropKm}
-          dropEtaMin={dropEtaMin}
-          totalEtaMin={totalEtaMin}
+        <OfferPayoutHeader
+          offer={offer}
+          stacked={stacked}
+          stackCount={stackCount}
+          stackEarnings={stackEarnings}
         />
-      ) : (
-        <OfferRouteCard
-          restaurantName={`${stackCount} stacked orders`}
-          dropAddress="See trip after accept"
-          dropKm={batch?.estimatedDistanceKm ?? dropKm}
-          dropEtaMin={dropEtaMin}
-          totalEtaMin={totalEtaMin}
-        />
-      )}
+
+        {offer.batchId && batchLoading && !batch ? (
+          <ActivityIndicator color="#EA4B14" style={{ marginVertical: 12 }} />
+        ) : null}
+
+        {!stacked ? (
+          <OfferRouteCard
+            showYouLeg={showYouLeg}
+            youKm={pickupKm}
+            locating={locating}
+            restaurantName={restaurantName}
+            pickupAddress={pickupAddress}
+            pickupKm={pickupKm}
+            pickupEtaMin={pickupEtaMin}
+            dropAddress={dropAddress}
+            dropKm={dropKm}
+            dropEtaMin={dropEtaMin}
+            totalEtaMin={totalEtaMin}
+          />
+        ) : (
+          <OfferRouteCard
+            restaurantName={`${stackCount} stacked orders`}
+            dropAddress="See trip after accept"
+            dropKm={batch?.estimatedDistanceKm ?? dropKm}
+            dropEtaMin={dropEtaMin}
+            totalEtaMin={totalEtaMin}
+          />
+        )}
+      </ScrollView>
 
       <View style={styles.actions}>
         <Pressable
@@ -148,7 +157,7 @@ export function IncomingOfferCard({
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text style={styles.acceptText}>
-              {stacked ? `Accept all (${stackCount})` : 'Accept'}
+              {stacked ? `Accept all (${stackCount})` : 'Accept order'}
             </Text>
           )}
         </Pressable>

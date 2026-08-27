@@ -26,6 +26,8 @@ export type IncomingOffer = {
   pickupDistanceKm?: number;
   /** Restaurant → customer drop (km). */
   dropDistanceKm?: number;
+  /** Expanding search radius when this offer was created (km). */
+  searchRadiusKm?: number;
   timeoutSeconds: number;
   expiresAt?: string;
   broadcast?: boolean;
@@ -158,6 +160,11 @@ export function parseIncomingOffer(payload: unknown): IncomingOffer | null {
       'dropDistanceKm',
       'restaurantToCustomerKm',
       'tripDistanceKm',
+    ]),
+    searchRadiusKm: pickNumber(source, [
+      'searchRadiusKm',
+      'radiusKm',
+      'offerRadiusKm',
     ]),
     timeoutSeconds,
     expiresAt,

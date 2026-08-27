@@ -21,7 +21,7 @@ import {
 import { resolveOfferEarnings, formatInr } from '@/lib/delivery-partner/offer-earnings';
 import type { RiderGatewayEvent } from '@/lib/delivery-partner/rider-gateway-types';
 import { partnerTrackingKeys } from '@/lib/delivery-partner/tracking-hooks';
-import { presentDeviceNotification } from '@/lib/notification/device-alerts';
+import { presentDeviceNotification, RIDER_OFFER_CHANNEL_ID } from '@/lib/notification/device-alerts';
 import { notificationKeys } from '@/lib/notification/hooks';
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -57,6 +57,36 @@ function cancelCopy(reason?: string) {
   return reason?.trim() || 'Assignment cancelled';
 }
 
+function offerNotificationBody(
+  offer: NonNullable<ReturnType<typeof parseIncomingOffer>>,
+  earnings: ReturnType<typeof resolveOfferEarnings>
+) {
+  const parts: string[] = [];
+  if (earnings) {
+    if (earnings.showIncentive && earnings.incentive > 0) {
+      parts.push(
+        `${formatInr(earnings.basePay)} + ${formatInr(earnings.incentive)} incentive = ${formatInr(earnings.netTotal)}`
+      );
+    } else {
+      parts.push(`Earn ${formatInr(earnings.netTotal)}`);
+    }
+  }
+  const pickup =
+    offer.pickupDistanceKm != null && Number.isFinite(offer.pickupDistanceKm)
+      ? `${offer.pickupDistanceKm.toFixed(1)} km to store`
+      : null;
+  const drop =
+    offer.dropDistanceKm != null && Number.isFinite(offer.dropDistanceKm)
+      ? `${offer.dropDistanceKm.toFixed(1)} km drop`
+      : offer.estimatedKm != null && Number.isFinite(offer.estimatedKm)
+        ? `${offer.estimatedKm.toFixed(1)} km`
+        : null;
+  if (pickup) parts.push(pickup);
+  else if (drop) parts.push(drop);
+  if (offer.restaurantName) parts.push(offer.restaurantName);
+  return parts.join(' · ') || 'A nearby order is waiting — open to accept.';
+}
+
 /**
  * Apply rider Socket.IO events to UI stores + TanStack Query.
  * REST poll remains the fallback if the socket drops.
@@ -75,20 +105,24 @@ export function applyRiderSocketEvent(
         setIncomingOffer(offer);
         alertNewOffer();
         const earnings = resolveOfferEarnings(offer);
-        const km =
-          offer.dropDistanceKm ??
-          offer.pickupDistanceKm ??
-          offer.estimatedKm;
-        void presentDeviceNotification({
-          id: `offer-${offer.deliveryId}`,
-          title: 'New delivery request',
-          body: earnings
-            ? `Earn ${formatInr(earnings.netTotal)}${km != null ? ` · ${km.toFixed(1)} km` : ''}`
-            : 'A nearby order is waiting',
-          type: 'delivery',
-          isRead: false,
-          data: { deliveryId: offer.deliveryId, orderId: offer.orderId },
-        });
+        void presentDeviceNotification(
+          {
+            id: `offer-${offer.deliveryId}`,
+            title: earnings?.showIncentive
+              ? `New order · ${formatInr(earnings.netTotal)} (incl. incentive)`
+              : 'New delivery request',
+            body: offerNotificationBody(offer, earnings),
+            type: 'delivery',
+            isRead: false,
+            data: {
+              deliveryId: offer.deliveryId,
+              orderId: offer.orderId,
+              kind: 'rider_new_offer',
+              screen: 'delivery',
+            },
+          },
+          { channelId: RIDER_OFFER_CHANNEL_ID }
+        );
       }
       invalidate(queryClient, deliveryPartnerKeys.active());
       invalidate(queryClient, deliveryPartnerKeys.all);

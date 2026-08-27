@@ -14,24 +14,30 @@ export const incomingOfferStyles = StyleSheet.create({
   },
   scrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 23, 42, 0.32)',
+    backgroundColor: 'rgba(15, 23, 42, 0.38)',
   },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 28,
-    padding: 22,
+    paddingTop: 18,
+    paddingHorizontal: 20,
+    paddingBottom: 18,
     marginBottom: 12,
+    maxHeight: '88%',
     shadowColor: '#000',
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.14,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 12,
+    elevation: 14,
+  },
+  cardScroll: {
+    flexGrow: 0,
   },
   timerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   timerTrack: {
     flex: 1,
@@ -48,7 +54,7 @@ export const incomingOfferStyles = StyleSheet.create({
     fontFamily: fonts.extraBold,
     fontSize: 14,
     color: '#111827',
-    width: 36,
+    minWidth: 36,
     textAlign: 'right',
   },
   timerUrgent: {
@@ -67,6 +73,9 @@ export const incomingOfferStyles = StyleSheet.create({
     color: '#B91C1C',
     textAlign: 'center',
   },
+  payoutBlock: {
+    marginBottom: 4,
+  },
   kicker: {
     fontFamily: fonts.semiBold,
     fontSize: 12,
@@ -77,39 +86,84 @@ export const incomingOfferStyles = StyleSheet.create({
   payout: {
     marginTop: 4,
     fontFamily: fonts.extraBold,
-    fontSize: 36,
+    fontSize: 40,
     color: '#111827',
-    letterSpacing: -1,
+    letterSpacing: -1.2,
   },
   payoutSub: {
-    marginTop: 4,
+    marginTop: 2,
     fontFamily: fonts.medium,
     fontSize: 13,
     color: '#6B7280',
   },
-  incentiveRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  fareCard: {
+    marginTop: 12,
+    borderRadius: 16,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     gap: 8,
-    marginTop: 10,
   },
-  incentiveChip: {
-    backgroundColor: '#ECFDF5',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+  fareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
-  incentiveChipText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 12,
+  fareLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 14,
+    color: '#374151',
+  },
+  fareValue: {
+    fontFamily: fonts.bold,
+    fontSize: 15,
+    color: '#111827',
+  },
+  fareIncentiveLabel: {
     color: '#047857',
+    fontFamily: fonts.semiBold,
+  },
+  fareIncentiveValue: {
+    color: '#047857',
+    fontFamily: fonts.extraBold,
+  },
+  fareDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#86EFAC',
+    marginVertical: 2,
+  },
+  fareTotalLabel: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    color: '#14532D',
+  },
+  fareTotalValue: {
+    fontFamily: fonts.extraBold,
+    fontSize: 18,
+    color: '#14532D',
+  },
+  fareEquation: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: '#15803D',
+    textAlign: 'right',
+  },
+  fareHint: {
+    marginTop: 2,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 16,
   },
   meta: {
-    marginTop: 8,
-    marginBottom: 16,
+    marginTop: 10,
+    marginBottom: 12,
     fontFamily: fonts.medium,
-    fontSize: 13,
-    color: '#4B5563',
+    fontSize: 12,
+    color: '#6B7280',
   },
   routeBlock: {
     borderRadius: 16,
@@ -205,7 +259,7 @@ export const incomingOfferStyles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 18,
+    marginTop: 14,
   },
   declineBtn: {
     flex: 1,
@@ -221,7 +275,7 @@ export const incomingOfferStyles = StyleSheet.create({
     color: '#111827',
   },
   acceptBtn: {
-    flex: 1.4,
+    flex: 1.45,
     height: 54,
     borderRadius: 16,
     backgroundColor: '#16A34A',

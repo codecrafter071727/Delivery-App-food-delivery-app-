@@ -6,6 +6,8 @@ import { storageGetItem, storageSetItem } from '@/lib/storage';
 
 const SEEN_IDS_KEY = 'delivery.notification.seenIds.v1';
 const CHANNEL_ID = 'tokajo-delivery-alerts';
+export const RIDER_OFFER_CHANNEL_ID = 'tokajo-rider-offers';
+const KITCHEN_ORDERS_CHANNEL_ID = 'tokajo-kitchen-orders';
 
 type NotificationsModule = typeof import('expo-notifications');
 
@@ -71,7 +73,14 @@ export async function ensureDeviceNotificationReady(): Promise<boolean> {
           lightColor: '#7A0E22',
           sound: 'default',
         });
-        await Notifications.setNotificationChannelAsync('tokajo-kitchen-orders', {
+        await Notifications.setNotificationChannelAsync(RIDER_OFFER_CHANNEL_ID, {
+          name: 'New delivery offers',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 400, 160, 400, 160, 520],
+          lightColor: '#16A34A',
+          sound: 'default',
+        });
+        await Notifications.setNotificationChannelAsync(KITCHEN_ORDERS_CHANNEL_ID, {
           name: 'Kitchen new orders',
           importance: Notifications.AndroidImportance.MAX,
           vibrationPattern: [0, 400, 200, 400],
@@ -117,24 +126,31 @@ export async function presentDeviceNotification(
   const Notifications = loadNotificationsModule();
   if (!Notifications) return;
 
+  const ready = await ensureDeviceNotificationReady();
+  if (!ready) return;
+
   const channelId =
     options?.channelId ??
     (Platform.OS === 'android' ? CHANNEL_ID : undefined);
 
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: item.title || 'TOKAJO',
-      body: item.body || 'You have a new update',
-      data: {
-        notificationId: item.id,
-        type: item.type,
-        ...(item.data ?? {}),
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: item.title || 'TOKAJO',
+        body: item.body || 'You have a new update',
+        data: {
+          notificationId: item.id,
+          type: item.type,
+          ...(item.data ?? {}),
+        },
+        sound: true,
+        ...(channelId ? { channelId } : null),
       },
-      sound: true,
-      ...(channelId ? { channelId } : null),
-    },
-    trigger: null,
-  });
+      trigger: null,
+    });
+  } catch {
+    // Ignore present failures (denied / Expo Go / OS block)
+  }
 }
 
 /**
