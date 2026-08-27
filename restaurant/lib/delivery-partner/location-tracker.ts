@@ -293,16 +293,30 @@ class PartnerLocationTracker {
     }
   };
 
-  private async refreshDeviceGps() {
+  /**
+   * Fresh device GPS for offer popup / foreground resume.
+   * Updates watchers and returns the new point when available.
+   */
+  async captureLiveLocation(): Promise<PartnerGpsCoords | null> {
     try {
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
       this.latest = fromExpoPosition(pos);
+      this.patchSnapshot({
+        coords: this.latest,
+        locationRequired: false,
+        recordedAt: new Date().toISOString(),
+      });
       this.emitCoords();
+      return this.latest;
     } catch {
-      // keep last known
+      return this.getLastKnown();
     }
+  }
+
+  private async refreshDeviceGps() {
+    await this.captureLiveLocation();
   }
 
   private schedulePing(ms: number) {
