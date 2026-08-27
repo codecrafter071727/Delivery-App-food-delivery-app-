@@ -513,18 +513,13 @@ export default function RestaurantSetupScreen() {
             lat: result.lat,
             lng: result.lng,
           });
-          // Prefill form from the confirmed pin (user can still edit).
-          if (!street.trim() || street.trim().length < 3) {
-            setStreet(parsed.street);
-          }
-          if (!area.trim()) setArea(parsed.area);
-          if (!city.trim() || city.trim().length < 2) setCity(parsed.city);
-          if (!stateName.trim() || stateName.trim().length < 2) {
-            setStateName(parsed.state);
-          }
-          if (!pincode.trim() || pincode.trim().length < 4) {
-            setPincode(parsed.pincode === '000000' ? '' : parsed.pincode);
-          }
+          // Always refresh address fields from the confirmed outlet pin.
+          setStreet(parsed.street);
+          setArea(parsed.area);
+          setCity(parsed.city);
+          setStateName(parsed.state);
+          setPincode(parsed.pincode === '000000' ? '' : parsed.pincode);
+          if (!country.trim()) setCountry('India');
           setMapOpen(false);
           setBanner({
             type: 'success',

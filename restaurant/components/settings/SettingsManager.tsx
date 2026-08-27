@@ -30,24 +30,19 @@ import { KitchenDutyCard } from '@/components/dashboard/KitchenDutyCard';
 import { RestaurantPageHeader } from '@/components/dashboard/RestaurantPageHeader';
 import { KitchenHoursEditor } from '@/components/settings/KitchenHoursEditor';
 import { KitchenPushCard } from '@/components/settings/KitchenPushCard';
+import { ProfileSettingsTab } from '@/components/settings/ProfileSettingsTab';
 import { RestaurantPhotosManager } from '@/components/settings/RestaurantPhotosManager';
 import { StaffManager } from '@/components/staff/StaffManager';
-import {
-  LocationMapPicker,
-  type MapPickResult,
-} from '@/components/restaurant/LocationMapPicker';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import {
   useRestaurantDetail,
   useRestaurantSettingsMutations,
 } from '@/lib/restaurant/settings-hooks';
-import { useCuisineCatalog, restaurantOutletKeys } from '@/lib/restaurant/hooks';
+import { restaurantOutletKeys } from '@/lib/restaurant/hooks';
 import {
-  PRICE_RANGE_OPTIONS,
   type RestaurantDetail,
   type RestaurantSettings,
-  type UpdateRestaurantPayload,
 } from '@/lib/restaurant/settings-types';
 import { useAuthStore } from '@/store/auth-store';
 
@@ -117,311 +112,6 @@ function Section({
       <Text style={styles.sectionTitle}>{title}</Text>
       {subtitle ? <Text style={styles.sectionHint}>{subtitle}</Text> : null}
       {children}
-    </View>
-  );
-}
-
-function sameString(a?: string | null, b?: string | null) {
-  return (a ?? '').trim() === (b ?? '').trim();
-}
-
-function sameNumber(a?: number | null, b?: number | null) {
-  const left = a == null || !Number.isFinite(a) ? null : a;
-  const right = b == null || !Number.isFinite(b) ? null : b;
-  return left === right;
-}
-
-function sameStringList(a?: string[], b?: string[]) {
-  const left = [...(a ?? [])].map((item) => item.trim()).filter(Boolean).sort();
-  const right = [...(b ?? [])].map((item) => item.trim()).filter(Boolean).sort();
-  if (left.length !== right.length) return false;
-  return left.every((item, index) => item === right[index]);
-}
-
-function ProfileTab({
-  detail,
-  busy,
-  onSave,
-}: {
-  detail: RestaurantDetail;
-  busy: boolean;
-  onSave: (payload: UpdateRestaurantPayload) => void;
-}) {
-  const cuisineCatalog = useCuisineCatalog(true);
-  const [name, setName] = useState(detail.name ?? '');
-  const [description, setDescription] = useState(detail.description ?? '');
-  const [costForTwo, setCostForTwo] = useState(
-    detail.costForTwo != null ? String(detail.costForTwo) : ''
-  );
-  const [priceRange, setPriceRange] = useState(
-    String(detail.priceRange ?? 'moderate')
-  );
-  const [cuisines, setCuisines] = useState<string[]>(detail.cuisines ?? []);
-  const [fssai, setFssai] = useState(detail.fssaiLicense ?? '');
-  const [gstin, setGstin] = useState(detail.gstin ?? '');
-  const [phone, setPhone] = useState(detail.phone ?? '');
-  const [street, setStreet] = useState(detail.address?.street ?? '');
-  const [area, setArea] = useState(detail.address?.area ?? '');
-  const [city, setCity] = useState(detail.address?.city ?? '');
-  const [stateName, setStateName] = useState(detail.address?.state ?? '');
-  const [pincode, setPincode] = useState(detail.address?.pincode ?? '');
-  const [country, setCountry] = useState(detail.address?.country ?? 'India');
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
-    detail.location?.coordinates
-      ? {
-          lat: detail.location.coordinates[1],
-          lng: detail.location.coordinates[0],
-        }
-      : null
-  );
-  const [mapDirty, setMapDirty] = useState(false);
-  const [mapOpen, setMapOpen] = useState(false);
-
-  useEffect(() => {
-    setName(detail.name ?? '');
-    setDescription(detail.description ?? '');
-    setCostForTwo(detail.costForTwo != null ? String(detail.costForTwo) : '');
-    setPriceRange(String(detail.priceRange ?? 'moderate'));
-    setCuisines(detail.cuisines ?? []);
-    setFssai(detail.fssaiLicense ?? '');
-    setGstin(detail.gstin ?? '');
-    setPhone(detail.phone ?? '');
-    setStreet(detail.address?.street ?? '');
-    setArea(detail.address?.area ?? '');
-    setCity(detail.address?.city ?? '');
-    setStateName(detail.address?.state ?? '');
-    setPincode(detail.address?.pincode ?? '');
-    setCountry(detail.address?.country ?? 'India');
-    setCoords(
-      detail.location?.coordinates
-        ? {
-            lat: detail.location.coordinates[1],
-            lng: detail.location.coordinates[0],
-          }
-        : null
-    );
-    setMapDirty(false);
-  }, [detail]);
-
-  const toggleCuisine = (cuisine: string) => {
-    setCuisines((prev) => {
-      if (prev.includes(cuisine)) return prev.filter((item) => item !== cuisine);
-      if (prev.length >= 10) return prev;
-      return [...prev, cuisine];
-    });
-  };
-
-  const onMapConfirm = (result: MapPickResult) => {
-    setCoords({ lat: result.lat, lng: result.lng });
-    setMapDirty(true);
-    if (result.formattedAddress) {
-      if (!street.trim()) setStreet(result.label || result.formattedAddress);
-    }
-    setMapOpen(false);
-  };
-
-  const buildPartialPayload = (): UpdateRestaurantPayload | null => {
-    const payload: UpdateRestaurantPayload = {};
-    const cost = Number(costForTwo);
-    const nextCost =
-      costForTwo.trim() && Number.isFinite(cost) && cost > 0 ? cost : undefined;
-
-    if (!sameString(name, detail.name)) payload.name = name.trim();
-    if (!sameString(description, detail.description ?? '')) {
-      payload.description = description.trim();
-    }
-    if (!sameNumber(nextCost, detail.costForTwo)) {
-      payload.costForTwo = nextCost;
-    }
-    if (!sameString(priceRange, String(detail.priceRange ?? 'moderate'))) {
-      payload.priceRange = priceRange;
-    }
-    if (!sameStringList(cuisines, detail.cuisines)) {
-      payload.cuisines = cuisines;
-    }
-    if (!sameString(fssai, detail.fssaiLicense ?? '')) {
-      payload.fssaiLicense = fssai.trim();
-    }
-    if (!sameString(gstin, detail.gstin ?? '')) {
-      payload.gstin = gstin.trim();
-    }
-    if (!sameString(phone, detail.phone ?? '')) {
-      payload.phone = phone.trim();
-    }
-
-    const addressChanged =
-      !sameString(street, detail.address?.street ?? '') ||
-      !sameString(area, detail.address?.area ?? '') ||
-      !sameString(city, detail.address?.city ?? '') ||
-      !sameString(stateName, detail.address?.state ?? '') ||
-      !sameString(pincode, detail.address?.pincode ?? '') ||
-      !sameString(country, detail.address?.country ?? 'India');
-
-    if (addressChanged) {
-      payload.address = {
-        street: street.trim(),
-        area: area.trim() || undefined,
-        city: city.trim(),
-        state: stateName.trim(),
-        country: country.trim() || 'India',
-        pincode: pincode.trim(),
-      };
-    }
-
-    // Existing DB rows sometimes store coordinates without GeoJSON `type: "Point"`.
-    // Mongo then rejects ANY update. Repair only when needed, or when map changed.
-    const locationBroken = Boolean(coords) && detail.locationGeoValid === false;
-
-    if ((mapDirty || locationBroken) && coords) {
-      payload.location = {
-        type: 'Point',
-        coordinates: [coords.lng, coords.lat],
-      };
-    }
-
-    return Object.keys(payload).length ? payload : null;
-  };
-
-  return (
-    <View style={{ gap: 14 }}>
-      <Section title="Basic Information">
-        <Field label="Restaurant Name *" value={name} onChangeText={setName} />
-        <Field
-          label="Phone"
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-          placeholder="Outlet contact number"
-        />
-        <Field
-          label="Description"
-          value={description}
-          onChangeText={setDescription}
-          multiline
-          placeholder="Tell customers about your restaurant"
-        />
-        <Field
-          label="Cost for Two (₹)"
-          value={costForTwo}
-          onChangeText={setCostForTwo}
-          keyboardType="numeric"
-        />
-        <Text style={styles.label}>Price Range</Text>
-        <View style={styles.chipRow}>
-          {PRICE_RANGE_OPTIONS.map((opt) => {
-            const active = priceRange === opt.id;
-            return (
-              <Pressable
-                key={opt.id}
-                onPress={() => setPriceRange(String(opt.id))}
-                style={[styles.chip, active && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </Section>
-
-      <Section title="Cuisines">
-        <View style={styles.chipRow}>
-          {Array.from(
-            new Set([...cuisineCatalog.names, ...(detail.cuisines ?? [])])
-          ).map((cuisine) => {
-            const active = cuisines.includes(cuisine);
-            return (
-              <Pressable
-                key={cuisine}
-                onPress={() => toggleCuisine(cuisine)}
-                style={[styles.chip, active && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                  {cuisine}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <Text style={styles.meta}>
-          Selected: {cuisines.length ? cuisines.join(', ') : 'None'}
-          {cuisineCatalog.isError ? ' · catalog unavailable, local list shown' : ''}
-        </Text>
-      </Section>
-
-      <Section title="Legal Information">
-        <Field label="FSSAI License" value={fssai} onChangeText={setFssai} />
-        <Field label="GSTIN" value={gstin} onChangeText={setGstin} />
-      </Section>
-
-      <Section title="Address & Location">
-        <Pressable
-          onPress={() => setMapOpen(true)}
-          style={({ pressed }) => [
-            styles.secondaryBtn,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text style={styles.secondaryBtnText}>Change on Map</Text>
-        </Pressable>
-        {coords ? (
-          <View style={styles.locationOk}>
-            <Text style={styles.locationOkText}>
-              Location set: {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
-              {detail.locationGeoValid === false
-                ? ' · will auto-fix map format on save'
-                : ''}
-            </Text>
-          </View>
-        ) : (
-          <Text style={styles.meta}>No coordinates set yet.</Text>
-        )}
-        <Field label="Street *" value={street} onChangeText={setStreet} />
-        <Field label="Area / Locality" value={area} onChangeText={setArea} />
-        <Field label="City *" value={city} onChangeText={setCity} />
-        <Field label="State *" value={stateName} onChangeText={setStateName} />
-        <Field
-          label="Pincode *"
-          value={pincode}
-          onChangeText={setPincode}
-          keyboardType="numeric"
-        />
-        <Field label="Country" value={country} onChangeText={setCountry} />
-      </Section>
-
-      <PrimaryButton
-        label="Save Profile"
-        loading={busy}
-        onPress={() => {
-          if (
-            !name.trim() ||
-            !street.trim() ||
-            !city.trim() ||
-            !stateName.trim() ||
-            !pincode.trim()
-          ) {
-            Alert.alert(
-              'Missing details',
-              'Name, street, city, state and pincode are required.'
-            );
-            return;
-          }
-          const payload = buildPartialPayload();
-          if (!payload) {
-            Alert.alert('No changes', 'Edit a field before saving.');
-            return;
-          }
-          onSave(payload);
-        }}
-      />
-
-      <LocationMapPicker
-        visible={mapOpen}
-        onClose={() => setMapOpen(false)}
-        onConfirm={onMapConfirm}
-        initial={coords ?? undefined}
-      />
     </View>
   );
 }
@@ -809,7 +499,7 @@ export function SettingsManager() {
         ) : detail ? (
           <>
             {tab === 'profile' ? (
-              <ProfileTab
+              <ProfileSettingsTab
                 detail={detail}
                 busy={busy}
                 onSave={(payload) =>
