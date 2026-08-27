@@ -16,7 +16,10 @@ import {
   useDeliveryBatch,
   useDeliveryOrderMutations,
 } from '@/lib/delivery-partner/hooks';
-import { fetchGoogleRoadLegs } from '@/lib/delivery-partner/google-road-distance';
+import {
+  fetchGoogleRoadLegs,
+  type GoogleRoadLeg,
+} from '@/lib/delivery-partner/google-road-distance';
 import { partnerLocationTracker } from '@/lib/delivery-partner/location-tracker';
 import {
   clearIncomingOffer,
@@ -25,10 +28,6 @@ import {
   subscribeIncomingOffer,
   type IncomingOffer,
 } from '@/lib/delivery-partner/offer-store';
-import {
-  fetchRouteEstimate,
-  type RouteEstimateLeg,
-} from '@/lib/delivery-partner/route-estimate-api';
 import { formatTripError } from '@/lib/delivery-partner/rider-ack';
 import { toRejectReasonCode } from '@/lib/delivery-partner/rider-gateway-types';
 import { useLastLocation } from '@/lib/delivery-partner/tracking-hooks';
@@ -55,7 +54,7 @@ export function IncomingOfferOverlay() {
     () => partnerLocationTracker.getSnapshot().coords
   );
   const [locating, setLocating] = useState(false);
-  const [roadLegs, setRoadLegs] = useState<RouteEstimateLeg[] | null>(null);
+  const [roadLegs, setRoadLegs] = useState<GoogleRoadLeg[] | null>(null);
 
   useEffect(() => subscribeIncomingOffer(setOffer), []);
   useEffect(() => {
@@ -199,27 +198,9 @@ export function IncomingOfferOverlay() {
     if (!legs.length) return;
 
     let cancelled = false;
-    void (async () => {
-      let merged: RouteEstimateLeg[] = [];
-      try {
-        merged = await fetchRouteEstimate({ legs, vehicleType: 'bike' });
-      } catch {
-        merged = [];
-      }
-      const needGoogle =
-        !merged.length || merged.some((l) => l.provider !== 'google');
-      if (needGoogle) {
-        const direct = await fetchGoogleRoadLegs(legs);
-        if (direct.length) {
-          const byId = new Map(merged.map((l) => [l.id ?? '', l]));
-          for (const leg of direct) {
-            if (leg.provider === 'google') byId.set(leg.id ?? '', leg);
-          }
-          merged = Array.from(byId.values());
-        }
-      }
-      if (!cancelled && merged.length) setRoadLegs(merged);
-    })();
+    void fetchGoogleRoadLegs(legs).then((road) => {
+      if (!cancelled && road.length) setRoadLegs(road);
+    });
 
     return () => {
       cancelled = true;

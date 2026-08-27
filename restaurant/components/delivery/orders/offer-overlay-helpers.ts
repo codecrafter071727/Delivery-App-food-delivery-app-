@@ -3,7 +3,7 @@ import {
   estimateLegEtaMinutes,
   haversineKm,
 } from '@/lib/delivery-partner/offer-geo';
-import type { RouteEstimateLeg } from '@/lib/delivery-partner/route-estimate-api';
+import type { GoogleRoadLeg } from '@/lib/delivery-partner/google-road-distance';
 import { formatTripError } from '@/lib/delivery-partner/rider-ack';
 import { getApiErrorCode } from '@/lib/errors';
 
@@ -106,7 +106,7 @@ export function resolveOfferTripMetrics(
   offer: IncomingOffer,
   riderLat?: number | null,
   riderLng?: number | null,
-  roadLegs?: RouteEstimateLeg[] | null
+  roadLegs?: GoogleRoadLeg[] | null
 ): OfferTripMetrics {
   const aerialPickup = resolvePickupKm(offer, riderLat, riderLng);
   const aerialDrop = resolveDropKm(offer);
