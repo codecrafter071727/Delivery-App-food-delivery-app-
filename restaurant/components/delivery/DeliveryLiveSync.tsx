@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 
 import { IncomingOfferOverlay } from '@/components/delivery/orders/IncomingOfferOverlay';
 import { ActiveTripSession } from '@/components/delivery/orders/ActiveTripSession';
 import { RiderLiveToasts } from '@/components/delivery/shared/RiderLiveToasts';
 import { refreshCsrfToken } from '@/lib/api';
 import { useRiderGatewaySocket } from '@/lib/delivery-partner/use-rider-gateway';
+import { ensureDeviceNotificationReady } from '@/lib/notification/device-alerts';
 
 /**
  * Delivery live layer: CSRF, persistent Socket.IO, incoming offers, toasts.
@@ -17,6 +18,9 @@ export function DeliveryLiveSync({ enabled }: { enabled: boolean }) {
   useEffect(() => {
     if (!enabled) return;
     void refreshCsrfToken(true).catch(() => undefined);
+    if (Platform.OS !== 'web') {
+      void ensureDeviceNotificationReady();
+    }
   }, [enabled]);
 
   if (!enabled) return null;
