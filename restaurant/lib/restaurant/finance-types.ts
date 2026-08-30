@@ -101,3 +101,32 @@ export type RestaurantWalletTxn = {
   description: string;
   createdAt?: string;
 };
+
+export type RestaurantSettlementOrder = {
+  orderId: string;
+  orderNumber?: string | null;
+  orderDate?: string;
+  grossAmount: number;
+  commissionAmount: number;
+  refundImpact: number;
+  restaurantNetAmount: number;
+};
+
+export type RestaurantSettlement = {
+  id: string;
+  settlementNumber: string;
+  periodStart: string;
+  periodEnd: string;
+  totalOrders: number;
+  grossSales: number;
+  commissionAmount: number;
+  refundImpact: number;
+  finalPayable: number;
+  status: PayoutStatus | string;
+  createdAt?: string;
+  payoutStatus?: string | null;
+  payoutReference?: string | null;
+  paidAt?: string | null;
+  failureReason?: string | null;
+  orders?: RestaurantSettlementOrder[];
+};

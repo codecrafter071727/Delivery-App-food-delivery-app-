@@ -6,6 +6,8 @@ import type {
   RestaurantCommission,
   RestaurantInvoice,
   RestaurantPayout,
+  RestaurantSettlement,
+  RestaurantSettlementOrder,
   RestaurantWallet,
   RestaurantWalletTxn,
 } from '@/lib/restaurant/finance-types';
@@ -124,6 +126,69 @@ function mapPayout(raw: Record<string, unknown>): RestaurantPayout | null {
   };
 }
 
+function mapSettlementOrder(raw: Record<string, unknown>): RestaurantSettlementOrder | null {
+  const orderId = String(raw.orderId ?? '').trim();
+  if (!orderId) return null;
+  return {
+    orderId,
+    orderNumber: raw.orderNumber ? String(raw.orderNumber) : null,
+    orderDate: raw.orderDate ? String(raw.orderDate) : undefined,
+    grossAmount: pickNumber(raw, ['grossAmount']),
+    commissionAmount: pickNumber(raw, ['commissionAmount']),
+    refundImpact: pickNumber(raw, ['refundImpact']),
+    restaurantNetAmount: pickNumber(raw, ['restaurantNetAmount']),
+  };
+}
+
+function mapSettlement(raw: Record<string, unknown>): RestaurantSettlement | null {
+  const settlement = asRecord(raw.settlement) ?? raw;
+  const id = String(settlement._id ?? settlement.id ?? '').trim();
+  if (!id) return null;
+  const payout = asRecord(raw.payout);
+  const ordersRaw = Array.isArray(raw.orders) ? raw.orders : [];
+  return {
+    id,
+    settlementNumber: String(settlement.settlementNumber ?? id.slice(-8)),
+    periodStart: String(settlement.periodStart ?? ''),
+    periodEnd: String(settlement.periodEnd ?? ''),
+    totalOrders: pickNumber(settlement, ['totalOrders']),
+    grossSales: pickNumber(settlement, ['grossSales']),
+    commissionAmount: pickNumber(settlement, ['commissionAmount']),
+    refundImpact: pickNumber(settlement, ['refundImpact']),
+    finalPayable: pickNumber(settlement, ['finalPayable']),
+    status: String(settlement.status ?? 'pending'),
+    createdAt: settlement.createdAt ? String(settlement.createdAt) : undefined,
+    payoutStatus: payout ? String(payout.status ?? '') : null,
+    payoutReference: payout?.gatewayPayoutId ? String(payout.gatewayPayoutId) : null,
+    paidAt: payout?.paidAt ? String(payout.paidAt) : null,
+    failureReason:
+      payout?.failureReason && String(payout.failureReason).trim()
+        ? String(payout.failureReason)
+        : null,
+    orders: ordersRaw
+      .map((row) => mapSettlementOrder(asRecord(row) ?? {}))
+      .filter(Boolean) as RestaurantSettlementOrder[],
+  };
+}
+
+function mapSettlementListRow(raw: Record<string, unknown>): RestaurantSettlement | null {
+  const id = String(raw._id ?? raw.id ?? '').trim();
+  if (!id) return null;
+  return {
+    id,
+    settlementNumber: String(raw.settlementNumber ?? id.slice(-8)),
+    periodStart: String(raw.periodStart ?? ''),
+    periodEnd: String(raw.periodEnd ?? ''),
+    totalOrders: pickNumber(raw, ['totalOrders']),
+    grossSales: pickNumber(raw, ['grossSales']),
+    commissionAmount: pickNumber(raw, ['commissionAmount']),
+    refundImpact: pickNumber(raw, ['refundImpact']),
+    finalPayable: pickNumber(raw, ['finalPayable']),
+    status: String(raw.status ?? 'pending'),
+    createdAt: raw.createdAt ? String(raw.createdAt) : undefined,
+  };
+}
+
 function mapInvoice(raw: Record<string, unknown>): RestaurantInvoice | null {
   const invoiceId = String(raw.invoiceId ?? raw.id ?? '').trim();
   const payoutId = String(raw.payoutId ?? '').trim();
@@ -201,6 +266,44 @@ export const restaurantFinanceApi = {
       return mapped;
     } catch (error) {
       throwFinanceError(error, 'Failed to load settlement');
+    }
+  },
+
+  listSettlements: async (
+    restaurantId: string,
+    params?: { page?: number; limit?: number; status?: string }
+  ): Promise<FinancePage<RestaurantSettlement>> => {
+    try {
+      const res = await api.get<Envelope<unknown>>(
+        `${RESTAURANT_BASE}/${restaurantId}/settlements`,
+        {
+          params: {
+            page: params?.page ?? 1,
+            limit: params?.limit ?? 20,
+            ...(params?.status ? { status: params.status } : {}),
+          },
+        }
+      );
+      return unwrapPaged(res.data, mapSettlementListRow);
+    } catch (error) {
+      throwFinanceError(error, 'Failed to load settlements');
+    }
+  },
+
+  getSettlement: async (
+    restaurantId: string,
+    settlementId: string
+  ): Promise<RestaurantSettlement> => {
+    try {
+      const res = await api.get<Envelope<unknown>>(
+        `${RESTAURANT_BASE}/${restaurantId}/settlements/${settlementId}`
+      );
+      const raw = asRecord(res.data?.data) ?? asRecord(res.data) ?? {};
+      const mapped = mapSettlement(raw);
+      if (!mapped) throw new Error('Settlement details were empty.');
+      return mapped;
+    } catch (error) {
+      throwFinanceError(error, 'Failed to load settlement details');
     }
   },
 

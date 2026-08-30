@@ -25,14 +25,14 @@ import { formatCurrency } from '@/lib/dashboard/format';
 import {
   useRestaurantCommission,
   useRestaurantInvoices,
-  useRestaurantPayout,
-  useRestaurantPayouts,
+  useRestaurantSettlement,
+  useRestaurantSettlements,
   useRestaurantWallet,
   useRestaurantWalletTransactions,
 } from '@/lib/restaurant/finance-hooks';
 import type {
   RestaurantInvoice,
-  RestaurantPayout,
+  RestaurantSettlement,
 } from '@/lib/restaurant/finance-types';
 
 type TabKey = 'wallet' | 'payouts' | 'invoices' | 'fees';
@@ -85,27 +85,31 @@ function Line({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PayoutCard({
-  payout,
+function SettlementCard({
+  settlement,
   onPress,
 }: {
-  payout: RestaurantPayout;
+  settlement: RestaurantSettlement;
   onPress: () => void;
 }) {
+  const period =
+    settlement.periodStart && settlement.periodEnd
+      ? `${formatDate(settlement.periodStart)} – ${formatDate(settlement.periodEnd)}`
+      : 'Settlement';
   return (
     <Pressable onPress={onPress} style={styles.card}>
       <View style={styles.cardTop}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.period}>{payout.period || 'Settlement'}</Text>
+          <Text style={styles.period}>{settlement.settlementNumber}</Text>
           <Text style={styles.meta}>
-            {payout.ordersCount} order{payout.ordersCount === 1 ? '' : 's'}
-            {payout.kind === 'instant' ? ' · Instant' : ' · Weekly'}
+            {period} · {settlement.totalOrders} order
+            {settlement.totalOrders === 1 ? '' : 's'}
           </Text>
         </View>
-        <StatusChip status={payout.status} />
+        <StatusChip status={settlement.status} />
       </View>
       <View style={styles.cardBottom}>
-        <Text style={styles.net}>{formatCurrency(payout.netAmount)}</Text>
+        <Text style={styles.net}>{formatCurrency(settlement.finalPayable)}</Text>
         <ChevronRight color={authTheme.textDim} size={18} />
       </View>
     </Pressable>
@@ -148,10 +152,10 @@ export function FinanceManager() {
     tab === 'wallet' ? page : 1,
     ledgerFilter
   );
-  const payouts = useRestaurantPayouts(tab === 'payouts' ? page : 1);
+  const payouts = useRestaurantSettlements(tab === 'payouts' ? page : 1);
   const invoices = useRestaurantInvoices(tab === 'invoices' ? page : 1);
   const commission = useRestaurantCommission();
-  const detail = useRestaurantPayout(selectedId);
+  const detail = useRestaurantSettlement(selectedId);
 
   const listQuery =
     tab === 'wallet'
@@ -177,6 +181,7 @@ export function FinanceManager() {
   const hasNext =
     tab === 'fees' ? false : (listQuery.data as { hasNext?: boolean } | undefined)?.hasNext ?? false;
   const payoutList = payouts.data?.items ?? [];
+  const settlementList = payoutList;
   const invoiceList = invoices.data?.items ?? [];
   const txnList = walletTxns.data?.items ?? [];
 
@@ -185,8 +190,8 @@ export function FinanceManager() {
     setPage(1);
   };
 
-  const selectedSummary = payoutList.find((row) => row.id === selectedId);
-  const payout: RestaurantPayout | undefined = detail.data ?? selectedSummary;
+  const selectedSummary = settlementList.find((row) => row.id === selectedId);
+  const settlement: RestaurantSettlement | undefined = detail.data ?? selectedSummary;
 
   const onRefresh = () => {
     if (tab === 'wallet') {
@@ -306,12 +311,12 @@ export function FinanceManager() {
         ) : null}
 
         {!loading && !listQuery.isError && tab === 'payouts' ? (
-          payoutList.length ? (
+          settlementList.length ? (
             <View style={styles.list}>
-              {payoutList.map((row) => (
-                <PayoutCard
+              {settlementList.map((row) => (
+                <SettlementCard
                   key={row.id}
-                  payout={row}
+                  settlement={row}
                   onPress={() => setSelectedId(row.id)}
                 />
               ))}
@@ -422,47 +427,51 @@ export function FinanceManager() {
                 <X color={authTheme.textMuted} size={20} />
               </Pressable>
             </View>
-            {detail.isLoading && !payout ? (
+            {detail.isLoading && !settlement ? (
               <ActivityIndicator color={authTheme.brand} />
-            ) : detail.isError && !payout ? (
+            ) : detail.isError && !settlement ? (
               <Text style={styles.muted}>
                 {detail.error instanceof Error
                   ? detail.error.message
                   : 'Could not load this settlement.'}
               </Text>
-            ) : payout ? (
+            ) : settlement ? (
               <>
                 <View style={styles.modalHero}>
-                  <Text style={styles.modalPeriod}>{payout.period}</Text>
-                  <StatusChip status={payout.status as PayoutStatus} />
+                  <Text style={styles.modalPeriod}>{settlement.settlementNumber}</Text>
+                  <StatusChip status={settlement.status} />
                 </View>
-                <Text style={styles.net}>{formatCurrency(payout.netAmount)}</Text>
+                <Text style={styles.net}>{formatCurrency(settlement.finalPayable)}</Text>
                 <View style={styles.breakdown}>
-                  <Line label="Gross sales" value={formatCurrency(payout.grossAmount)} />
+                  <Line label="Gross sales" value={formatCurrency(settlement.grossSales)} />
                   <Line
-                    label={`Commission (${Math.round(payout.commissionRate <= 1 ? payout.commissionRate * 100 : payout.commissionRate)}%)`}
-                    value={formatCurrency(payout.commissionAmount)}
+                    label="Commission"
+                    value={formatCurrency(settlement.commissionAmount)}
                   />
-                  <Line label="TDS" value={formatCurrency(payout.tdsAmount)} />
-                  {payout.feeAmount > 0 ? (
-                    <Line label="Fee" value={formatCurrency(payout.feeAmount)} />
+                  <Line label="Refund impact" value={formatCurrency(settlement.refundImpact)} />
+                  <Line label="Orders" value={String(settlement.totalOrders)} />
+                  {settlement.payoutStatus ? (
+                    <Line label="Payout status" value={settlement.payoutStatus} />
                   ) : null}
-                  <Line
-                    label="Orders"
-                    value={String(payout.ordersCount)}
-                  />
-                  <Line
-                    label="Bank"
-                    value={
-                      payout.bankLast4
-                        ? `•••• ${payout.bankLast4}${payout.ifscCode ? ` · ${payout.ifscCode}` : ''}`
-                        : 'On file'
-                    }
-                  />
-                  <Line label="Paid on" value={formatDate(payout.paidAt)} />
+                  {settlement.payoutReference ? (
+                    <Line label="Reference" value={settlement.payoutReference} />
+                  ) : null}
+                  <Line label="Paid on" value={formatDate(settlement.paidAt)} />
                 </View>
-                {payout.failureReason ? (
-                  <Text style={styles.fail}>{payout.failureReason}</Text>
+                {settlement.orders?.length ? (
+                  <View style={{ gap: 6 }}>
+                    <Text style={styles.period}>Included orders</Text>
+                    {settlement.orders.slice(0, 8).map((order) => (
+                      <Line
+                        key={order.orderId}
+                        label={order.orderNumber ?? order.orderId.slice(-6)}
+                        value={formatCurrency(order.restaurantNetAmount)}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+                {settlement.failureReason ? (
+                  <Text style={styles.fail}>{settlement.failureReason}</Text>
                 ) : null}
               </>
             ) : null}

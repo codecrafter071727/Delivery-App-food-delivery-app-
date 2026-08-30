@@ -16,6 +16,10 @@ export const financeKeys = {
     [...financeKeys.restaurant(restaurantId), 'payouts', page] as const,
   payout: (restaurantId: string, payoutId: string) =>
     [...financeKeys.restaurant(restaurantId), 'payout', payoutId] as const,
+  settlements: (restaurantId: string, page: number) =>
+    [...financeKeys.restaurant(restaurantId), 'settlements', page] as const,
+  settlement: (restaurantId: string, settlementId: string) =>
+    [...financeKeys.restaurant(restaurantId), 'settlement', settlementId] as const,
   invoices: (restaurantId: string, page: number) =>
     [...financeKeys.restaurant(restaurantId), 'invoices', page] as const,
   commission: (restaurantId: string) =>
@@ -56,6 +60,42 @@ export function useRestaurantPayout(payoutId: string | null) {
     queryKey: financeKeys.payout(restaurantId, payoutId ?? ''),
     queryFn: () => restaurantFinanceApi.getPayout(restaurantId, payoutId!),
     enabled: Boolean(restaurantId && payoutId),
+    staleTime: 30_000,
+  });
+}
+
+export function useRestaurantSettlements(page = 1) {
+  const restaurantQuery = useMyRestaurantId();
+  const restaurantId = restaurantQuery.data?.id ?? '';
+  const isActive = useAppIsActive();
+
+  const query = useQuery({
+    queryKey: financeKeys.settlements(restaurantId, page),
+    queryFn: () =>
+      restaurantFinanceApi.listSettlements(restaurantId, { page, limit: 20 }),
+    enabled: Boolean(restaurantId),
+    staleTime: 45_000,
+    refetchInterval: liveRefetchInterval(LIVE_INTERVALS.analytics, isActive),
+    refetchIntervalInBackground: false,
+    placeholderData: (previous) => previous,
+  });
+
+  return {
+    ...query,
+    restaurantId,
+    restaurantName: restaurantQuery.data?.name,
+  };
+}
+
+export function useRestaurantSettlement(settlementId: string | null) {
+  const restaurantQuery = useMyRestaurantId();
+  const restaurantId = restaurantQuery.data?.id ?? '';
+
+  return useQuery({
+    queryKey: financeKeys.settlement(restaurantId, settlementId ?? ''),
+    queryFn: () =>
+      restaurantFinanceApi.getSettlement(restaurantId, settlementId!),
+    enabled: Boolean(restaurantId && settlementId),
     staleTime: 30_000,
   });
 }
