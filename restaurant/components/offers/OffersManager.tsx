@@ -1,4 +1,4 @@
-﻿import {
+import {
   Calendar,
   Gift,
   Plus,

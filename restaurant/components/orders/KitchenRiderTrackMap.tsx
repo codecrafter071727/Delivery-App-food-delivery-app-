@@ -178,23 +178,23 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   title: {
-    fontFamily: fonts.sans.semibold,
+    fontFamily: fonts.semiBold,
     fontSize: 15,
     color: '#0F172A',
   },
   meta: {
-    fontFamily: fonts.sans.regular,
+    fontFamily: fonts.regular,
     fontSize: 12,
     color: '#64748B',
   },
   hint: {
-    fontFamily: fonts.sans.regular,
+    fontFamily: fonts.regular,
     fontSize: 13,
     color: '#64748B',
     marginVertical: 8,
   },
   error: {
-    fontFamily: fonts.sans.regular,
+    fontFamily: fonts.regular,
     fontSize: 13,
     color: authTheme.error,
     marginVertical: 8,

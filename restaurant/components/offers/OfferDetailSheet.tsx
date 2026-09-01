@@ -189,7 +189,7 @@ export function OfferDetailSheet({
 
               <Text style={styles.kv}>Effect: {offerEffectSummary(row)}</Text>
               <Text style={styles.kv}>
-                Valid {formatDisplayDate(row.validFrom)} ->{' '}
+                Valid {formatDisplayDate(row.validFrom)} →{' '}
                 {formatDisplayDate(row.validUntil)}
               </Text>
               {row.minOrderAmount != null ? (

@@ -214,6 +214,8 @@ export type PartnerDelivery = {
   cashCollected?: boolean;
   distanceKm?: number;
   etaMinutes?: number;
+  partnerEarnings?: number;
+  incentiveBonus?: number;
   earning?: number;
   notes?: string;
   assignedAt?: string;

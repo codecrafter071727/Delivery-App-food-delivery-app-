@@ -15,6 +15,7 @@ import {
 import { canFallbackToRest, socketErrorCopy } from '@/lib/delivery-partner/rider-ack';
 import { emitRiderEvent, isRiderSocketConnected } from '@/lib/delivery-partner/rider-gateway';
 import { toRejectReasonCode } from '@/lib/delivery-partner/rider-gateway-types';
+import { resolvePartnerDisplayEarning } from '@/lib/delivery-partner/partner-earnings';
 import { partnerTrackingApi } from '@/lib/delivery-partner/tracking-api';
 import type { LocationPingResult } from '@/lib/delivery-partner/tracking-types';
 import { normalizeDutyStatus } from '@/lib/delivery-partner/availability-types';
@@ -342,6 +343,12 @@ function mapTripOrderContext(raw: unknown): TripOrderContext {
         },
         partner: {
           deliveryFee: pickNumber(partner, ['deliveryFee']) ?? 0,
+          commissionPercent: pickNumber(partner, [
+            'commissionPercent',
+            'platformCommissionPercent',
+          ]),
+          commissionAmount: pickNumber(partner, ['commissionAmount']),
+          netEarnings: pickNumber(partner, ['netEarnings', 'youEarn']),
           tipAmount: pickNumber(partner, ['tipAmount']) ?? 0,
           codCollect: pickNumber(partner, ['codCollect']) ?? null,
           lines: mapLines(partner.lines),
@@ -639,31 +646,58 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
       'distance',
     ]),
     etaMinutes: pickNumber(source, ['etaMinutes', 'eta', 'estimatedMinutes']),
+    partnerEarnings: pickNumber(source, [
+      'partnerEarnings',
+      'partnerEarning',
+      'baseEarnings',
+    ]),
+    incentiveBonus: pickNumber(source, [
+      'incentiveBonus',
+      'incentive',
+      'bonus',
+    ]),
     earning: (() => {
       const status = normalizeDeliveryStatus(
         pickString(source, ['status', 'deliveryStatus', 'state']) ?? 'assigned'
       );
       const rtoFee = pickNumber(source, ['rtoFee']);
-      const quoted = pickNumber(source, [
-        'earning',
-        'earnings',
-        'partnerEarning',
+      const partnerEarnings = pickNumber(source, [
         'partnerEarnings',
-        'deliveryFee',
-        'incentive',
+        'partnerEarning',
+        'baseEarnings',
       ]);
+      const incentiveBonus = pickNumber(source, [
+        'incentiveBonus',
+        'incentive',
+        'bonus',
+      ]);
+      const deliveryFee = pickNumber(source, ['deliveryFee', 'fee']);
+      const tipAmount = pickNumber(source, ['tipAmount', 'tip']);
+      const fromBill = (() => {
+        const bill = asRecord(source.bill);
+        const partner = asRecord(bill.partner);
+        const net = pickNumber(partner, ['netEarnings', 'youEarn']);
+        const inc = pickNumber(partner, ['incentiveBonus']);
+        if (net != null) return net + (inc ?? incentiveBonus ?? 0);
+        return undefined;
+      })();
+      const tripPay = resolvePartnerDisplayEarning({
+        deliveryFee,
+        partnerEarnings,
+        incentiveBonus,
+        tipAmount,
+      });
       const credited = pickNumber(source, [
         'earningsCreditedAmount',
         'creditedAmount',
-        'partnerEarnings',
       ]);
       if (status === 'returning_to_restaurant' || status === 'returned') {
         if (rtoFee != null && rtoFee > 0) return rtoFee;
       }
       if (isUnpaidTripStatus(status)) {
-        return credited && credited > 0 ? credited : undefined;
+        return credited && credited > 0 ? credited : tripPay;
       }
-      return credited ?? quoted;
+      return credited ?? fromBill ?? tripPay ?? partnerEarnings;
     })(),
     notes: pickString(source, ['notes', 'specialInstructions', 'instruction']),
     assignedAt: pickString(source, ['assignedAt']),

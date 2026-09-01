@@ -7,6 +7,7 @@ import { RestaurantLiveSync } from '@/components/dashboard/RestaurantLiveSync';
 import { KitchenConfigGate } from '@/components/dashboard/KitchenConfigGate';
 import { KitchenPushSync } from '@/components/dashboard/KitchenPushSync';
 import { KitchenNewOrderAlerts } from '@/components/dashboard/KitchenNewOrderAlerts';
+import { RiderLiveSync } from '@/components/delivery/RiderLiveSync';
 import { DELIVERY_ROUTES } from '@/lib/delivery-partner/navigation';
 import {
   portalMismatchRedirect,
@@ -236,6 +237,7 @@ export default function AppLayout() {
           <KitchenNewOrderAlerts />
         </>
       ) : null}
+      {gate === 'ready' && effectiveRole === 'delivery' ? <RiderLiveSync /> : null}
       <Stack
         screenOptions={{
           headerShown: false,
