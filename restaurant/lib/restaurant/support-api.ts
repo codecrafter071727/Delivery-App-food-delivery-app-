@@ -187,4 +187,20 @@ export const kitchenSupportApi = {
       throwSupportError(error, 'Failed to create ticket');
     }
   },
+
+  getTicket: async (
+    restaurantId: string,
+    ticketId: string
+  ): Promise<KitchenSupportTicket> => {
+    try {
+      const res = await api.get<Envelope<unknown>>(
+        `${RESTAURANT_BASE}/${restaurantId}/support/tickets/${ticketId}`
+      );
+      const mapped = mapTicket(asRecord(res.data?.data) ?? {});
+      if (!mapped) throw new Error('Ticket not found.');
+      return mapped;
+    } catch (error) {
+      throwSupportError(error, 'Failed to load ticket');
+    }
+  },
 };

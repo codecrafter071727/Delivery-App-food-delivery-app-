@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { authTheme } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
@@ -48,10 +48,75 @@ function Progress({ stage }: { stage: KitchenTicketStage }) {
   );
 }
 
+type TimelineItem = {
+  id: string;
+  title: string;
+  text: string;
+  at: string;
+};
+
+function buildTimeline(ticket: KitchenSupportTicket): TimelineItem[] {
+  const items: TimelineItem[] = [
+    {
+      id: 'opened',
+      title: 'Initiated',
+      text: ticket.description || 'Ticket opened with support.',
+      at: ticket.createdAt,
+    },
+  ];
+
+  for (const remark of ticket.remarks) {
+    const role =
+      remark.authorRole === 'restaurant'
+        ? 'You'
+        : remark.authorName ||
+          (remark.authorRole === 'system' ? 'System' : 'Support');
+    items.push({
+      id: remark.id,
+      title: role,
+      text: remark.text,
+      at: remark.createdAt,
+    });
+  }
+
+  if (ticket.stage === 'closed') {
+    const alreadyClosed = ticket.remarks.some((r) =>
+      /closed|resolved/i.test(r.text)
+    );
+    if (!alreadyClosed) {
+      items.push({
+        id: 'closed',
+        title: 'Closed',
+        text: ticket.latestRemark || 'Ticket closed.',
+        at: ticket.updatedAt || ticket.createdAt,
+      });
+    }
+  }
+
+  return items;
+}
+
+function TimelineRow({ item }: { item: TimelineItem }) {
+  return (
+    <View style={styles.timelineRow}>
+      <View style={styles.timelineRail}>
+        <View style={styles.timelineDot} />
+        <View style={styles.timelineLine} />
+      </View>
+      <View style={styles.timelineBody}>
+        <Text style={styles.remarkMeta}>
+          {item.title} · {formatDate(item.at)}
+        </Text>
+        <Text style={styles.remarkText}>{item.text}</Text>
+      </View>
+    </View>
+  );
+}
+
 function RemarkRow({ remark }: { remark: KitchenTicketRemark }) {
   const who =
-    remark.authorName
-    || (remark.authorRole === 'system' ? 'Support' : 'TOKAJO');
+    remark.authorName ||
+    (remark.authorRole === 'system' ? 'Support' : 'TOKAJO');
   return (
     <View style={styles.remark}>
       <Text style={styles.remarkMeta}>
@@ -62,31 +127,64 @@ function RemarkRow({ remark }: { remark: KitchenTicketRemark }) {
   );
 }
 
-export function KitchenTicketCard({ ticket }: { ticket: KitchenSupportTicket }) {
-  return (
-    <View style={styles.card}>
+export function KitchenTicketCard({
+  ticket,
+  expanded = false,
+  onPress,
+}: {
+  ticket: KitchenSupportTicket;
+  expanded?: boolean;
+  onPress?: () => void;
+}) {
+  const timeline = buildTimeline(ticket);
+  const previewRemarks = ticket.remarks.slice(-2);
+
+  const body = (
+    <>
       <View style={styles.cardTop}>
         <Text style={styles.ticketNo}>{ticket.ticketNo || ticket.ticketId}</Text>
         <Text style={styles.priority}>{ticket.priority}</Text>
       </View>
       <Text style={styles.subject}>{ticket.subject}</Text>
-      <Text style={styles.body}>{ticket.description}</Text>
+      <Text style={styles.body} numberOfLines={expanded ? undefined : 3}>
+        {ticket.description}
+      </Text>
       <Text style={styles.meta}>
         {ticket.category} · {formatDate(ticket.createdAt)}
       </Text>
       <Progress stage={ticket.stage} />
-      {ticket.remarks.length > 0 ? (
+
+      {expanded ? (
         <View style={styles.remarks}>
-          <Text style={styles.remarksTitle}>Remarks from support</Text>
-          {ticket.remarks.map((r) => (
+          <Text style={styles.remarksTitle}>Timeline</Text>
+          {timeline.map((item) => (
+            <TimelineRow key={item.id} item={item} />
+          ))}
+        </View>
+      ) : previewRemarks.length > 0 ? (
+        <View style={styles.remarks}>
+          <Text style={styles.remarksTitle}>Latest remarks</Text>
+          {previewRemarks.map((r) => (
             <RemarkRow key={r.id} remark={r} />
           ))}
         </View>
       ) : (
-        <Text style={styles.noRemark}>No remarks yet from support.</Text>
+        <Text style={styles.noRemark}>
+          {onPress ? 'Tap for full timeline' : 'No remarks yet from support.'}
+        </Text>
       )}
-    </View>
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable onPress={onPress} style={styles.card}>
+        {body}
+      </Pressable>
+    );
+  }
+
+  return <View style={styles.card}>{body}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -107,7 +205,12 @@ const styles = StyleSheet.create({
   ticketNo: { color: authTheme.brand, fontSize: 12, fontFamily: fonts.bold },
   priority: { color: authTheme.textDim, fontSize: 11, fontFamily: fonts.semiBold },
   subject: { color: authTheme.text, fontSize: 15, fontFamily: fonts.bold },
-  body: { color: authTheme.textMuted, fontSize: 13, fontFamily: fonts.medium, lineHeight: 18 },
+  body: {
+    color: authTheme.textMuted,
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    lineHeight: 18,
+  },
   meta: { color: authTheme.textDim, fontSize: 12, fontFamily: fonts.medium },
   progress: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   progressStep: { flex: 1, flexDirection: 'row', alignItems: 'center' },
@@ -148,6 +251,27 @@ const styles = StyleSheet.create({
   },
   remark: { gap: 2 },
   remarkMeta: { color: authTheme.textDim, fontSize: 11, fontFamily: fonts.medium },
-  remarkText: { color: authTheme.text, fontSize: 13, fontFamily: fonts.medium, lineHeight: 18 },
+  remarkText: {
+    color: authTheme.text,
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    lineHeight: 18,
+  },
   noRemark: { color: authTheme.textDim, fontSize: 12, fontFamily: fonts.medium },
+  timelineRow: { flexDirection: 'row', gap: 10, minHeight: 44 },
+  timelineRail: { width: 14, alignItems: 'center' },
+  timelineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 4,
+    backgroundColor: authTheme.brand,
+  },
+  timelineLine: {
+    flex: 1,
+    width: 1,
+    marginTop: 4,
+    backgroundColor: 'rgba(122, 14, 34, 0.15)',
+  },
+  timelineBody: { flex: 1, gap: 2, paddingBottom: 10 },
 });

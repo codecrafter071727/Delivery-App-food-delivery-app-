@@ -1,40 +1,67 @@
 /**
- * Delivery partner support — types for tickets / FAQ / contact.
- * Screen uses mock data until support APIs ship
- * (`USE_MOCK_PARTNER_SUPPORT` in support-api.ts).
+ * Delivery partner support — tickets / FAQ / contact.
+ * Live paths under /api/v1/delivery-service/partners/me/support/*
  */
 
 export type SupportTicketStatus =
   | 'open'
   | 'in_progress'
+  | 'waiting_partner'
   | 'resolved'
   | 'closed'
   | string;
 
+/** API ticket categories (earnings/payout need deliveryId or payoutId). */
 export type SupportIssueType =
-  | 'delivery_issue'
-  | 'payment'
-  | 'account'
+  | 'cod_issue'
   | 'app_bug'
+  | 'account_issue'
+  | 'kyc_issue'
+  | 'incentive_issue'
   | 'other'
   | string;
 
+export type SupportMessageRole = 'partner' | 'agent' | 'system' | string;
+
+export type SupportTicketMessage = {
+  messageId: string;
+  senderRole: SupportMessageRole;
+  senderUserId?: string | null;
+  authorName?: string | null;
+  text: string;
+  attachments?: string[];
+  createdAt: string;
+};
+
 export type SupportTicket = {
   id: string;
+  ticketNo?: string;
   subject: string;
   preview?: string;
   status: SupportTicketStatus;
   issueType?: SupportIssueType;
+  priority?: string;
   createdAt?: string;
   updatedAt?: string;
-  /** Relative label from API or mock, e.g. "2 hours ago" */
+  lastMessageAt?: string | null;
+  /** Relative label, e.g. "2 hours ago" */
   updatedLabel?: string;
+};
+
+export type SupportTicketDetail = SupportTicket & {
+  description: string;
+  attachments: string[];
+  messages: SupportTicketMessage[];
+  resolution: string | null;
+  resolvedAt: string | null;
+  closedAt: string | null;
 };
 
 export type SupportFaqItem = {
   id: string;
   question: string;
   answer: string;
+  category?: string;
 };
 
 export type SupportResource = {
@@ -69,13 +96,19 @@ export type CreateSupportTicketPayload = {
   subject?: string;
 };
 
+export type AddSupportTicketMessagePayload = {
+  text: string;
+  screenshotUri?: string | null;
+};
+
 export const SUPPORT_ISSUE_TYPE_OPTIONS: {
   value: SupportIssueType;
   label: string;
 }[] = [
-  { value: 'delivery_issue', label: 'Delivery issue' },
-  { value: 'payment', label: 'Payment & earnings' },
-  { value: 'account', label: 'Account / documents' },
+  { value: 'cod_issue', label: 'COD / cash' },
+  { value: 'incentive_issue', label: 'Incentives & earnings' },
+  { value: 'account_issue', label: 'Account' },
+  { value: 'kyc_issue', label: 'KYC / documents' },
   { value: 'app_bug', label: 'App bug' },
   { value: 'other', label: 'Other' },
 ];

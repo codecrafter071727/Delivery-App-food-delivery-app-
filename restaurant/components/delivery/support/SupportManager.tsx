@@ -29,10 +29,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PartnerTicketDetailSheet } from '@/components/delivery/support/PartnerTicketDetailSheet';
 import { useDeliveryHeaderScrollProps } from '@/components/delivery/shared/header-scroll';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { getApiErrorMessage } from '@/lib/errors';
+import { partnerSupportApi } from '@/lib/delivery-partner/support-api';
 import {
   useCreateSupportTicket,
   usePartnerSupportHub,
@@ -94,12 +96,19 @@ function ContactCard({
   );
 }
 
-function TicketCard({ ticket }: { ticket: SupportTicket }) {
+function TicketCard({
+  ticket,
+  onPress,
+}: {
+  ticket: SupportTicket;
+  onPress: () => void;
+}) {
   const meta = statusMeta(ticket.status);
   return (
-    <View style={styles.ticketCard}>
+    <Pressable onPress={onPress} style={styles.ticketCard}>
       <View style={styles.ticketTop}>
         <Text style={styles.ticketSubject} numberOfLines={2}>
+          {ticket.ticketNo ? `${ticket.ticketNo} · ` : ''}
           {ticket.subject}
         </Text>
         <View style={[styles.statusBadge, { backgroundColor: meta.bg }]}>
@@ -117,7 +126,7 @@ function TicketCard({ ticket }: { ticket: SupportTicket }) {
       {ticket.updatedLabel ? (
         <Text style={styles.ticketTime}>{ticket.updatedLabel}</Text>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -128,12 +137,13 @@ export function PartnerSupportManager() {
   const createTicket = useCreateSupportTicket();
 
   const [pullRefreshing, setPullRefreshing] = useState(false);
-  const [openFaqId, setOpenFaqId] = useState<string | null>('faq-accept');
+  const [openFaqId, setOpenFaqId] = useState<string | null>(null);
   const [issueType, setIssueType] = useState<SupportIssueType | ''>('');
   const [description, setDescription] = useState('');
   const [screenshotUri, setScreenshotUri] = useState<string | null>(null);
   const [typePickerOpen, setTypePickerOpen] = useState(false);
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
 
   const data = hub.data;
   const contact = data?.contact;
@@ -168,29 +178,45 @@ export function PartnerSupportManager() {
   };
 
   const callSupport = () => {
-    const raw = contact?.phone || contact?.phoneLabel || '';
-    const phone = raw.replace(/[^\d+]/g, '');
-    if (!phone) {
-      Alert.alert('Unavailable', 'Support phone will come from the API.');
-      return;
-    }
-    void Linking.openURL(`tel:${phone}`);
-  };
-
-  const emailSupport = () => {
-    const email = contact?.email || 'support@deliverhub.com';
-    void Linking.openURL(`mailto:${email}`);
-  };
-
-  const startChat = () => {
     Alert.alert(
-      'Live Chat',
-      'Chat will connect when the support chat API is ready. For now, call or email us.'
+      'Request a callback',
+      'Ops will call the number on your partner profile.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Request',
+          onPress: () => {
+            void (async () => {
+              try {
+                await partnerSupportApi.requestCallback({
+                  reasonCode: 'other',
+                  preferredWindow: 'asap',
+                });
+                Alert.alert('Requested', 'We will call you back shortly.');
+              } catch (err) {
+                Alert.alert(
+                  'Could not request',
+                  getApiErrorMessage(err, 'Please try again.')
+                );
+              }
+            })();
+          },
+        },
+      ]
     );
   };
 
-  const openResource = (title: string) => {
-    Alert.alert(title, 'This resource will open from the support API when available.');
+  const emailSupport = () => {
+    const email = contact?.email || 'support@tokajo.com';
+    void Linking.openURL(`mailto:${email}`);
+  };
+
+  const openResource = (title: string, url?: string) => {
+    if (url) {
+      void Linking.openURL(url);
+      return;
+    }
+    Alert.alert(title, 'No link is available for this resource yet.');
   };
 
   const pickScreenshot = async () => {
@@ -297,25 +323,25 @@ export function PartnerSupportManager() {
                 icon={Phone}
                 iconColor="#2563EB"
                 title="Call Support"
-                value={contact?.phoneLabel || contact?.phone || '1800-DELIVER'}
-                hint={contact?.phoneHint || '24/7 Available'}
+                value={contact?.phoneLabel || 'Request callback'}
+                hint={contact?.phoneHint || 'Ops will call you'}
                 onPress={callSupport}
               />
               <ContactCard
                 icon={Mail}
                 iconColor="#7C3AED"
                 title="Email Support"
-                value={contact?.email || 'support@deliverhub.com'}
-                hint={contact?.emailHint || 'Response in 2 hours'}
+                value={contact?.email || 'support@tokajo.com'}
+                hint={contact?.emailHint || 'Response in a few hours'}
                 onPress={emailSupport}
               />
               <ContactCard
                 icon={MessageCircle}
                 iconColor={authTheme.success}
-                title="Live Chat"
-                value="Start Chat Now"
-                hint={contact?.chatHint || 'Avg wait: 2 mins'}
-                onPress={startChat}
+                title="Tickets"
+                value="New ticket"
+                hint={contact?.chatHint || 'Written help thread'}
+                onPress={openNewTicketModal}
               />
             </View>
 
@@ -324,64 +350,72 @@ export function PartnerSupportManager() {
                 <Headphones color={authTheme.brand} size={16} />
                 <Text style={styles.sectionTitle}>Frequently Asked Questions</Text>
               </View>
-              {faqs.map((faq) => {
-                const open = openFaqId === faq.id;
-                return (
-                  <View key={faq.id} style={styles.faqItem}>
-                    <Pressable
-                      onPress={() => setOpenFaqId(open ? null : faq.id)}
-                      style={styles.faqQ}
-                    >
-                      <Text style={styles.faqQuestion}>{faq.question}</Text>
-                      <ChevronDown
-                        color={authTheme.textMuted}
-                        size={18}
-                        style={{
-                          transform: [{ rotate: open ? '180deg' : '0deg' }],
-                        }}
-                      />
-                    </Pressable>
-                    {open ? (
-                      <Text style={styles.faqAnswer}>{faq.answer}</Text>
-                    ) : null}
-                  </View>
-                );
-              })}
+              {faqs.length === 0 ? (
+                <Text style={styles.muted}>No FAQ articles yet.</Text>
+              ) : (
+                faqs.map((faq) => {
+                  const open = openFaqId === faq.id;
+                  return (
+                    <View key={faq.id} style={styles.faqItem}>
+                      <Pressable
+                        onPress={() => setOpenFaqId(open ? null : faq.id)}
+                        style={styles.faqQ}
+                      >
+                        <Text style={styles.faqQuestion}>{faq.question}</Text>
+                        <ChevronDown
+                          color={authTheme.textMuted}
+                          size={18}
+                          style={{
+                            transform: [{ rotate: open ? '180deg' : '0deg' }],
+                          }}
+                        />
+                      </Pressable>
+                      {open ? (
+                        <Text style={styles.faqAnswer}>{faq.answer}</Text>
+                      ) : null}
+                    </View>
+                  );
+                })
+              )}
             </View>
 
-            <View style={styles.card}>
-              <View style={styles.sectionHead}>
-                <PlayCircle color="#EA580C" size={16} />
-                <Text style={styles.sectionTitle}>Training & Resources</Text>
+            {training.length > 0 ? (
+              <View style={styles.card}>
+                <View style={styles.sectionHead}>
+                  <PlayCircle color="#EA580C" size={16} />
+                  <Text style={styles.sectionTitle}>Training & Resources</Text>
+                </View>
+                {training.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => openResource(item.title, item.url)}
+                    style={styles.linkRow}
+                  >
+                    <BookOpen color={authTheme.brand} size={16} />
+                    <Text style={styles.linkText}>{item.title}</Text>
+                  </Pressable>
+                ))}
               </View>
-              {training.map((item) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => openResource(item.title)}
-                  style={styles.linkRow}
-                >
-                  <BookOpen color={authTheme.brand} size={16} />
-                  <Text style={styles.linkText}>{item.title}</Text>
-                </Pressable>
-              ))}
-            </View>
+            ) : null}
 
-            <View style={styles.card}>
-              <View style={styles.sectionHead}>
-                <FileText color={authTheme.textMuted} size={16} />
-                <Text style={styles.sectionTitle}>Important Documents</Text>
-              </View>
-              {documents.map((item) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => openResource(item.title)}
-                  style={styles.linkRow}
-                >
+            {documents.length > 0 ? (
+              <View style={styles.card}>
+                <View style={styles.sectionHead}>
                   <FileText color={authTheme.textMuted} size={16} />
-                  <Text style={styles.linkText}>{item.title}</Text>
-                </Pressable>
-              ))}
-            </View>
+                  <Text style={styles.sectionTitle}>Important Documents</Text>
+                </View>
+                {documents.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => openResource(item.title, item.url)}
+                    style={styles.linkRow}
+                  >
+                    <FileText color={authTheme.textMuted} size={16} />
+                    <Text style={styles.linkText}>{item.title}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
 
             <View style={styles.card}>
               <View style={styles.ticketsHead}>
@@ -399,7 +433,11 @@ export function PartnerSupportManager() {
               ) : (
                 <View style={{ gap: 10 }}>
                   {tickets.map((ticket) => (
-                    <TicketCard key={ticket.id} ticket={ticket} />
+                    <TicketCard
+                      key={ticket.id}
+                      ticket={ticket}
+                      onPress={() => setSelectedTicketId(ticket.id)}
+                    />
                   ))}
                 </View>
               )}
@@ -407,6 +445,11 @@ export function PartnerSupportManager() {
           </>
         )}
       </ScrollView>
+
+      <PartnerTicketDetailSheet
+        ticketId={selectedTicketId}
+        onClose={() => setSelectedTicketId(null)}
+      />
 
       <Modal
         visible={ticketModalOpen}

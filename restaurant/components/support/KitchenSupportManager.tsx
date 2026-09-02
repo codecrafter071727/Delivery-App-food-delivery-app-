@@ -14,6 +14,7 @@ import {
 import { RestaurantPageHeader } from '@/components/dashboard/RestaurantPageHeader';
 import { KitchenTicketCard } from '@/components/support/KitchenTicketCard';
 import { KitchenTicketComposer } from '@/components/support/KitchenTicketComposer';
+import { KitchenTicketDetailSheet } from '@/components/support/KitchenTicketDetailSheet';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import {
@@ -33,6 +34,7 @@ export function KitchenSupportManager() {
   const [page, setPage] = useState(1);
   const [stage, setStage] = useState<KitchenTicketStage | 'all'>('all');
   const [composer, setComposer] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
 
   const list = useKitchenTickets(page, stage === 'all' ? undefined : stage);
   const create = useCreateKitchenTicket(list.restaurantId);
@@ -135,7 +137,11 @@ export function KitchenSupportManager() {
         {!loading && !list.isError ? (
           <View style={styles.list}>
             {tickets.map((ticket) => (
-              <KitchenTicketCard key={ticket.ticketId} ticket={ticket} />
+              <KitchenTicketCard
+                key={ticket.ticketId}
+                ticket={ticket}
+                onPress={() => setSelectedTicketId(ticket.ticketId)}
+              />
             ))}
           </View>
         ) : null}
@@ -176,6 +182,12 @@ export function KitchenSupportManager() {
             );
           }
         }}
+      />
+
+      <KitchenTicketDetailSheet
+        restaurantId={list.restaurantId}
+        ticketId={selectedTicketId}
+        onClose={() => setSelectedTicketId(null)}
       />
     </View>
   );

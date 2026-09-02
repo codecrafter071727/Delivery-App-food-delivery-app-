@@ -11,7 +11,7 @@
  *   incentives-*    — bonuses, rewards, quests, challenges, leaderboard
  *   performance-*   — ratings, tier, warnings, referrals
  *   restaurants-*   — partner restaurants
- *   support-*       — help / tickets (mock until API)
+ *   support-*       — help / tickets (live /partners/me/support)
  *   tracking-*      — GPS ping, heartbeat, heatmap, trip map/ETA
  *   rider-gateway   — persistent Socket.IO (socket-token + /socket.io/)
  */

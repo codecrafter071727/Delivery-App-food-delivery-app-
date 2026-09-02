@@ -22,6 +22,8 @@ export const kitchenSupportKeys = {
     stage?: KitchenTicketStage
   ) =>
     [...kitchenSupportKeys.restaurant(restaurantId), 'list', page, stage ?? 'all'] as const,
+  ticket: (restaurantId: string, ticketId: string) =>
+    [...kitchenSupportKeys.restaurant(restaurantId), 'ticket', ticketId] as const,
 };
 
 export function useKitchenTickets(
@@ -48,6 +50,21 @@ export function useKitchenTickets(
     restaurantId,
     restaurantName: restaurantQuery.data?.name,
   };
+}
+
+export function useKitchenTicket(
+  restaurantId: string,
+  ticketId: string | null
+) {
+  const isActive = useAppIsActive();
+  return useQuery({
+    queryKey: kitchenSupportKeys.ticket(restaurantId, ticketId ?? ''),
+    queryFn: () => kitchenSupportApi.getTicket(restaurantId, ticketId!),
+    enabled: Boolean(restaurantId && ticketId),
+    staleTime: 10_000,
+    refetchInterval: liveRefetchInterval(LIVE_INTERVALS.settings, isActive),
+    refetchIntervalInBackground: false,
+  });
 }
 
 export function useCreateKitchenTicket(restaurantId: string) {
