@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 import { api } from '@/lib/api';
+import { postMultipartWithFields } from '@/lib/multipart-upload';
 import type {
   CreateKitchenTicketInput,
   KitchenSupportTicket,
@@ -95,9 +96,9 @@ function mapTicket(raw: Record<string, unknown>): KitchenSupportTicket | null {
   if (!ticketId) return null;
   const status = String(raw.status ?? 'open');
   const remarks = Array.isArray(raw.remarks)
-    ? raw.remarks
+    ? (raw.remarks
         .map((row) => mapRemark(asRecord(row) ?? {}))
-        .filter(Boolean) as KitchenTicketRemark[]
+        .filter(Boolean) as KitchenTicketRemark[])
     : [];
   return {
     ticketId,
@@ -111,17 +112,52 @@ function mapTicket(raw: Record<string, unknown>): KitchenSupportTicket | null {
     priority: String(raw.priority ?? 'medium'),
     orderId: raw.orderId ? String(raw.orderId) : null,
     payoutId: raw.payoutId ? String(raw.payoutId) : null,
+    attachments: Array.isArray(raw.attachments)
+      ? raw.attachments.map(String)
+      : [],
     remarks,
-    latestRemark: raw.latestRemark ? String(raw.latestRemark) : remarks.at(-1)?.text ?? null,
+    latestRemark: raw.latestRemark
+      ? String(raw.latestRemark)
+      : remarks.at(-1)?.text ?? null,
     createdAt: String(raw.createdAt ?? ''),
     updatedAt: String(raw.updatedAt ?? ''),
   };
 }
 
+async function uploadAttachment(
+  restaurantId: string,
+  localUri: string
+): Promise<string> {
+  const raw = await postMultipartWithFields(
+    `${RESTAURANT_BASE}/${restaurantId}/support/attachments/upload`,
+    {
+      fields: {},
+      files: [
+        {
+          fieldName: 'image',
+          file: {
+            uri: localUri,
+            name: 'support-screenshot.jpg',
+            type: 'image/jpeg',
+          },
+        },
+      ],
+    }
+  );
+  const url = String(raw.url ?? raw.imageUrl ?? '').trim();
+  if (!url) throw new Error('Upload did not return a URL');
+  return url;
+}
+
 export const kitchenSupportApi = {
   listTickets: async (
     restaurantId: string,
-    params?: { page?: number; limit?: number; status?: KitchenTicketStatus; stage?: KitchenTicketStage }
+    params?: {
+      page?: number;
+      limit?: number;
+      status?: KitchenTicketStatus;
+      stage?: KitchenTicketStage;
+    }
   ): Promise<KitchenTicketPage> => {
     try {
       const res = await api.get<Envelope<unknown>>(
@@ -140,7 +176,8 @@ export const kitchenSupportApi = {
       const page = Number(meta.page) || params?.page || 1;
       const limit = Number(meta.limit) || params?.limit || 20;
       const total = Number(meta.total) || rows.length;
-      const totalPages = Number(meta.totalPages) || Math.max(1, Math.ceil(total / limit));
+      const totalPages =
+        Number(meta.totalPages) || Math.max(1, Math.ceil(total / limit));
       return {
         tickets: rows
           .map((row) => mapTicket(asRecord(row) ?? {}))
@@ -169,6 +206,10 @@ export const kitchenSupportApi = {
       throw new Error('Describe the issue in at least 10 characters.');
     }
     try {
+      const attachments: string[] = [];
+      for (const uri of input.screenshotUris ?? []) {
+        attachments.push(await uploadAttachment(restaurantId, uri));
+      }
       const res = await api.post<Envelope<unknown>>(
         `${RESTAURANT_BASE}/${restaurantId}/support/tickets`,
         {
@@ -178,6 +219,7 @@ export const kitchenSupportApi = {
           ...(input.priority ? { priority: input.priority } : {}),
           ...(input.orderId ? { orderId: input.orderId } : {}),
           ...(input.payoutId ? { payoutId: input.payoutId } : {}),
+          ...(attachments.length ? { attachments } : {}),
         }
       );
       const mapped = mapTicket(asRecord(res.data?.data) ?? {});
@@ -201,6 +243,24 @@ export const kitchenSupportApi = {
       return mapped;
     } catch (error) {
       throwSupportError(error, 'Failed to load ticket');
+    }
+  },
+
+  reopenTicket: async (
+    restaurantId: string,
+    ticketId: string,
+    reason: string
+  ): Promise<KitchenSupportTicket> => {
+    try {
+      const res = await api.post<Envelope<unknown>>(
+        `${RESTAURANT_BASE}/${restaurantId}/support/tickets/${ticketId}/reopen`,
+        { reason }
+      );
+      const mapped = mapTicket(asRecord(res.data?.data) ?? {});
+      if (!mapped) throw new Error('Could not reopen ticket.');
+      return mapped;
+    } catch (error) {
+      throwSupportError(error, 'Failed to reopen ticket');
     }
   },
 };

@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Image } from 'react-native';
 
 import { authTheme } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
@@ -149,6 +149,13 @@ export function KitchenTicketCard({
       <Text style={styles.body} numberOfLines={expanded ? undefined : 3}>
         {ticket.description}
       </Text>
+      {ticket.attachments?.length ? (
+        <View style={styles.shots}>
+          {ticket.attachments.map((url) => (
+            <Image key={url} source={{ uri: url }} style={styles.shot} />
+          ))}
+        </View>
+      ) : null}
       <Text style={styles.meta}>
         {ticket.category} · {formatDate(ticket.createdAt)}
       </Text>
@@ -211,6 +218,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     lineHeight: 18,
   },
+  shots: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  shot: { width: 72, height: 72, borderRadius: 10 },
   meta: { color: authTheme.textDim, fontSize: 12, fontFamily: fonts.medium },
   progress: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   progressStep: { flex: 1, flexDirection: 'row', alignItems: 'center' },

@@ -98,3 +98,18 @@ export function useCloseSupportTicket() {
     },
   });
 }
+
+export function useReopenSupportTicket() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: { ticketId: string; reason: string }) =>
+      partnerSupportApi.reopenTicket(input.ticketId, input.reason),
+    onSuccess: (detail) => {
+      void queryClient.invalidateQueries({
+        queryKey: partnerSupportKeys.hub(),
+      });
+      queryClient.setQueryData(partnerSupportKeys.ticket(detail.id), detail);
+    },
+  });
+}

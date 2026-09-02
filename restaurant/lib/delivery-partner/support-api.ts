@@ -252,6 +252,24 @@ export const partnerSupportApi = {
     }
   },
 
+  reopenTicket: async (
+    ticketId: string,
+    reason: string
+  ): Promise<SupportTicketDetail> => {
+    assertApiBaseUrl();
+    try {
+      const res = await api.put<Envelope<unknown>>(
+        `${ME}/tickets/${ticketId}/reopen`,
+        { reason }
+      );
+      const mapped = mapDetail(asRecord(res.data?.data) ?? {});
+      if (!mapped) throw new PartnerApiError('Could not reopen ticket.');
+      return mapped;
+    } catch (error) {
+      throwSupportError(error, 'Failed to reopen ticket');
+    }
+  },
+
   requestCallback: async (input?: {
     reasonCode?: string;
     preferredWindow?: string;

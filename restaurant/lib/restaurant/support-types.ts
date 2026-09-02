@@ -37,6 +37,7 @@ export type KitchenSupportTicket = {
   priority: KitchenTicketPriority | string;
   orderId: string | null;
   payoutId: string | null;
+  attachments: string[];
   remarks: KitchenTicketRemark[];
   latestRemark: string | null;
   createdAt: string;
@@ -50,6 +51,8 @@ export type CreateKitchenTicketInput = {
   priority?: KitchenTicketPriority;
   orderId?: string;
   payoutId?: string;
+  /** Local image URIs — uploaded before create */
+  screenshotUris?: string[];
 };
 
 export type KitchenTicketPage = {

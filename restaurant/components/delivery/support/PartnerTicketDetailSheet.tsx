@@ -1,8 +1,10 @@
-import { CheckCircle2, Send, X } from 'lucide-react-native';
+import { Camera, CheckCircle2, Send, X } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -20,6 +22,7 @@ import {
   useAddSupportTicketMessage,
   useCloseSupportTicket,
   usePartnerSupportTicket,
+  useReopenSupportTicket,
 } from '@/lib/delivery-partner/support-hooks';
 import type {
   SupportTicketMessage,
@@ -49,6 +52,18 @@ function formatWhen(iso?: string) {
   });
 }
 
+function Shots({ urls }: { urls?: string[] }) {
+  const list = (urls ?? []).filter(Boolean);
+  if (!list.length) return null;
+  return (
+    <View style={styles.shots}>
+      {list.map((url) => (
+        <Image key={url} source={{ uri: url }} style={styles.shot} />
+      ))}
+    </View>
+  );
+}
+
 function MessageRow({ message }: { message: SupportTicketMessage }) {
   const role = String(message.senderRole).toLowerCase();
   const who =
@@ -59,7 +74,8 @@ function MessageRow({ message }: { message: SupportTicketMessage }) {
       <Text style={styles.msgMeta}>
         {who} · {formatWhen(message.createdAt)}
       </Text>
-      <Text style={styles.msgText}>{message.text}</Text>
+      {message.text ? <Text style={styles.msgText}>{message.text}</Text> : null}
+      <Shots urls={message.attachments} />
     </View>
   );
 }
@@ -75,7 +91,10 @@ export function PartnerTicketDetailSheet({
   const detail = usePartnerSupportTicket(ticketId);
   const addMessage = useAddSupportTicketMessage(ticketId);
   const closeTicket = useCloseSupportTicket();
+  const reopenTicket = useReopenSupportTicket();
   const [text, setText] = useState('');
+  const [shot, setShot] = useState<string | null>(null);
+  const [reopenReason, setReopenReason] = useState('');
 
   const ticket = detail.data;
   const meta = statusMeta(ticket?.status ?? 'open');
@@ -83,11 +102,25 @@ export function PartnerTicketDetailSheet({
     String(ticket?.status).toLowerCase() === 'closed' ||
     String(ticket?.status).toLowerCase() === 'resolved';
 
+  const pickShot = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]?.uri) {
+      setShot(result.assets[0].uri);
+    }
+  };
+
   const send = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() && !shot) return;
     try {
-      await addMessage.mutateAsync({ text: text.trim() });
+      await addMessage.mutateAsync({
+        text: text.trim(),
+        screenshotUri: shot,
+      });
       setText('');
+      setShot(null);
     } catch (err) {
       Alert.alert('Could not send', getApiErrorMessage(err, 'Try again.'));
     }
@@ -95,7 +128,7 @@ export function PartnerTicketDetailSheet({
 
   const onCloseTicket = () => {
     if (!ticketId) return;
-    Alert.alert('Close ticket?', 'You can still view history after closing.', [
+    Alert.alert('Close ticket?', 'You can reopen later if the issue continues.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Close',
@@ -107,6 +140,21 @@ export function PartnerTicketDetailSheet({
         },
       },
     ]);
+  };
+
+  const onReopen = () => {
+    if (!ticketId) return;
+    const reason = reopenReason.trim();
+    if (reason.length < 5) {
+      Alert.alert('Reason needed', 'Tell us why you are reopening (min 5 characters).');
+      return;
+    }
+    void reopenTicket
+      .mutateAsync({ ticketId, reason })
+      .then(() => setReopenReason(''))
+      .catch((err) => {
+        Alert.alert('Could not reopen', getApiErrorMessage(err, 'Try again.'));
+      });
   };
 
   return (
@@ -164,6 +212,7 @@ export function PartnerTicketDetailSheet({
                 <View style={styles.msg}>
                   <Text style={styles.msgMeta}>Opened · {formatWhen(ticket.createdAt)}</Text>
                   <Text style={styles.msgText}>{ticket.description}</Text>
+                  <Shots urls={ticket.attachments} />
                 </View>
                 {ticket.messages.map((m) => (
                   <MessageRow key={m.messageId} message={m} />
@@ -174,29 +223,67 @@ export function PartnerTicketDetailSheet({
                     <Text style={styles.msgText}>{ticket.resolution}</Text>
                   </View>
                 ) : null}
+                {closed ? (
+                  <View style={styles.reopenBox}>
+                    <Text style={styles.reopenTitle}>Still the same issue?</Text>
+                    <TextInput
+                      value={reopenReason}
+                      onChangeText={setReopenReason}
+                      placeholder="Why are you reopening?"
+                      placeholderTextColor={authTheme.textDim}
+                      style={styles.reopenInput}
+                      multiline
+                    />
+                    <Pressable
+                      style={styles.reopenBtn}
+                      onPress={onReopen}
+                      disabled={reopenTicket.isPending}
+                    >
+                      <Text style={styles.reopenText}>
+                        {reopenTicket.isPending ? 'Reopening…' : 'Reopen same ticket'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </ScrollView>
 
               {!closed ? (
-                <View style={styles.composer}>
-                  <TextInput
-                    value={text}
-                    onChangeText={setText}
-                    placeholder="Reply to support…"
-                    placeholderTextColor={authTheme.textDim}
-                    style={styles.input}
-                    multiline
-                  />
-                  <Pressable
-                    onPress={() => void send()}
-                    disabled={addMessage.isPending || !text.trim()}
-                    style={[styles.sendBtn, (!text.trim() || addMessage.isPending) && styles.sendDisabled]}
-                  >
-                    {addMessage.isPending ? (
-                      <ActivityIndicator color="#FFFFFF" size="small" />
-                    ) : (
-                      <Send color="#FFFFFF" size={16} />
-                    )}
-                  </Pressable>
+                <View style={styles.composerCol}>
+                  {shot ? (
+                    <View style={styles.previewRow}>
+                      <Image source={{ uri: shot }} style={styles.preview} />
+                      <Pressable onPress={() => setShot(null)}>
+                        <X color={authTheme.textMuted} size={16} />
+                      </Pressable>
+                    </View>
+                  ) : null}
+                  <View style={styles.composer}>
+                    <Pressable onPress={() => void pickShot()} style={styles.camBtn}>
+                      <Camera color={authTheme.brand} size={18} />
+                    </Pressable>
+                    <TextInput
+                      value={text}
+                      onChangeText={setText}
+                      placeholder="Reply to support…"
+                      placeholderTextColor={authTheme.textDim}
+                      style={styles.input}
+                      multiline
+                    />
+                    <Pressable
+                      onPress={() => void send()}
+                      disabled={addMessage.isPending || (!text.trim() && !shot)}
+                      style={[
+                        styles.sendBtn,
+                        ((!text.trim() && !shot) || addMessage.isPending) && styles.sendDisabled,
+                      ]}
+                    >
+                      {addMessage.isPending ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <Send color="#FFFFFF" size={16} />
+                      )}
+                    </Pressable>
+                  </View>
                 </View>
               ) : null}
             </>
@@ -238,9 +325,27 @@ const styles = StyleSheet.create({
   msg: { backgroundColor: authTheme.bgSoft, borderRadius: 12, padding: 12, gap: 4 },
   msgMeta: { fontFamily: fonts.medium, fontSize: 11, color: authTheme.textDim },
   msgText: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: authTheme.text },
+  shots: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
+  shot: { width: 72, height: 72, borderRadius: 10 },
+  composerCol: {
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: authTheme.cardBorder,
+    gap: 8,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  preview: { width: 56, height: 56, borderRadius: 8 },
   composer: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 16, paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: authTheme.cardBorder,
+    flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 16,
+  },
+  camBtn: {
+    width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: authTheme.bgSoft,
   },
   input: {
     flex: 1, minHeight: 44, maxHeight: 100, borderRadius: 12, borderWidth: 1,
@@ -256,4 +361,31 @@ const styles = StyleSheet.create({
   muted: { fontFamily: fonts.regular, fontSize: 13, color: authTheme.textMuted, textAlign: 'center' },
   retry: { backgroundColor: authTheme.brand, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
   retryText: { color: '#FFFFFF', fontFamily: fonts.bold, fontSize: 13 },
+  reopenBox: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(122,14,34,0.12)',
+    padding: 12,
+    gap: 8,
+    backgroundColor: '#FFF7F7',
+  },
+  reopenTitle: { fontFamily: fonts.bold, fontSize: 13, color: authTheme.text },
+  reopenInput: {
+    minHeight: 56,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: authTheme.inputBorder,
+    padding: 10,
+    textAlignVertical: 'top',
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: authTheme.text,
+  },
+  reopenBtn: {
+    backgroundColor: authTheme.brand,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  reopenText: { color: '#FFFFFF', fontFamily: fonts.bold, fontSize: 13 },
 });

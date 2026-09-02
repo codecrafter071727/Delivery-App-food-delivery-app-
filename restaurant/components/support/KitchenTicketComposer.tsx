@@ -1,7 +1,9 @@
-import { X } from 'lucide-react-native';
+import { Camera, X } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -50,19 +52,33 @@ export function KitchenTicketComposer({
     priority: KitchenTicketPriority;
     subject: string;
     description: string;
+    screenshotUris?: string[];
   }) => void;
 }) {
   const [category, setCategory] = useState<KitchenTicketCategory>('orders');
   const [priority, setPriority] = useState<KitchenTicketPriority>('medium');
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
+  const [shots, setShots] = useState<string[]>([]);
 
   const reset = () => {
     setSubject('');
     setDescription('');
     setCategory('orders');
     setPriority('medium');
+    setShots([]);
     onClose();
+  };
+
+  const pickShot = async () => {
+    if (shots.length >= 5) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]?.uri) {
+      setShots((prev) => [...prev, result.assets[0].uri!].slice(0, 5));
+    }
   };
 
   return (
@@ -132,10 +148,38 @@ export function KitchenTicketComposer({
               maxLength={2000}
               style={[styles.input, styles.area]}
             />
+            <Text style={styles.label}>Screenshot (optional)</Text>
+            <View style={styles.shotRow}>
+              {shots.map((uri) => (
+                <View key={uri} style={styles.shotWrap}>
+                  <Image source={{ uri }} style={styles.shot} />
+                  <Pressable
+                    style={styles.shotX}
+                    onPress={() => setShots((prev) => prev.filter((u) => u !== uri))}
+                  >
+                    <X color="#FFFFFF" size={12} />
+                  </Pressable>
+                </View>
+              ))}
+              {shots.length < 5 ? (
+                <Pressable style={styles.addShot} onPress={() => void pickShot()}>
+                  <Camera color={authTheme.brand} size={18} />
+                  <Text style={styles.addShotText}>Add</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </ScrollView>
           <Pressable
             style={[styles.sendBtn, pending && styles.disabled]}
-            onPress={() => onSubmit({ category, priority, subject, description })}
+            onPress={() =>
+              onSubmit({
+                category,
+                priority,
+                subject,
+                description,
+                screenshotUris: shots,
+              })
+            }
             disabled={pending}
           >
             {pending ? (
@@ -198,6 +242,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   area: { minHeight: 110, textAlignVertical: 'top' },
+  shotRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  shotWrap: { position: 'relative' },
+  shot: { width: 64, height: 64, borderRadius: 10 },
+  shotX: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 10,
+    padding: 2,
+  },
+  addShot: {
+    width: 64,
+    height: 64,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(122, 14, 34, 0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  addShotText: { color: authTheme.brand, fontSize: 11, fontFamily: fonts.semiBold },
   sendBtn: {
     backgroundColor: authTheme.brand,
     borderRadius: 12,

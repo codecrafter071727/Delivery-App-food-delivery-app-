@@ -79,3 +79,20 @@ export function useCreateKitchenTicket(restaurantId: string) {
     },
   });
 }
+
+export function useReopenKitchenTicket(restaurantId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { ticketId: string; reason: string }) =>
+      kitchenSupportApi.reopenTicket(restaurantId, input.ticketId, input.reason),
+    onSuccess: async (ticket) => {
+      await queryClient.invalidateQueries({
+        queryKey: kitchenSupportKeys.restaurant(restaurantId),
+      });
+      queryClient.setQueryData(
+        kitchenSupportKeys.ticket(restaurantId, ticket.ticketId),
+        ticket
+      );
+    },
+  });
+}
