@@ -38,7 +38,7 @@ export function OfferPayoutHeader({
         {earnings ? formatInr(earnings.netTotal) : 'New order'}
       </Text>
       <Text style={styles.payoutSub}>
-        {earnings ? 'You earn (after platform fee)' : 'Accept to view trip earnings'}
+        {earnings ? 'You earn on this trip' : 'Accept to view trip earnings'}
       </Text>
 
       {earnings ? (
@@ -79,8 +79,8 @@ export function OfferPayoutHeader({
 
           {deliveryFee != null ? (
             <Text style={styles.fareHint}>
-              Customer delivery fee {formatInr(deliveryFee)} · after{' '}
-              {earnings.commissionPercent}% platform fee
+              From customer delivery fee {formatInr(deliveryFee)} · platform{' '}
+              {earnings.commissionPercent}%
               {hasIncentive ? ' · incentive paid in full' : ''}
             </Text>
           ) : (

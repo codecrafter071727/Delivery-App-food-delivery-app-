@@ -2,7 +2,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   ArrowLeft,
   Ban,
-  Banknote,
   Clock3,
   Package,
   Phone,
@@ -38,6 +37,7 @@ import {
   RatePartnerSheet,
   RiderHandoverCard,
 } from '@/components/orders/KitchenTicketSheets';
+import { KitchenOrderBillCard } from '@/components/orders/KitchenOrderBillCard';
 import { KitchenOrderChat } from '@/components/orders/KitchenOrderChat';
 import { KitchenRiderCard } from '@/components/orders/KitchenRiderCard';
 import { KitchenRiderTrackMap } from '@/components/orders/KitchenRiderTrackMap';
@@ -56,7 +56,6 @@ import {
 } from '@/lib/order/hooks';
 import { useKitchenOrderTracking } from '@/lib/order/kitchen-tracking-hooks';
 import type { KotPrintResult, RestaurantOrderAction } from '@/lib/order/owner-api';
-import { buildRestaurantBill } from '@/lib/order/restaurant-bill';
 import {
   addressText,
   canReject,
@@ -718,74 +717,7 @@ export function OrderDetailScreen({ orderId }: Props) {
               </View>
             ) : null}
 
-            {/* Summary */}
-            <View style={styles.card}>
-              <View style={styles.cardHead}>
-                <Banknote color={authTheme.brand} size={16} />
-                <Text style={styles.cardTitle}>Order Summary</Text>
-              </View>
-              {(() => {
-                const bill = buildRestaurantBill(order);
-                const delivered =
-                  String(order.status ?? '').toLowerCase() === 'delivered';
-
-                return (
-                  <>
-                    <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Item total</Text>
-                      <Text style={styles.summaryValue}>{money(bill.itemTotal)}</Text>
-                    </View>
-                    {bill.discount > 0 ? (
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Discount</Text>
-                        <Text style={styles.summaryValue}>-{money(bill.discount)}</Text>
-                      </View>
-                    ) : null}
-                    <View style={[styles.summaryRow, styles.summaryTotal]}>
-                      <Text style={styles.totalLabel}>Food total</Text>
-                      <Text style={styles.totalValue}>
-                        {money(bill.restaurantCharges)}
-                      </Text>
-                    </View>
-                    <Text style={styles.summaryHint}>
-                      You earn on food only. Packaging, GST, delivery, and tip stay
-                      with the platform / rider. After delivery, {bill.commissionPercent}%
-                      commission is deducted — the rest is credited to your wallet.
-                    </Text>
-                    <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>
-                        Platform fee ({bill.commissionPercent}%)
-                      </Text>
-                      <Text style={styles.summaryValue}>
-                        −{money(bill.commissionAmount)}
-                      </Text>
-                    </View>
-                    <View style={[styles.summaryRow, styles.summaryTotal]}>
-                      <Text style={styles.totalLabel}>
-                        {delivered ? 'Credited to wallet' : 'You earn after delivery'}
-                      </Text>
-                      <Text style={styles.totalValue}>{money(bill.youEarn)}</Text>
-                    </View>
-                    {order.paymentMethod ? (
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Payment method</Text>
-                        <Text style={styles.summaryValue}>
-                          {order.paymentMethod}
-                        </Text>
-                      </View>
-                    ) : null}
-                    {order.paymentStatus ? (
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Payment status</Text>
-                        <Text style={styles.summaryValue}>
-                          {displayStatus(order.paymentStatus)}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </>
-                );
-              })()}
-            </View>
+            <KitchenOrderBillCard order={order} />
 
             {/* Partner */}
             {order.fulfillmentTone === 'delivery' ? (
@@ -1320,45 +1252,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 14,
     color: authTheme.text,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-  },
-  summaryLabel: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    color: authTheme.textMuted,
-  },
-  summaryValue: {
-    fontFamily: fonts.semiBold,
-    fontSize: 13,
-    color: authTheme.text,
-  },
-  summaryTotal: {
-    marginTop: 4,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: authTheme.cardBorder,
-  },
-  totalLabel: {
-    fontFamily: fonts.bold,
-    fontSize: 15,
-    color: authTheme.text,
-  },
-  totalValue: {
-    fontFamily: fonts.extraBold,
-    fontSize: 18,
-    color: authTheme.brand,
-  },
-  summaryHint: {
-    marginTop: 6,
-    fontFamily: fonts.medium,
-    fontSize: 11,
-    color: authTheme.textDim,
-    lineHeight: 15,
   },
   assignBtn: {
     marginTop: 12,

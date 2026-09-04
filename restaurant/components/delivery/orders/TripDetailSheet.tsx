@@ -33,7 +33,11 @@ type Props = {
 function money(amount?: number, currency = 'INR') {
   if (amount == null || !Number.isFinite(amount)) return null;
   const symbol = currency === 'INR' ? '₹' : `${currency} `;
-  return `${symbol}${Math.round(amount)}`;
+  const n = Math.round(Math.max(0, amount) * 100) / 100;
+  return `${symbol}${n.toLocaleString('en-IN', {
+    minimumFractionDigits: n % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 function formatWhen(iso?: string | null) {
@@ -163,10 +167,17 @@ export function TripDetailSheet({
               ) : tripEarn.data ? (
                 <View style={styles.summary}>
                   <Text style={styles.sectionTitle}>Trip earnings</Text>
-                  <Text style={styles.earn}>
-                    Net {money(tripEarn.data.net, tripEarn.data.currency)}
-                  </Text>
-                  <Text style={styles.muted}>
+                  <View style={styles.earnHero}>
+                    <Text style={styles.earnHeroLabel}>
+                      {tripCreditsEarnings(delivery?.status)
+                        ? 'Credited'
+                        : 'You earn'}
+                    </Text>
+                    <Text style={styles.earnHeroValue}>
+                      {money(tripEarn.data.net, tripEarn.data.currency)}
+                    </Text>
+                  </View>
+                  <Text style={styles.mutedLeft}>
                     Gross {money(tripEarn.data.gross, tripEarn.data.currency)}
                     {tripEarn.data.actualDistanceKm != null
                       ? ` · ${tripEarn.data.actualDistanceKm} km`
@@ -188,9 +199,12 @@ export function TripDetailSheet({
                     ] as const
                   ).map(([label, value]) =>
                     value ? (
-                      <Text key={label} style={styles.muted}>
-                        {label} {money(value, tripEarn.data.currency)}
-                      </Text>
+                      <View key={label} style={styles.billRow}>
+                        <Text style={styles.billLabel}>{label}</Text>
+                        <Text style={styles.billValue}>
+                          {money(value, tripEarn.data.currency)}
+                        </Text>
+                      </View>
                     ) : null
                   )}
                 </View>
@@ -206,24 +220,25 @@ export function TripDetailSheet({
                 <ActivityIndicator color="#EA4B14" style={{ marginVertical: 8 }} />
               ) : orderCtx.data ? (
                 <View style={styles.summary}>
-                  <Text style={styles.sectionTitle}>Order bill</Text>
-                  <Text style={styles.muted}>
+                  <Text style={styles.sectionTitle}>Your delivery pay</Text>
+                  <Text style={styles.mutedLeft}>
                     {orderCtx.data.restaurantName}
                     {orderCtx.data.customerName ? ` → ${orderCtx.data.customerName}` : ''}
                   </Text>
                   {orderCtx.data.customerPhone ? (
-                    <Text style={styles.muted}>Customer {orderCtx.data.customerPhone}</Text>
+                    <Text style={styles.mutedLeft}>Customer {orderCtx.data.customerPhone}</Text>
                   ) : null}
                   {orderCtx.data.items.slice(0, 4).map((item, idx) => (
-                    <Text key={`${item.name}-${idx}`} style={styles.muted}>
-                      {item.quantity}× {item.name} · {money(item.itemTotal, 'INR')}
+                    <Text key={`${item.name}-${idx}`} style={styles.mutedLeft}>
+                      {item.quantity}× {item.name}
                     </Text>
                   ))}
                   {orderCtx.data.items.length > 4 ? (
-                    <Text style={styles.muted}>
+                    <Text style={styles.mutedLeft}>
                       +{orderCtx.data.items.length - 4} more items
                     </Text>
                   ) : null}
+                  <View style={styles.fareDivider} />
                   {(orderCtx.data.bill?.partner.lines?.length
                     ? orderCtx.data.bill.partner.lines
                     : [
@@ -245,16 +260,23 @@ export function TripDetailSheet({
                           : []),
                       ]
                   ).map((line) => (
-                    <Text key={line.key} style={styles.muted}>
-                      {line.label}{' '}
-                      {line.sign === 'subtract' ? '−' : ''}
-                      {money(line.amount, 'INR')}
-                    </Text>
+                    <View key={line.key} style={styles.billRow}>
+                      <Text style={styles.billLabel}>{line.label}</Text>
+                      <Text style={styles.billValue}>
+                        {line.sign === 'subtract' ? '−' : ''}
+                        {money(line.amount, 'INR')}
+                      </Text>
+                    </View>
                   ))}
-                  <Text style={styles.earn}>
-                    Customer total {money(orderCtx.data.grandTotal, 'INR')}
-                  </Text>
-                  <Text style={styles.muted}>
+                  {orderCtx.data.bill?.partner?.netEarnings != null ? (
+                    <View style={styles.earnHero}>
+                      <Text style={styles.earnHeroLabel}>Your payout</Text>
+                      <Text style={styles.earnHeroValue}>
+                        {money(orderCtx.data.bill.partner.netEarnings, 'INR')}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <Text style={styles.mutedLeft}>
                     Payment{' '}
                     {orderCtx.data.paymentMethod === 'cod'
                       ? delivery?.settledVia === 'upi'
@@ -432,7 +454,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
     marginBottom: 18,
-    gap: 2,
+    gap: 6,
   },
   status: {
     fontFamily: fonts.bold,
@@ -450,11 +472,63 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginTop: 4,
   },
+  earnHero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 4,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(234, 75, 20, 0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(234, 75, 20, 0.14)',
+  },
+  earnHeroLabel: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: '#C23D0F',
+  },
+  earnHeroValue: {
+    fontFamily: fonts.extraBold,
+    fontSize: 20,
+    color: '#EA4B14',
+    letterSpacing: -0.3,
+  },
+  mutedLeft: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'left',
+  },
+  billRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  billLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  billValue: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: '#111827',
+  },
+  fareDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 6,
+  },
   sectionTitle: {
     fontFamily: fonts.extraBold,
     fontSize: 15,
     color: '#111827',
-    marginBottom: 10,
+    marginBottom: 4,
   },
   steps: {
     gap: 12,
