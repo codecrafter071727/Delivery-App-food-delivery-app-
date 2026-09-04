@@ -172,24 +172,19 @@ export function addressText(order: OwnerOrder) {
   );
 }
 
-/** Prefer restaurant food+tax total for kitchen UI (never delivery/platform fees). */
+/** Kitchen list total = food − discount (never customer GMV / delivery). */
 export function resolveOrderTotal(order: OwnerOrder) {
-  const kitchen = resolveRestaurantOrderTotal({
-    ...order,
-    grandTotal: order.grandTotal ?? order.total,
-  });
+  const kitchen = resolveRestaurantOrderTotal(order);
   if (kitchen > 0) return kitchen;
-  if (order.total != null && Number.isFinite(order.total) && order.total > 0) {
-    return order.total;
-  }
-  if (order.grandTotal != null && Number.isFinite(order.grandTotal) && order.grandTotal > 0) {
-    return order.grandTotal;
-  }
   const fromItems = order.items.reduce(
     (sum, item) => sum + (item.price ?? 0) * (item.quantity || 1),
     0
   );
-  return fromItems > 0 ? fromItems : order.total ?? 0;
+  if (fromItems > 0) return fromItems;
+  if (order.total != null && Number.isFinite(order.total) && order.total > 0) {
+    return order.total;
+  }
+  return 0;
 }
 
 export type KitchenTicketAction =

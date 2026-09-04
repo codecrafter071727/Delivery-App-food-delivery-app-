@@ -1,6 +1,6 @@
 /**
  * Kitchen bill helpers — prefer server `order.bill.restaurant` when it has real amounts.
- * Falls back to local math (incl. grandTotal) so ₹0 never masks a real order.
+ * Kitchen earn = food items − discount − admin commission. Never packaging, GST, or delivery.
  */
 
 export const PLATFORM_COMMISSION_PERCENT = 12;
@@ -49,8 +49,8 @@ function money(n: number): number {
 function fromServer(bill: NonNullable<CentralBillPayload['restaurant']>): RestaurantBill {
   return {
     itemTotal: money(Number(bill.itemTotal) || 0),
-    packaging: money(Number(bill.packagingCharge) || 0),
-    tax: money(Number(bill.taxAmount) || 0),
+    packaging: 0,
+    tax: 0,
     discount: money(Number(bill.discount) || 0),
     restaurantCharges: money(Number(bill.restaurantCharges) || 0),
     commissionPercent: Number(bill.commissionPercent) || PLATFORM_COMMISSION_PERCENT,
@@ -74,7 +74,7 @@ function serverBillUsable(
 }
 
 /**
- * Kitchen-facing bill: item total + packaging (+ tax) then 12% platform fee → you earn.
+ * Kitchen-facing bill: food − discount, then admin commission % → you earn.
  */
 export function buildRestaurantBill(
   order: OrderLike,
@@ -93,12 +93,10 @@ export function buildRestaurantBill(
   const itemTotal = money(
     order.subtotal != null && order.subtotal > 0 ? order.subtotal : fromItems,
   );
-  const packaging = money(Number(order.packagingCharge ?? 0));
-  const tax = money(Number(order.tax ?? 0));
   const discount = money(Number(order.discount ?? 0));
-  let restaurantCharges = money(itemTotal + packaging + tax - discount);
+  let restaurantCharges = money(itemTotal - discount);
 
-  // Last resort: customer grand total when kitchen fields were stripped (e.g. KDS card).
+  // Kitchen `grandTotal` is item total after toKitchenOrderView — not customer payable.
   if (restaurantCharges <= 0) {
     const fallback = Number(order.total ?? order.grandTotal ?? 0);
     if (Number.isFinite(fallback) && fallback > 0) {
@@ -112,8 +110,8 @@ export function buildRestaurantBill(
   const youEarn = money(restaurantCharges - commissionAmount);
   return {
     itemTotal: itemTotal > 0 ? itemTotal : restaurantCharges,
-    packaging,
-    tax,
+    packaging: 0,
+    tax: 0,
     discount,
     restaurantCharges,
     commissionPercent: +(rate * 100).toFixed(2),

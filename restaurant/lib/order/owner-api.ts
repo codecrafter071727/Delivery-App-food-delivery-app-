@@ -416,11 +416,8 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
     data.payableAmount,
     data.total
   );
-  // Kitchen display total = food + packaging + tax − discount (no delivery / tip).
-  const restaurantParts =
-    (subtotal ?? 0) + (packagingCharge ?? 0) + (tax ?? 0) - (discount ?? 0);
-  const partsTotal =
-    (subtotal ?? 0) + (tax ?? 0) + (deliveryFee ?? 0) - (discount ?? 0);
+  // Kitchen display total = food − discount (no packaging / GST / delivery).
+  const restaurantParts = (subtotal ?? 0) - (discount ?? 0);
   const itemsTotal = items.reduce(
     (sum, item) => sum + (item.price ?? 0) * (item.quantity || 1),
     0
@@ -430,13 +427,9 @@ export function mapOwnerOrder(data: Record<string, unknown>): OwnerOrder {
       ? billCharges
       : restaurantParts > 0
         ? restaurantParts
-        : explicitTotal != null && explicitTotal > 0
-          ? explicitTotal
-          : partsTotal > 0
-            ? partsTotal
-            : itemsTotal > 0
-              ? itemsTotal
-              : explicitTotal;
+        : itemsTotal > 0
+          ? itemsTotal
+          : explicitTotal;
 
   return {
     id: String(data._id ?? data.id ?? data.orderId ?? ''),

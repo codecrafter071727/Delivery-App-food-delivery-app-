@@ -735,18 +735,6 @@ export function OrderDetailScreen({ orderId }: Props) {
                       <Text style={styles.summaryLabel}>Item total</Text>
                       <Text style={styles.summaryValue}>{money(bill.itemTotal)}</Text>
                     </View>
-                    {bill.packaging > 0 ? (
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Packaging</Text>
-                        <Text style={styles.summaryValue}>{money(bill.packaging)}</Text>
-                      </View>
-                    ) : null}
-                    {bill.tax > 0 ? (
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Tax / GST</Text>
-                        <Text style={styles.summaryValue}>{money(bill.tax)}</Text>
-                      </View>
-                    ) : null}
                     {bill.discount > 0 ? (
                       <View style={styles.summaryRow}>
                         <Text style={styles.summaryLabel}>Discount</Text>
@@ -754,16 +742,15 @@ export function OrderDetailScreen({ orderId }: Props) {
                       </View>
                     ) : null}
                     <View style={[styles.summaryRow, styles.summaryTotal]}>
-                      <Text style={styles.totalLabel}>Restaurant total</Text>
+                      <Text style={styles.totalLabel}>Food total</Text>
                       <Text style={styles.totalValue}>
                         {money(bill.restaurantCharges)}
                       </Text>
                     </View>
                     <Text style={styles.summaryHint}>
-                      Your bill is item total + packaging
-                      {bill.tax > 0 ? ' + tax' : ''}. Delivery and tip stay with
-                      the customer / rider. After delivery, {bill.commissionPercent}%
-                      platform fee is deducted — the rest is your earning.
+                      You earn on food only. Packaging, GST, delivery, and tip stay
+                      with the platform / rider. After delivery, {bill.commissionPercent}%
+                      commission is deducted — the rest is credited to your wallet.
                     </Text>
                     <View style={styles.summaryRow}>
                       <Text style={styles.summaryLabel}>

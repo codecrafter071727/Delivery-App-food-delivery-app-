@@ -44,7 +44,7 @@ export function partnerNetFromDeliveryFee(
 ): number {
   const rate =
     commissionPercent > 1 ? commissionPercent / 100 : commissionPercent;
-  return Math.round(Math.max(0, deliveryFee) * (1 - rate));
+  return Math.round(Math.max(0, deliveryFee) * (1 - rate) * 100) / 100;
 }
 
 export function resolvePartnerTripPay(input: {

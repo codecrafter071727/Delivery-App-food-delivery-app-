@@ -23,5 +23,9 @@ export function resolveOfferEarnings(offer: IncomingOffer): OfferEarnings | null
 }
 
 export function formatInr(amount: number) {
-  return `₹${Math.round(amount)}`;
+  const n = Math.round(Math.max(0, amount) * 100) / 100;
+  return `₹${n.toLocaleString('en-IN', {
+    minimumFractionDigits: n % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
