@@ -739,6 +739,20 @@ export function useDeliveryOrderMutations() {
     },
   });
 
+  const uploadPickupProof = useMutation({
+    mutationFn: ({
+      deliveryId,
+      photoUri,
+    }: {
+      deliveryId: string;
+      photoUri: string;
+    }) => deliveryPartnerApi.uploadPickupProof(deliveryId, { photoUri }),
+    onSuccess: async (delivery) => {
+      applyDeliveryResult(delivery);
+      await invalidateAll();
+    },
+  });
+
   const onTheWay = useMutation({
     mutationFn: (deliveryId: string) =>
       deliveryPartnerApi.markOnTheWay(deliveryId),
@@ -902,6 +916,7 @@ export function useDeliveryOrderMutations() {
     waiting,
     orderReady,
     pickupVerify,
+    uploadPickupProof,
     onTheWay,
     verifyOtp,
     cancelTrip,

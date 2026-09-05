@@ -243,6 +243,8 @@ export type PartnerDelivery = {
   otpVerified?: boolean;
   signatureUrl?: string;
   signatureCapturedAt?: string;
+  /** Parcel bag photo at restaurant (HTTPS). */
+  pickupProofUrl?: string;
   proofPhotoUrl?: string;
   contactAttemptCount?: number;
   rtoTimerEndsAt?: string;

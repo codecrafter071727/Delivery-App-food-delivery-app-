@@ -727,6 +727,7 @@ export function mapPartnerDelivery(raw: unknown): PartnerDelivery {
     otpVerified: pickBool(source, ['otpVerified']),
     signatureUrl: pickString(source, ['signatureUrl']),
     signatureCapturedAt: pickString(source, ['signatureCapturedAt']),
+    pickupProofUrl: pickString(source, ['pickupProofUrl', 'pickupPhotoUrl']),
     proofPhotoUrl:
       pickString(source, ['proofPhotoUrl', 'proofOfDelivery']) ??
       pickString(asRecord(source.proofOfDelivery), ['url', 'photoUrl', 'fileUrl']),
@@ -2403,6 +2404,30 @@ export const deliveryPartnerApi = {
       { method: 'PUT', body }
     );
     return mapPartnerDelivery(res.data ?? res);
+  },
+
+  /** POST /partners/me/deliveries/:id/pickup-proof — multipart parcel photo at restaurant. */
+  uploadPickupProof: async (
+    deliveryId: string,
+    payload: { photoUri: string; fileName?: string }
+  ): Promise<PartnerDelivery> => {
+    const id = deliveryId.trim();
+    const uri = payload.photoUri?.trim();
+    if (!uri) {
+      throw new PartnerApiError(
+        'Capture a parcel photo before pickup.',
+        'PICKUP_PROOF_REQUIRED'
+      );
+    }
+    const file = await prepareJpegFile(
+      uri,
+      payload.fileName ?? `pickup-${Date.now()}.jpg`
+    );
+    const uploaded = await postMultipartWithFields(
+      `${ME_BASE}/deliveries/${encodeURIComponent(id)}/pickup-proof`,
+      { files: [{ fieldName: 'photo', file }] }
+    );
+    return mapPartnerDelivery(uploaded);
   },
 
   /** PUT /partners/me/deliveries/:id/on-the-way */

@@ -266,6 +266,7 @@ export function TripLifecycleBar({
     mutations.waiting.isPending ||
     mutations.orderReady.isPending ||
     mutations.pickupVerify.isPending ||
+    mutations.uploadPickupProof.isPending ||
     mutations.pickup.isPending ||
     mutations.onTheWay.isPending ||
     mutations.reachedCustomer.isPending ||
@@ -372,32 +373,65 @@ export function TripLifecycleBar({
 
   const submitPickup = async () => {
     const code = otp.trim();
-    if (!code && !checklistOk && !pickupPhotoUri?.startsWith('http')) {
+    const existingProof =
+      delivery.pickupProofUrl?.startsWith('https://') === true
+        ? delivery.pickupProofUrl
+        : pickupPhotoUri?.startsWith('http')
+          ? pickupPhotoUri
+          : undefined;
+    const hasLocalPhoto =
+      Boolean(pickupPhotoUri) && !pickupPhotoUri!.startsWith('http');
+
+    if (!code && !checklistOk) {
       Alert.alert(
         'Pickup check',
-        'Enter the kitchen OTP, tick all items collected, or add a hosted pickup photo.'
+        'Enter the kitchen OTP or tick all items collected.'
       );
       return;
     }
-    setBusy('Verifying pickup…');
+    if (!existingProof && !hasLocalPhoto) {
+      Alert.alert(
+        'Parcel photo required',
+        'Take a photo of the sealed parcel before leaving the restaurant.'
+      );
+      return;
+    }
+
+    setBusy('Uploading parcel photo…');
     try {
+      let proofUrl = existingProof;
+      if (hasLocalPhoto && pickupPhotoUri) {
+        const uploaded = await mutations.uploadPickupProof.mutateAsync({
+          deliveryId: delivery.id,
+          photoUri: pickupPhotoUri,
+        });
+        proofUrl =
+          uploaded.pickupProofUrl?.startsWith('https://')
+            ? uploaded.pickupProofUrl
+            : proofUrl;
+      }
+      if (!proofUrl?.startsWith('https://')) {
+        Alert.alert(
+          'Parcel photo required',
+          'Upload failed — take the parcel photo again.'
+        );
+        return;
+      }
+
+      setBusy('Verifying pickup…');
       await mutations.pickupVerify.mutateAsync({
         deliveryId: delivery.id,
         payload: {
           otp: code || undefined,
           itemChecklistOk: checklistOk,
-          photoUrl: pickupPhotoUri?.startsWith('http')
-            ? pickupPhotoUri
-            : undefined,
+          photoUrl: proofUrl,
         },
       });
       setBusy('Picking up…');
       await mutations.pickup.mutateAsync({
         deliveryId: delivery.id,
         otp: code || undefined,
-        photoUrl: pickupPhotoUri?.startsWith('http')
-          ? pickupPhotoUri
-          : undefined,
+        photoUrl: proofUrl,
       });
       setBusy('Heading to customer…');
       try {
@@ -413,7 +447,7 @@ export function TripLifecycleBar({
         'Could not pick up',
         formatTripError(
           error,
-          'Enter the kitchen OTP or confirm the item checklist.'
+          'Enter the kitchen OTP, confirm the checklist, and upload a parcel photo.'
         )
       );
     } finally {
@@ -440,15 +474,19 @@ export function TripLifecycleBar({
 
   const submitDeliver = async () => {
     const code = otp.trim();
-    if (
-      !code &&
-      !delivery.otpVerified &&
-      !delivery.proofPhotoUrl &&
-      !delivery.signatureUrl
-    ) {
+    const otpOk = Boolean(code) || Boolean(delivery.otpVerified);
+    const photoOk = Boolean(delivery.proofPhotoUrl?.startsWith('https://'));
+    if (!otpOk) {
       Alert.alert(
-        'Proof required',
-        'Verify OTP, add a proof photo, or capture a signature first.'
+        'OTP required',
+        'Enter the customer OTP (or verify it first) to complete delivery.'
+      );
+      return;
+    }
+    if (!photoOk) {
+      Alert.alert(
+        'Delivery photo required',
+        'Take a proof-of-delivery photo before marking delivered.'
       );
       return;
     }
@@ -782,9 +820,9 @@ export function TripLifecycleBar({
         <View style={styles.group}>
           <Text style={styles.proofMeta}>
             {[
-              delivery.otpVerified ? 'OTP verified' : 'OTP pending',
-              delivery.proofPhotoUrl ? 'Photo added' : 'No photo',
-              delivery.signatureUrl ? 'Signature added' : 'No signature',
+              delivery.otpVerified ? 'OTP verified' : 'OTP required',
+              delivery.proofPhotoUrl ? 'Photo added' : 'Photo required',
+              delivery.signatureUrl ? 'Signature added' : null,
               isCodPayment(delivery.paymentMethod)
                 ? settledUpi
                   ? 'COD settled UPI'
@@ -821,7 +859,7 @@ export function TripLifecycleBar({
             style={styles.secondary}
           >
             <Text style={styles.secondaryText}>
-              {delivery.proofPhotoUrl ? 'Proof photo ✓' : 'Take proof photo'}
+              {delivery.proofPhotoUrl ? 'Proof photo ✓' : 'Take proof photo (required)'}
             </Text>
           </Pressable>
           <Pressable
@@ -1062,8 +1100,8 @@ export function TripLifecycleBar({
               </Pressable>
             </View>
             <Text style={styles.sub}>
-              Kitchen OTP, item checklist, or a pickup photo — same as Swiggy /
-              Zomato pickup.
+              Kitchen OTP or item checklist, plus a mandatory parcel photo
+              before you leave the restaurant.
             </Text>
             <TextInput
               value={otp}
@@ -1093,7 +1131,9 @@ export function TripLifecycleBar({
               style={styles.secondary}
             >
               <Text style={styles.secondaryText}>
-                {pickupPhotoUri ? 'Pickup photo added ✓' : 'Add pickup photo'}
+                {pickupPhotoUri || delivery.pickupProofUrl
+                  ? 'Parcel photo added ✓'
+                  : 'Take parcel photo (required)'}
               </Text>
             </Pressable>
             <Pressable
@@ -1135,8 +1175,8 @@ export function TripLifecycleBar({
             </View>
             <Text style={styles.sub}>
               {sheet === 'otp'
-                ? 'This checks the OTP without finishing the trip. Then add photo or signature and mark delivered.'
-                : 'Need OTP, a proof photo, or a signature. Photo and signature upload first, then this completes the trip.'}
+                ? 'This checks the OTP without finishing the trip. Then add a delivery photo and mark delivered.'
+                : 'Customer OTP and a delivery photo are both required. Signature is optional.'}
             </Text>
             <TextInput
               value={otp}
