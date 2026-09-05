@@ -98,6 +98,19 @@ function mergeCategories(
       schedule: category.schedule ?? prev?.schedule,
       availableFrom: category.availableFrom ?? prev?.availableFrom,
       availableTo: category.availableTo ?? prev?.availableTo,
+      catalogStatus: category.catalogStatus ?? prev?.catalogStatus,
+      pendingRevision:
+        category.pendingRevision !== undefined
+          ? category.pendingRevision
+          : prev?.pendingRevision,
+      rejectionReason:
+        category.rejectionReason !== undefined
+          ? category.rejectionReason
+          : prev?.rejectionReason,
+      submittedAt:
+        category.submittedAt !== undefined
+          ? category.submittedAt
+          : prev?.submittedAt,
     });
     byName.set(nameKey, key);
   };
@@ -604,6 +617,18 @@ export function useMenuMutations(restaurantId: string) {
     onSuccess: () => invalidateMenu(queryClient, restaurantId),
   });
 
+  const submitItemVerification = useMutation({
+    mutationFn: (itemId: string) =>
+      restaurantMenuApi.submitItemVerification(restaurantId, itemId),
+    onSuccess: () => invalidateMenu(queryClient, restaurantId),
+  });
+
+  const submitCategoryVerification = useMutation({
+    mutationFn: (categoryId: string) =>
+      restaurantMenuApi.submitCategoryVerification(restaurantId, categoryId),
+    onSuccess: () => invalidateMenu(queryClient, restaurantId),
+  });
+
   return {
     createCategory,
     updateCategory,
@@ -625,5 +650,7 @@ export function useMenuMutations(restaurantId: string) {
     deleteItemImage,
     bulkUpdatePrices,
     reorderItems,
+    submitItemVerification,
+    submitCategoryVerification,
   };
 }

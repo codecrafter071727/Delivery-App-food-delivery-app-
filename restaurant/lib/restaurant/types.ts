@@ -159,6 +159,23 @@ export type CategorySchedulePeriod = {
   days?: string[];
 };
 
+/** Admin catalog verification — customers only see `approved`. */
+export type CatalogStatus = 'draft' | 'pending' | 'approved' | 'rejected';
+
+/** Content edits on approved entities wait here until submit + admin approve. */
+export type CatalogPendingRevision = {
+  name?: string;
+  description?: string | null;
+  image?: string | null;
+  images?: string[];
+  isVeg?: boolean;
+  spiceLevel?: string;
+  tags?: string[];
+  submittedAt?: string | null;
+  submittedBy?: string | null;
+  [key: string]: unknown;
+};
+
 export type MenuCategory = {
   id: string;
   name: string;
@@ -169,6 +186,10 @@ export type MenuCategory = {
   availableFrom?: string;
   availableTo?: string;
   schedule?: { periods: CategorySchedulePeriod[] };
+  catalogStatus?: CatalogStatus;
+  pendingRevision?: CatalogPendingRevision | null;
+  rejectionReason?: string | null;
+  submittedAt?: string | null;
 };
 
 export type ModifierOption = {
@@ -208,6 +229,10 @@ export type MenuItem = {
   tags?: string[];
   sortOrder?: number;
   modifierGroups?: ModifierGroup[];
+  catalogStatus?: CatalogStatus;
+  pendingRevision?: CatalogPendingRevision | null;
+  rejectionReason?: string | null;
+  submittedAt?: string | null;
 };
 
 export type CreateCategoryPayload = {

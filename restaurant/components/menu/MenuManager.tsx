@@ -35,6 +35,7 @@ import {
 
 import { RestaurantPageHeader } from '@/components/dashboard/RestaurantPageHeader';
 import { CategoryAddOnsManager } from '@/components/menu/CategoryAddOnsManager';
+import { CatalogStatusBadge } from '@/components/menu/CatalogStatusBadge';
 import {
   CategoryActionsSheet,
   CategoryScheduleModal,
@@ -44,6 +45,7 @@ import {
   Timed86Modal,
   VegMark,
 } from '@/components/menu/MenuExtras';
+import { SubmitVerificationButton } from '@/components/menu/SubmitVerificationButton';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { getApiErrorMessage } from '@/lib/errors';
@@ -211,7 +213,9 @@ export function MenuManager() {
     mutations.bulkUpdatePrices.isPending ||
     mutations.reorderItems.isPending ||
     mutations.attachItemModifiers.isPending ||
-    mutations.deleteItemImage.isPending;
+    mutations.deleteItemImage.isPending ||
+    mutations.submitItemVerification.isPending ||
+    mutations.submitCategoryVerification.isPending;
 
   const itemCountByCategory = useMemo(() => {
     const map = new Map<string, number>();
@@ -228,6 +232,43 @@ export function MenuManager() {
 
   const fail = (title: string, error: unknown) => {
     Alert.alert(title, getApiErrorMessage(error));
+  };
+
+  const submitItemForVerification = (item: MenuItem) => {
+    void mutations.submitItemVerification
+      .mutateAsync(item.id)
+      .then((updated) => {
+        if (itemModal?.mode === 'edit' && itemModal.item.id === item.id) {
+          setItemModal({ mode: 'edit', item: { ...itemModal.item, ...updated } });
+        }
+        Alert.alert(
+          'Submitted',
+          'Ops will review this dish before customers see the content.'
+        );
+      })
+      .catch((error) => fail('Could not submit', error));
+  };
+
+  const submitCategoryForVerification = (category: MenuCategory) => {
+    void mutations.submitCategoryVerification
+      .mutateAsync(category.id)
+      .then((updated) => {
+        setCategoryMenuId(null);
+        if (
+          categoryModal?.mode === 'edit' &&
+          categoryModal.category.id === category.id
+        ) {
+          setCategoryModal({
+            mode: 'edit',
+            category: { ...categoryModal.category, ...updated },
+          });
+        }
+        Alert.alert(
+          'Submitted',
+          'Ops will review this category before customers see the content.'
+        );
+      })
+      .catch((error) => fail('Could not submit', error));
   };
 
   const toggleSelect = (itemId: string) => {
@@ -902,6 +943,7 @@ export function MenuManager() {
                       soldOut={soldOutIds.has(item.id)}
                       canMoveUp={orderIndex > 0}
                       canMoveDown={orderIndex >= 0 && orderIndex < items.length - 1}
+                      submitBusy={mutations.submitItemVerification.isPending}
                       onSelect={() => toggleSelect(item.id)}
                       onToggleStock={() => toggleStock(item)}
                       onEdit={() => setItemModal({ mode: 'edit', item })}
@@ -910,6 +952,7 @@ export function MenuManager() {
                       onCustomisations={() => openModifiers(item)}
                       onTimed86={() => setTimed86Item(item)}
                       onDelete={() => confirmDeleteItem(item)}
+                      onSubmitVerification={() => submitItemForVerification(item)}
                       onMoveUp={
                         canReorder ? () => moveItem(item.id, 'up') : undefined
                       }
@@ -933,7 +976,13 @@ export function MenuManager() {
 
       <CategoryFormModal
         state={categoryModal}
+        submitBusy={mutations.submitCategoryVerification.isPending}
         onClose={() => setCategoryModal(null)}
+        onSubmitVerification={
+          categoryModal?.mode === 'edit'
+            ? () => submitCategoryForVerification(categoryModal.category)
+            : undefined
+        }
         onSubmit={async (payload) => {
           if (!categoryModal) return;
           try {
@@ -964,7 +1013,13 @@ export function MenuManager() {
         state={itemModal}
         restaurantId={restaurantId}
         categories={categories}
+        submitBusy={mutations.submitItemVerification.isPending}
         onClose={() => setItemModal(null)}
+        onSubmitVerification={
+          itemModal?.mode === 'edit'
+            ? () => submitItemForVerification(itemModal.item)
+            : undefined
+        }
         onVariants={openModifiers}
         onTimed86={(item) => setTimed86Item(item)}
         onDuplicate={
@@ -1145,6 +1200,7 @@ export function MenuManager() {
               categories.length - 1
             : false
         }
+        submitBusy={mutations.submitCategoryVerification.isPending}
         onClose={() => setCategoryMenuId(null)}
         onEdit={() => {
           const category = categories.find((row) => row.id === categoryMenuId);
@@ -1165,6 +1221,10 @@ export function MenuManager() {
         onDelete={() => {
           const category = categories.find((row) => row.id === categoryMenuId);
           if (category) confirmDeleteCategory(category);
+        }}
+        onSubmitVerification={() => {
+          const category = categories.find((row) => row.id === categoryMenuId);
+          if (category) submitCategoryForVerification(category);
         }}
       />
 
@@ -1385,6 +1445,8 @@ function CategoryFormModal({
   state,
   onClose,
   onSubmit,
+  onSubmitVerification,
+  submitBusy,
 }: {
   state: CategoryModalState;
   onClose: () => void;
@@ -1393,6 +1455,8 @@ function CategoryFormModal({
     description?: string;
     isActive?: boolean;
   }) => Promise<void>;
+  onSubmitVerification?: () => void;
+  submitBusy?: boolean;
 }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -1412,6 +1476,8 @@ function CategoryFormModal({
     }
   }, [state]);
 
+  const editCategory = state?.mode === 'edit' ? state.category : null;
+
   return (
     <Modal visible={Boolean(state)} animationType="slide" transparent>
       <View style={styles.modalBackdrop}>
@@ -1427,6 +1493,24 @@ function CategoryFormModal({
           <Text style={styles.fieldHint}>
             Same as Partner menu sections — name shows on the customer app.
           </Text>
+          {editCategory ? (
+            <>
+              <CatalogStatusBadge
+                catalogStatus={editCategory.catalogStatus}
+                pendingRevision={editCategory.pendingRevision}
+                rejectionReason={editCategory.rejectionReason}
+              />
+              {onSubmitVerification ? (
+                <SubmitVerificationButton
+                  catalogStatus={editCategory.catalogStatus}
+                  pendingRevision={editCategory.pendingRevision}
+                  rejectionReason={editCategory.rejectionReason}
+                  busy={submitBusy}
+                  onPress={onSubmitVerification}
+                />
+              ) : null}
+            </>
+          ) : null}
           <Field
             label="Category name"
             required
@@ -1494,6 +1578,8 @@ function ItemFormModal({
   categories,
   onClose,
   onSubmit,
+  onSubmitVerification,
+  submitBusy,
   onVariants,
   onTimed86,
   onDuplicate,
@@ -1517,6 +1603,8 @@ function ItemFormModal({
     tags?: string;
     image?: { uri: string; name: string; type: string };
   }) => Promise<void>;
+  onSubmitVerification?: () => void;
+  submitBusy?: boolean;
   onVariants?: (item: MenuItem) => void;
   onTimed86?: (item: MenuItem) => void;
   onDuplicate?: () => void;
@@ -1652,6 +1740,25 @@ function ItemFormModal({
             ) : null}
             {state?.mode === 'edit' && itemQuery.isFetching && !itemQuery.data ? (
               <ActivityIndicator color={authTheme.brand} style={{ marginBottom: 12 }} />
+            ) : null}
+
+            {state?.mode === 'edit' && liveItem ? (
+              <>
+                <CatalogStatusBadge
+                  catalogStatus={liveItem.catalogStatus}
+                  pendingRevision={liveItem.pendingRevision}
+                  rejectionReason={liveItem.rejectionReason}
+                />
+                {onSubmitVerification ? (
+                  <SubmitVerificationButton
+                    catalogStatus={liveItem.catalogStatus}
+                    pendingRevision={liveItem.pendingRevision}
+                    rejectionReason={liveItem.rejectionReason}
+                    busy={submitBusy}
+                    onPress={onSubmitVerification}
+                  />
+                ) : null}
+              </>
             ) : null}
 
             <Pressable style={styles.dishPhoto} onPress={() => void pickPhoto()} disabled={saving}>

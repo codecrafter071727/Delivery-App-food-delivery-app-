@@ -27,6 +27,8 @@ import {
 } from 'react-native';
 
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
+import { CatalogStatusBadge } from '@/components/menu/CatalogStatusBadge';
+import { SubmitVerificationButton } from '@/components/menu/SubmitVerificationButton';
 import { authTheme } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
 import { getApiErrorMessage } from '@/lib/errors';
@@ -83,6 +85,7 @@ export function MenuItemRow({
   soldOut,
   canMoveUp,
   canMoveDown,
+  submitBusy,
   onSelect,
   onToggleStock,
   onEdit,
@@ -91,6 +94,7 @@ export function MenuItemRow({
   onCustomisations,
   onTimed86,
   onDelete,
+  onSubmitVerification,
   onMoveUp,
   onMoveDown,
 }: {
@@ -99,6 +103,7 @@ export function MenuItemRow({
   soldOut: boolean;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
+  submitBusy?: boolean;
   onSelect: () => void;
   onToggleStock: () => void;
   onEdit: () => void;
@@ -107,6 +112,7 @@ export function MenuItemRow({
   onCustomisations: () => void;
   onTimed86: () => void;
   onDelete: () => void;
+  onSubmitVerification?: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
 }) {
@@ -140,6 +146,12 @@ export function MenuItemRow({
             money(item.price)
           )}
         </Text>
+        <CatalogStatusBadge
+          compact
+          catalogStatus={item.catalogStatus}
+          pendingRevision={item.pendingRevision}
+          rejectionReason={item.rejectionReason}
+        />
         {!inStock ? (
           <Text style={styles.soldMeta} numberOfLines={1}>
             {item.unavailableReason || 'Sold out'}
@@ -150,6 +162,15 @@ export function MenuItemRow({
                 })}`
               : ''}
           </Text>
+        ) : null}
+        {onSubmitVerification ? (
+          <SubmitVerificationButton
+            catalogStatus={item.catalogStatus}
+            pendingRevision={item.pendingRevision}
+            rejectionReason={item.rejectionReason}
+            busy={submitBusy}
+            onPress={onSubmitVerification}
+          />
         ) : null}
         <View style={styles.itemActions}>
           {onMoveUp ? (
@@ -790,23 +811,27 @@ export function CategoryActionsSheet({
   itemCount,
   canMoveUp,
   canMoveDown,
+  submitBusy,
   onClose,
   onEdit,
   onSchedule,
   onMoveUp,
   onMoveDown,
   onDelete,
+  onSubmitVerification,
 }: {
   category: MenuCategory | null;
   itemCount: number;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  submitBusy?: boolean;
   onClose: () => void;
   onEdit: () => void;
   onSchedule: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDelete: () => void;
+  onSubmitVerification?: () => void;
 }) {
   if (!category) return null;
   return (
@@ -822,6 +847,20 @@ export function CategoryActionsSheet({
               ? ` · ${category.schedule.periods.length} meal window(s)`
               : ''}
           </Text>
+          <CatalogStatusBadge
+            catalogStatus={category.catalogStatus}
+            pendingRevision={category.pendingRevision}
+            rejectionReason={category.rejectionReason}
+          />
+          {onSubmitVerification ? (
+            <SubmitVerificationButton
+              catalogStatus={category.catalogStatus}
+              pendingRevision={category.pendingRevision}
+              rejectionReason={category.rejectionReason}
+              busy={submitBusy}
+              onPress={onSubmitVerification}
+            />
+          ) : null}
           <Pressable style={styles.actionRow} onPress={onEdit}>
             <Pencil color={authTheme.text} size={18} />
             <Text style={styles.actionText}>Edit name</Text>

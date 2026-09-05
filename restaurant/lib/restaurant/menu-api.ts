@@ -13,6 +13,8 @@ import type {
   BulkPriceUpdate,
   CategorySchedulePeriod,
   CreateCategoryPayload,
+  CatalogPendingRevision,
+  CatalogStatus,
   CreateMenuItemPayload,
   CreateModifierGroupPayload,
   MenuCategory,
@@ -65,6 +67,12 @@ function extractError(error: unknown, fallback: string) {
     }
     if (code === 'VALIDATION_ERROR') {
       return data?.message || 'Check the fields and try again.';
+    }
+    if (code === 'ALREADY_PENDING') {
+      return data?.message || 'Already submitted for verification.';
+    }
+    if (code === 'NOTHING_TO_SUBMIT') {
+      return data?.message || 'Nothing to submit for verification yet.';
     }
     return data?.message || data?.error || `Request failed (${status})`;
   }
@@ -123,6 +131,70 @@ function mapTags(value: unknown): string[] | undefined {
       .filter(Boolean);
   }
   return undefined;
+}
+
+const CATALOG_STATUSES: CatalogStatus[] = [
+  'draft',
+  'pending',
+  'approved',
+  'rejected',
+];
+
+function mapCatalogStatus(value: unknown): CatalogStatus | undefined {
+  const raw = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  return CATALOG_STATUSES.includes(raw as CatalogStatus)
+    ? (raw as CatalogStatus)
+    : undefined;
+}
+
+function mapPendingRevision(value: unknown): CatalogPendingRevision | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const submittedAt =
+    record.submittedAt == null
+      ? null
+      : typeof record.submittedAt === 'string'
+        ? record.submittedAt
+        : record.submittedAt instanceof Date
+          ? record.submittedAt.toISOString()
+          : String(record.submittedAt);
+  return {
+    ...record,
+    ...(submittedAt !== undefined ? { submittedAt } : {}),
+  };
+}
+
+function mapCatalogFields(row: Record<string, unknown>) {
+  const catalogStatus = mapCatalogStatus(row.catalogStatus);
+  const pendingRevision =
+    row.pendingRevision === null
+      ? null
+      : row.pendingRevision !== undefined
+        ? mapPendingRevision(row.pendingRevision)
+        : undefined;
+  const rejectionReason =
+    row.rejectionReason === null
+      ? null
+      : typeof row.rejectionReason === 'string'
+        ? row.rejectionReason
+        : undefined;
+  const submittedAt =
+    row.submittedAt == null
+      ? row.submittedAt === null
+        ? null
+        : undefined
+      : typeof row.submittedAt === 'string'
+        ? row.submittedAt
+        : String(row.submittedAt);
+
+  return {
+    ...(catalogStatus ? { catalogStatus } : {}),
+    ...(pendingRevision !== undefined ? { pendingRevision } : {}),
+    ...(rejectionReason !== undefined ? { rejectionReason } : {}),
+    ...(submittedAt !== undefined ? { submittedAt } : {}),
+  };
 }
 
 /**
@@ -219,6 +291,7 @@ function mapCategory(row: Record<string, unknown>): MenuCategory {
           ? row.availableTo
           : undefined,
     schedule: periods.length ? { periods } : undefined,
+    ...mapCatalogFields({ ...row, ...source }),
   };
 }
 
@@ -291,6 +364,7 @@ function mapItem(
     modifierGroups: groupsRaw
       .map((group) => mapModifierGroup(asRecord(group) ?? {}))
       .filter((group) => group.id || group.name),
+    ...mapCatalogFields(row),
   };
 }
 
@@ -1071,6 +1145,44 @@ export const restaurantMenuApi = {
       });
     } catch (error) {
       throwMenuError(error, 'Failed to reorder items');
+    }
+  },
+
+  /** POST /restaurants/:id/items/:itemId/submit-verification */
+  submitItemVerification: async (
+    restaurantId: string,
+    itemId: string
+  ): Promise<MenuItem> => {
+    try {
+      const res = await api.post<Envelope<Record<string, unknown>>>(
+        `${RESTAURANT_BASE}/${restaurantId}/items/${itemId}/submit-verification`,
+        {}
+      );
+      const data = asRecord(unwrapEntity(res.data)) ?? asRecord(res.data) ?? {};
+      return mapItem({ ...data, _id: data._id ?? itemId, id: data.id ?? itemId });
+    } catch (error) {
+      throwMenuError(error, 'Could not submit dish for verification');
+    }
+  },
+
+  /** POST /restaurants/:id/categories/:categoryId/submit-verification */
+  submitCategoryVerification: async (
+    restaurantId: string,
+    categoryId: string
+  ): Promise<MenuCategory> => {
+    try {
+      const res = await api.post<Envelope<Record<string, unknown>>>(
+        `${RESTAURANT_BASE}/${restaurantId}/categories/${categoryId}/submit-verification`,
+        {}
+      );
+      const data = asRecord(unwrapEntity(res.data)) ?? asRecord(res.data) ?? {};
+      return mapCategory({
+        ...data,
+        _id: data._id ?? categoryId,
+        id: data.id ?? categoryId,
+      });
+    } catch (error) {
+      throwMenuError(error, 'Could not submit category for verification');
     }
   },
 
