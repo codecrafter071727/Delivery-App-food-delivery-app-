@@ -376,6 +376,54 @@ export function PartnerEarningsManager() {
                   </Text>
                 ) : null}
 
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Settlement overview</Text>
+                  <Text style={[styles.mutedText, { marginTop: 4 }]}>
+                    Trip earnings clear after a 15-day hold. Admin desk and this
+                    wallet share the same payable balance.
+                  </Text>
+                  <View style={{ marginTop: 10, gap: 6 }}>
+                    <Text style={styles.metaLine}>
+                      Lifetime earnings{' '}
+                      {formatCurrency(wallet.data?.lifetimeEarnings ?? 0, currency)}
+                    </Text>
+                    <Text style={styles.metaLine}>
+                      Settled{' '}
+                      {formatCurrency(
+                        Math.max(
+                          0,
+                          (wallet.data?.lifetimeEarnings ?? 0) - payable,
+                        ),
+                        currency,
+                      )}
+                    </Text>
+                    <Text style={styles.metaLine}>
+                      Remaining payable {formatCurrency(payable, currency)}
+                    </Text>
+                    <Text style={styles.metaLine}>
+                      Next due{' '}
+                      {schedule.data?.nextPayoutAt ||
+                      wallet.data?.nextWeeklyPayoutAt
+                        ? when(
+                            schedule.data?.nextPayoutAt ??
+                              wallet.data?.nextWeeklyPayoutAt,
+                          )
+                        : 'When the hold window ends'}
+                    </Text>
+                    <Text style={styles.metaLine}>
+                      Bank{' '}
+                      {bank
+                        ? `${bankStatusLabel(bank.verificationStatus)} · ${
+                            bank.accountMasked ||
+                            (payout?.bankAccountNo
+                              ? `••••${String(payout.bankAccountNo).slice(-4)}`
+                              : 'on file')
+                          }`
+                        : 'Add bank in Profile'}
+                    </Text>
+                  </View>
+                </View>
+
                 <View style={styles.actionRow}>
                   <Pressable onPress={openInstant} style={styles.actionBtn}>
                     <Zap color="#000000" size={20} strokeWidth={1.5} />
@@ -1016,6 +1064,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 16,
     color: '#000000',
+  },
+  metaLine: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: '#374151',
   },
   retryBtn: {
     marginTop: 16,

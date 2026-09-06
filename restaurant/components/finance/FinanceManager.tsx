@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 
 import { RestaurantPageHeader } from '@/components/dashboard/RestaurantPageHeader';
+import { SettlementSummaryStrip } from '@/components/finance/SettlementSummaryStrip';
 import { WalletPassbook } from '@/components/finance/WalletPassbook';
 import { authTheme, PARTNER_BOTTOM_NAV_INSET } from '@/constants/auth-theme';
 import { fonts } from '@/constants/typography';
@@ -34,6 +35,7 @@ import type {
   RestaurantInvoice,
   RestaurantSettlement,
 } from '@/lib/restaurant/finance-types';
+import { useRestaurantBank } from '@/lib/restaurant/onboarding-hooks';
 
 type TabKey = 'wallet' | 'payouts' | 'invoices' | 'fees';
 
@@ -148,6 +150,7 @@ export function FinanceManager() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const wallet = useRestaurantWallet();
+  const bank = useRestaurantBank(wallet.restaurantId || undefined);
   const walletTxns = useRestaurantWalletTransactions(
     tab === 'wallet' ? page : 1,
     ledgerFilter
@@ -208,7 +211,7 @@ export function FinanceManager() {
         title="Finance"
         subtitle={
           restaurantName
-            ? `${restaurantName} · wallet after 12% platform fee`
+            ? `${restaurantName} · 15-day settlement hold after delivery`
             : 'Wallet, settlements, and fees'
         }
         showBack
@@ -290,6 +293,20 @@ export function FinanceManager() {
 
         {!loading && tab === 'wallet' ? (
           <View style={styles.list}>
+            <SettlementSummaryStrip
+              wallet={wallet.data}
+              oldestCreditAt={txnList.find((t) => t.amount > 0)?.createdAt}
+              bank={
+                bank.data
+                  ? {
+                      accountMasked: bank.data.accountMasked ?? undefined,
+                      ifsc: bank.data.ifsc ?? undefined,
+                      holderName: bank.data.holderName ?? undefined,
+                      verificationStatus: bank.data.verificationStatus ?? undefined,
+                    }
+                  : null
+              }
+            />
             <WalletPassbook
               restaurantId={wallet.restaurantId}
               wallet={wallet.data}
@@ -326,7 +343,8 @@ export function FinanceManager() {
               <Banknote color={authTheme.textDim} size={36} />
               <Text style={styles.emptyTitle}>No settlements yet</Text>
               <Text style={styles.muted}>
-                Weekly payouts appear here after delivered orders are closed.
+                Settlements appear after delivered orders clear the 15-day hold
+                and finance closes the cycle.
               </Text>
             </View>
           )
